@@ -15,8 +15,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2, classify_hub_version, mdns_service_type_for_props
 from ..logging_utils import get_hub_logger
 from .frame_handlers import FrameContext, frame_handler_registry
-from .commands import DeviceCommandAssembler
-from .macros import MacroAssembler
+from .commands import (
+    DeviceButtonAssembler,
+    DeviceCommandAssembler,
+    parse_button_burst_frame,
+    parse_command_burst_frame,
+)
+from .macros import MacroAssembler, parse_macro_burst_frame
 
 from .protocol_const import (
     BUTTONNAME_BY_CODE,
@@ -296,6 +301,7 @@ class X1Proxy:
         self._adv_started = False
 
         self.state = ActivityCache()
+        self._button_assembler = DeviceButtonAssembler()
         self._command_assembler = DeviceCommandAssembler()
         self._macro_assembler = MacroAssembler()
         self._burst = BurstScheduler()
@@ -310,6 +316,11 @@ class X1Proxy:
         self._pending_activity_map_requests: set[int] = set()
         self._activity_map_complete: set[int] = set()
         self._activity_row_payloads: dict[int, bytes] = {}
+        self._device_request_serial = 0
+        self._device_request_inflight: int | None = None
+        self._device_pending_generation: int | None = None
+        self._device_pending_expected_rows: int | None = None
+        self._device_pending_rows: dict[int, dict[str, Any]] = {}
         self._activity_request_serial = 0
         self._activity_request_inflight: int | None = None
         self._activity_retry_count = 0
@@ -374,6 +385,7 @@ class X1Proxy:
         self._burst.on_burst_end("macros", self._on_macros_burst_end)
         self._burst.on_burst_end("activity_map", self._on_activity_map_burst_end)
         self._burst.on_burst_end("activities", self._on_activities_burst_end)
+        self._burst.on_burst_end("devices", self._on_devices_burst_end)
         self.on_burst_end("activities", self.handle_active_state)
 
         self._hub_connected: bool = False
@@ -1024,12 +1036,22 @@ class X1Proxy:
         self._activity_row_payloads.clear()
         self.state.set_hint(None)
 
+    def _reset_pending_device_snapshot(self, generation: int | None = None) -> None:
+        self._device_pending_generation = generation
+        self._device_pending_expected_rows = None
+        self._device_pending_rows = {}
+
     def _reset_pending_activity_snapshot(self, generation: int | None = None) -> None:
         self._activity_pending_generation = generation
         self._activity_pending_expected_rows = None
         self._activity_pending_rows = {}
         self._activity_pending_payloads = {}
         self._activity_pending_hint = None
+
+    def _begin_device_request(self) -> None:
+        self._device_request_serial += 1
+        self._device_request_inflight = self._device_request_serial
+        self._reset_pending_device_snapshot(self._device_request_inflight)
 
     def _begin_activity_request(self, *, is_retry: bool = False) -> None:
         self._activity_request_serial += 1
@@ -1058,6 +1080,25 @@ class X1Proxy:
             return False
         seen = set(self._activity_pending_rows.keys())
         return seen == set(range(1, expected + 1))
+
+    def _device_snapshot_complete(self) -> bool:
+        expected = self._device_pending_expected_rows
+        if expected is None or expected <= 0:
+            return False
+        seen = set(self._device_pending_rows.keys())
+        return seen == set(range(1, expected + 1))
+
+    def try_finish_devices_burst(self) -> bool:
+        generation = self._device_request_inflight
+        if generation is None or self._device_pending_generation != generation:
+            return False
+        if not self._device_snapshot_complete():
+            return False
+        return self._burst.finish(
+            "devices",
+            can_issue=self.can_issue_commands,
+            sender=self._send_cmd_frame,
+        )
 
     def try_finish_activities_burst(self) -> bool:
         generation = self._activity_request_inflight
@@ -1158,6 +1199,100 @@ class X1Proxy:
             self._activity_pending_hint = act_id
 
         return True
+
+    def ingest_device_row(
+        self,
+        *,
+        row_idx: int | None,
+        expected_rows: int | None,
+        dev_id: int | None,
+        device: dict[str, Any] | None,
+    ) -> bool:
+        generation = self._device_request_inflight
+        if generation is None:
+            self._log.warning(
+                "[DEV] ignoring ghost device row idx=%s dev_id=%s: no request in flight",
+                row_idx,
+                dev_id,
+            )
+            return False
+
+        if row_idx is None or row_idx <= 0 or dev_id is None or device is None:
+            return False
+
+        if row_idx == 1:
+            self._reset_pending_device_snapshot(generation)
+        elif self._device_pending_generation != generation:
+            self._log.warning(
+                "[DEV] ignoring device row idx=%s dev_id=%s before row #1 for request=%s",
+                row_idx,
+                dev_id,
+                generation,
+            )
+            return False
+
+        if expected_rows is not None and expected_rows > 0:
+            if self._device_pending_expected_rows is None:
+                self._device_pending_expected_rows = expected_rows
+            elif self._device_pending_expected_rows != expected_rows:
+                self._log.warning(
+                    "[DEV] row-count mismatch in pending snapshot: had=%s got=%s idx=%s",
+                    self._device_pending_expected_rows,
+                    expected_rows,
+                    row_idx,
+                )
+                self._reset_pending_device_snapshot(generation)
+                self._device_pending_expected_rows = expected_rows
+                if row_idx != 1:
+                    self._log.warning(
+                        "[DEV] ignoring device row idx=%s after row-count mismatch until row #1 restarts snapshot",
+                        row_idx,
+                    )
+                    return False
+
+        self._device_pending_rows[row_idx] = {
+            "id": dev_id & 0xFF,
+            "brand": str(device.get("brand", "")),
+            "name": str(device.get("name", "")),
+        }
+        return True
+
+    def _commit_pending_device_snapshot(self) -> None:
+        ordered_rows = sorted(self._device_pending_rows.items())
+        committed: dict[int, dict[str, Any]] = {}
+        for _row_idx, row in ordered_rows:
+            dev_id = int(row["id"]) & 0xFF
+            committed[dev_id] = {
+                "brand": row["brand"],
+                "name": row["name"],
+            }
+        self.state.devices = committed
+
+    def _on_devices_burst_end(self, key: str) -> None:
+        generation = self._device_request_inflight
+        complete = generation is not None and self._device_pending_generation == generation and self._device_snapshot_complete()
+
+        if complete:
+            self._commit_pending_device_snapshot()
+            self._log.info(
+                "[DEV] committed complete devices snapshot rows=%d request=%s",
+                len(self._device_pending_rows),
+                generation,
+            )
+
+        self._device_request_inflight = None
+
+        if not complete:
+            expected = self._device_pending_expected_rows
+            seen = sorted(self._device_pending_rows.keys())
+            if generation is not None:
+                self._log.warning(
+                    "[DEV] discarding incomplete devices snapshot request=%s expected=%s seen=%s",
+                    generation,
+                    expected,
+                    seen,
+                )
+        self._reset_pending_device_snapshot()
 
     def _commit_pending_activity_snapshot(self) -> None:
         ordered_rows = sorted(self._activity_pending_rows.items())
@@ -1299,12 +1434,7 @@ class X1Proxy:
 
         seen_pairs: set[tuple[int, int]] = set()
 
-        keybinding_pairs = {
-            (slot["device_id"], slot["command_id"])
-            for slot in self.state.get_activity_keybinding_slots(act_lo)
-        }
-
-        for dev_id, command_id in refs | keybinding_pairs:
+        for dev_id, command_id in refs:
             pair = (dev_id, command_id)
             if pair in seen_pairs:
                 continue
@@ -1312,37 +1442,22 @@ class X1Proxy:
             seen_pairs.add(pair)
 
             favorite_label = self.state.get_favorite_label(act_lo, dev_id, command_id)
-            keybinding_label = self.state.get_keybinding_label(act_lo, dev_id, command_id)
-            if favorite_label and (pair not in keybinding_pairs or keybinding_label):
+            if favorite_label:
                 self.state.record_favorite_label(act_lo, dev_id, command_id, favorite_label)
-                if pair in keybinding_pairs and keybinding_label:
-                    self.state.record_keybinding_label(act_lo, dev_id, command_id, keybinding_label)
                 continue
 
             device_cmds = self.state.commands.get(dev_id & 0xFF)
             if device_cmds and command_id in device_cmds:
                 label = device_cmds[command_id]
-                if pair in refs:
-                    self.state.record_favorite_label(act_lo, dev_id, command_id, label)
-                if pair in keybinding_pairs:
-                    self.state.record_keybinding_label(act_lo, dev_id, command_id, label)
+                self.state.record_favorite_label(act_lo, dev_id, command_id, label)
                 continue
 
-            pair_is_favorite = pair in refs
-            pair_is_keybinding = pair in keybinding_pairs
-
-            if pair_is_favorite:
-                self._favorite_label_requests[pair].add(act_id)
-            if pair_is_keybinding:
-                self._keybinding_label_requests[pair].add(act_id)
-
-            if not fetch_if_missing and not pair_is_favorite:
-                continue
+            self._favorite_label_requests[pair].add(act_id)
 
             single_cmds, ready = self.get_single_command_for_entity(
                 dev_id, command_id, fetch_if_missing=fetch_if_missing
             )
-            if pair_is_favorite and not ready:
+            if not ready:
                 all_ready = False
 
             if single_cmds:
@@ -1353,16 +1468,10 @@ class X1Proxy:
 
                 label = single_cmds.get(command_id)
                 if label:
-                    if pair_is_favorite:
-                        self.state.record_favorite_label(act_lo, dev_id, command_id, label)
-                    if pair_is_keybinding:
-                        self.state.record_keybinding_label(act_lo, dev_id, command_id, label)
+                    self.state.record_favorite_label(act_lo, dev_id, command_id, label)
 
             if ready:
-                if pair_is_favorite:
-                    self._favorite_label_requests.pop(pair, None)
-                if pair_is_keybinding:
-                    self._keybinding_label_requests.pop(pair, None)
+                self._favorite_label_requests.pop(pair, None)
 
         return (commands_by_device, all_ready)
 
@@ -4337,15 +4446,12 @@ class X1Proxy:
                 ent_lo = int(key.split(":", 1)[1])
                 self._pending_button_requests.discard(ent_lo)
                 self._button_burst_expected_frames.pop(ent_lo, None)
-                self.state.clear_keymap_remainders(ent_lo)
             except ValueError:
                 self._pending_button_requests.clear()
                 self._button_burst_expected_frames.clear()
-                self.state.clear_keymap_remainders()
         else:
             self._pending_button_requests.clear()
             self._button_burst_expected_frames.clear()
-            self.state.clear_keymap_remainders()
 
     def _handle_idle(self, now: float) -> None:
         self._burst.tick(now, can_issue=self.can_issue_commands, sender=self._send_cmd_frame)
@@ -4372,6 +4478,8 @@ class X1Proxy:
 
     def _send_cmd_frame(self, opcode: int, payload: bytes) -> None:
         frame = self._build_frame(opcode, payload)
+        if opcode == OP_REQ_DEVICES:
+            self._begin_device_request()
         if opcode == OP_REQ_ACTIVITIES:
             is_retry = self._activity_retry_send_pending
             self._activity_retry_send_pending = False
@@ -4407,6 +4515,7 @@ class X1Proxy:
     def _handle_app_frames(self, frames: List[Tuple[int, bytes, bytes, int, int]]) -> None:
         for opcode, _raw, _payload, _scid, _ecid in frames:
             if opcode == OP_REQ_DEVICES:
+                self._begin_device_request()
                 self._app_devices_deadline = time.monotonic() + 1.0
                 self._app_devices_retry_sent = False
 
@@ -4419,9 +4528,6 @@ class X1Proxy:
         self._app_devices_deadline = None
         self._app_devices_retry_sent = False
 
-    def _accumulate_keymap(self, act_lo: int, payload: bytes) -> None:
-        self.state.accumulate_keymap(act_lo, payload)
-
     def parse_device_commands(self, payload: bytes, dev_id: int) -> Dict[int, str]:
         return self.state.parse_device_commands(payload, dev_id)
 
@@ -4430,13 +4536,110 @@ class X1Proxy:
     # ---------------------------------------------------------------------
     def _log_frames(self, direction: str, frames: List[Tuple[int, bytes, bytes, int, int]]) -> None:
         for op, raw, payload, scid, ecid in frames:
-            name = OPNAMES.get(op, f"OP_{op:04X}")
+            name = OPNAMES.get(op)
             hi = opcode_hi(op)
             fam = opcode_family(op)
             note = f"#{scid}→#{ecid}" if scid != ecid else f"#{ecid}"
+            parsed = parse_command_burst_frame(
+                op,
+                raw,
+                hub_version=self.hub_version,
+            )
+            parsed_macro = parse_macro_burst_frame(op, raw)
+            if name is None and parsed_macro is not None:
+                name = parsed_macro.display_name
+            if name is None:
+                name = f"OP_{op:04X}"
             self._log.info("[FRAME %s] %s %s (0x%04X) len=%d", note, direction, name, op, len(raw))
+            if parsed is not None:
+                totals = (
+                    f"{parsed.frame_no}/{parsed.total_frames}"
+                    if parsed.total_frames is not None
+                    else f"{parsed.frame_no}"
+                )
+                first_cmd = (
+                    f" first_cmd=0x{parsed.first_command_id:02X}"
+                    if parsed.first_command_id is not None
+                    else ""
+                )
+                fmt = (
+                    f" fmt=0x{parsed.format_marker:02X}"
+                    if parsed.format_marker is not None
+                    else ""
+                )
+                total_commands = (
+                    f" total_cmds={parsed.total_commands}"
+                    if parsed.total_commands is not None
+                    else ""
+                )
+                self._log.debug(
+                    "[FRAME %s] REQ_COMMANDS role=%s variant=%s page=%s dev=0x%02X%s%s%s",
+                    note,
+                    parsed.role,
+                    parsed.layout_kind,
+                    totals,
+                    parsed.device_id,
+                    total_commands,
+                    first_cmd,
+                    fmt,
+                )
+            parsed_buttons = parse_button_burst_frame(op, raw, hub_version=self.hub_version)
+            if parsed_buttons is not None:
+                totals = (
+                    f"{parsed_buttons.frame_no}/{parsed_buttons.total_frames}"
+                    if parsed_buttons.total_frames is not None
+                    else f"{parsed_buttons.frame_no}"
+                )
+                total_rows = (
+                    f" total_rows={parsed_buttons.total_rows}"
+                    if parsed_buttons.total_rows is not None
+                    else ""
+                )
+                activity = (
+                    f" act=0x{parsed_buttons.activity_id:02X}"
+                    if parsed_buttons.activity_id is not None
+                    else ""
+                )
+                row_data = " row_data=yes" if parsed_buttons.has_row_data else " row_data=no"
+                self._log.debug(
+                    "[FRAME %s] REQ_BUTTONS role=%s variant=%s page=%s%s%s%s",
+                    note,
+                    parsed_buttons.role,
+                    parsed_buttons.layout_kind,
+                    totals,
+                    activity,
+                    total_rows,
+                    row_data,
+                )
 
-            if op not in OPNAMES:
+            if parsed_macro is not None:
+                frag = (
+                    f"{parsed_macro.fragment_index}/{parsed_macro.total_fragments}"
+                    if parsed_macro.fragment_index is not None and parsed_macro.total_fragments is not None
+                    else (f"{parsed_macro.fragment_index}" if parsed_macro.fragment_index is not None else "?")
+                )
+                activity = (
+                    f" act=0x{parsed_macro.activity_id:02X}"
+                    if parsed_macro.activity_id is not None
+                    else ""
+                )
+                start_cmd = (
+                    f" start_cmd=0x{parsed_macro.start_command_id:02X}"
+                    if parsed_macro.start_command_id is not None
+                    else ""
+                )
+                len_ok = " len_ok=yes" if parsed_macro.payload_length_matches_hi else " len_ok=no"
+                self._log.debug(
+                    "[FRAME %s] REQ_MACROS role=%s frag=%s%s%s%s",
+                    note,
+                    parsed_macro.role,
+                    frag,
+                    activity,
+                    start_cmd,
+                    len_ok,
+                )
+
+            if op not in OPNAMES and parsed_macro is None:
                 self._log.debug(
                     "[FRAME %s] unknown opcode 0x%04X hi=0x%02X family(lo)=0x%02X",
                     direction,

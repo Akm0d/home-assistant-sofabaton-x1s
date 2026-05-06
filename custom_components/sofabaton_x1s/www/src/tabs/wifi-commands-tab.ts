@@ -2,6 +2,11 @@ import { LitElement, css, html, nothing } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import type { ControlPanelHubState, HassLike } from "../shared/ha-context";
 import { entityForHub, proxyClientConnected, remoteAttrsForHub } from "../shared/utils/control-panel-selectors";
+import {
+  findRunningWifiDevice,
+  selectedDeviceOwnsPendingSync,
+  shouldFinalizeWifiHubLoad,
+} from "./wifi-commands-state";
 
 const SLOT_COUNT = 10;
 const INPUT_ICON = "mdi:video-input-hdmi";
@@ -199,6 +204,7 @@ class SofabatonWifiCommandsTab extends LitElement {
     _syncState: { state: true },
     _commandSyncLoading: { state: true },
     _commandSyncRunning: { state: true },
+    _commandSyncDeviceKey: { state: true },
     _activeCommandSlot: { state: true },
     _activeCommandModal: { state: true },
     _confirmClearSlot: { state: true },
@@ -234,6 +240,7 @@ class SofabatonWifiCommandsTab extends LitElement {
     .detail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
     .detail-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
     .detail-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+    .detail-title-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
     .detail-title { font-size: 18px; font-weight: 700; color: var(--primary-text-color); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .back-btn, .list-action-btn, .detail-sync-btn, .device-delete-btn { border: 1px solid var(--divider-color); border-radius: 10px; background: transparent; color: var(--primary-text-color); font: inherit; }
     .back-btn, .list-action-btn, .detail-sync-btn { padding: 8px 12px; font-weight: 700; cursor: pointer; }
@@ -242,7 +249,7 @@ class SofabatonWifiCommandsTab extends LitElement {
     .list-header-copy { min-width: 0; }
     .list-header-copy .acc-title { display: block; }
     .list-header-copy .section-subtitle { margin-top: 8px; }
-    .list-header-action { grid-column: 2; grid-row: 1; align-self: start; }
+    .list-header-action { grid-column: 2; grid-row: 1; align-self: start; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .device-list { display: grid; gap: 10px; }
     .device-card { width: 100%; max-width: 100%; box-sizing: border-box; border: 1px solid var(--divider-color); border-radius: 18px; padding: 10px 14px; background: var(--ha-card-background, var(--card-background-color)); text-align: left; display: flex; align-items: center; gap: 14px; cursor: pointer; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .device-card[aria-disabled="true"] { cursor: default; opacity: 0.72; }
@@ -575,10 +582,12 @@ class SofabatonWifiCommandsTab extends LitElement {
       .dialog-footer { padding-bottom: max(env(safe-area-inset-bottom), 12px); }
       .list-header { grid-template-columns: 1fr; }
       .list-header-action { grid-column: 1; grid-row: auto; width: 100%; }
-      .list-header-action > .detail-sync-btn { width: 100%; justify-content: center; }
+      .list-header-action > .detail-sync-btn,
+      .list-header-action > .list-action-btn { width: 100%; justify-content: center; }
       .detail-title-row { gap: 8px; }
       .detail-title-main { min-width: 0; flex: 1; }
-      .detail-sync-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .detail-title-actions { gap: 6px; }
+      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .device-card { align-items: center; gap: 10px; padding: 10px 12px; }
       .device-card-main { align-items: center; flex-direction: row; gap: 10px; }
       .device-card-name { flex: 1; }
@@ -608,6 +617,7 @@ class SofabatonWifiCommandsTab extends LitElement {
   private _syncState: SyncState = this._defaultSyncState();
   private _commandSyncLoading = false;
   private _commandSyncRunning = false;
+  private _commandSyncDeviceKey: string | null = null;
   private _commandSyncPollTimer: number | null = null;
   private _activeCommandSlot: number | null = null;
   private _activeCommandModal: ActiveModal = null;
@@ -629,7 +639,6 @@ class SofabatonWifiCommandsTab extends LitElement {
   private _deletingDeviceKey: string | null = null;
   private _creatingDevice = false;
   private _maxWifiDevices = 5;
-
   connectedCallback() {
     super.connectedCallback();
     void this._ensureLoadedForCurrentHub();
@@ -746,7 +755,7 @@ class SofabatonWifiCommandsTab extends LitElement {
     remoteUnavailable: boolean;
     syncRunning: boolean;
   }) {
-    const externallyLocked = this._hubCommandLocked() && !this._commandSyncRunning;
+    const externallyLocked = this._hubCommandLocked() && !this._selectedDeviceOwnsPendingSync();
     return html`
       <div class="tab-panel">
         <div class="detail-view">
@@ -758,7 +767,9 @@ class SofabatonWifiCommandsTab extends LitElement {
                 </button>
                 <div class="detail-title">${selectedDevice.device_name}</div>
               </div>
-              ${this._renderSyncActionButton({ remoteUnavailable, syncRunning, externallyLocked })}
+              <div class="detail-title-actions">
+                ${this._renderSyncActionButton({ remoteUnavailable, syncRunning, externallyLocked })}
+              </div>
             </div>
           </div>
           <div class="detail-scroll">
@@ -1348,7 +1359,9 @@ class SofabatonWifiCommandsTab extends LitElement {
       this._syncState = this._defaultSyncState();
     }
     if (this._configLoadedForEntryId === entryId && !this._deviceListLoading && !this._commandConfigLoading && !this._commandSyncLoading) return;
-    await this._loadWifiDevices(true);
+    const entityId = String(this._entityId() || "").trim();
+    const deviceListLoaded = await this._loadWifiDevices(true);
+    if (!shouldFinalizeWifiHubLoad({ entryId, entityId, deviceListLoaded })) return;
     if (this._selectedDeviceKey) {
       await this._loadCommandConfigFromBackend(true);
       await this._loadCommandSyncProgress(true);
@@ -1407,11 +1420,34 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _hubCommandLocked() {
-    return Boolean(this.hubCommandBusy);
+    return Boolean(this.hubCommandBusy || this._runningWifiDevice());
   }
 
   private _effectiveHubCommandLabel() {
+    const runningDevice = this._runningWifiDevice();
+    if (runningDevice) {
+      const deviceName = String(runningDevice.device_name || "").trim();
+      return deviceName ? `Syncing ${deviceName}…` : "Syncing Wifi Device…";
+    }
     return String(this.hubCommandBusyLabel || "").trim() || "Hub command in progress…";
+  }
+
+  private _runningWifiDevice() {
+    const selectedDevice = this._selectedWifiDevice();
+    return findRunningWifiDevice(
+      this._wifiDevices,
+      this._selectedDeviceKey,
+      this._syncState.status,
+      selectedDevice?.device_name || "",
+    );
+  }
+
+  private _selectedDeviceOwnsPendingSync() {
+    return selectedDeviceOwnsPendingSync({
+      selectedDeviceKey: this._selectedDeviceKey,
+      commandSyncRunning: this._commandSyncRunning,
+      commandSyncDeviceKey: this._commandSyncDeviceKey,
+    });
   }
 
   private _defaultSyncState(): SyncState {
@@ -1602,8 +1638,8 @@ class SofabatonWifiCommandsTab extends LitElement {
 
   private async _loadWifiDevices(force = false) {
     const entityId = String(this._entityId() || "").trim();
-    if (!entityId || !this.hass?.callWS) return;
-    if (this._deviceListLoading && !force) return;
+    if (!entityId || !this.hass?.callWS) return false;
+    if (this._deviceListLoading && !force) return false;
     this._deviceListLoading = true;
     try {
       const result = await this.hass.callWS<{ devices?: WifiDeviceSummary[]; max_devices?: number }>({
@@ -1627,6 +1663,9 @@ class SofabatonWifiCommandsTab extends LitElement {
         this._commandsData = this._normalizeCommandsForStorage([]);
         this._syncState = this._defaultSyncState();
       }
+      return true;
+    } catch (_error) {
+      return false;
     } finally {
       this._deviceListLoading = false;
     }
@@ -2503,6 +2542,7 @@ class SofabatonWifiCommandsTab extends LitElement {
       sync_needed: true,
     };
     this._commandSyncRunning = true;
+    this._commandSyncDeviceKey = deviceKey;
     this._wifiDevices = this._wifiDevices.map((device) =>
       device.device_key === deviceKey
         ? {
@@ -2531,6 +2571,7 @@ class SofabatonWifiCommandsTab extends LitElement {
       );
     } finally {
       this._commandSyncRunning = false;
+      this._commandSyncDeviceKey = null;
       await this._loadWifiDevices(true);
       await this._loadCommandSyncProgress(true);
       await this._refreshControlPanelState();
