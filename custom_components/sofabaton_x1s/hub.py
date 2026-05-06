@@ -46,6 +46,8 @@ from .lib.protocol_const import ButtonName
 from .lib.x1_proxy import X1Proxy
 from .command_config import (
     COMMAND_BRAND_PREFIX,
+    LEGACY_COMMAND_BRAND_PREFIX,
+    async_get_command_config_store,
     DEFAULT_WIFI_DEVICE_KEY,
     count_configured_command_slots,
     normalize_command_name,
@@ -62,14 +64,16 @@ _WIFI_COMMAND_LONG_PRESS_OFFSET = 10
 
 def _parse_managed_wifi_brand(brand: str) -> tuple[str | None, str | None]:
     text = str(brand or "").strip()
-    prefix = f"{COMMAND_BRAND_PREFIX}-"
-    if not text.startswith(prefix):
-        return None, None
-    suffix = text[len(prefix):].strip()
+    suffix = ""
+    for prefix_value in (COMMAND_BRAND_PREFIX, LEGACY_COMMAND_BRAND_PREFIX):
+        prefix = f"{prefix_value}-"
+        if text.startswith(prefix):
+            suffix = text[len(prefix):].strip()
+            break
     if not suffix:
         return None, None
     if "-" not in suffix:
-        return DEFAULT_WIFI_DEVICE_KEY, suffix
+        return None, suffix
     device_key, command_hash = suffix.split("-", 1)
     device_key = "".join(ch for ch in str(device_key).lower() if ch.isalnum())
     return (device_key or DEFAULT_WIFI_DEVICE_KEY), command_hash.strip()
@@ -580,7 +584,11 @@ class SofabatonHub:
         data["cache_generation"] = self.cache_generation
         data["activities"] = self._build_cache_activity_list(data)
         data["activity_favorites"] = self._build_cache_activity_favorites()
-        data["activity_keybindings"] = self._build_cache_activity_keybindings()
+        # REQ_BUTTONS is authoritative for enabled buttons and favorites, but
+        # not for the underlying binding targets of normal hard buttons.
+        # Preserve the cache key for compatibility, but leave it empty until a
+        # dedicated binding-details family is implemented.
+        data["activity_keybindings"] = {}
         data["devices_list"] = self._build_cache_devices_list(data)
         return data
 
@@ -657,7 +665,6 @@ class SofabatonHub:
 
     def _build_cache_activity_list(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         favorites = self._build_cache_activity_favorites()
-        keybindings = self._build_cache_activity_keybindings()
         macros_raw = data.get("activity_macros", {})
         macros_by_activity = macros_raw if isinstance(macros_raw, dict) else {}
 
@@ -672,7 +679,7 @@ class SofabatonHub:
                     "name": self._get_cached_activity_name(act_id) or f"Activity {act_id}",
                     "is_active": bool(activity.get("active", False)) if isinstance(activity, dict) else False,
                     "favorite_count": len(favorites.get(act_key, [])),
-                    "keybinding_count": len(keybindings.get(act_key, [])),
+                    "keybinding_count": 0,
                     "macro_count": len(macros) if isinstance(macros, list) else 0,
                 }
             )
@@ -725,47 +732,6 @@ class SofabatonHub:
             favorites_by_activity[str(act_lo)] = rows
 
         return favorites_by_activity
-
-    def _build_cache_activity_keybindings(self) -> dict[str, list[dict[str, Any]]]:
-        keybindings_by_activity: dict[str, list[dict[str, Any]]] = {}
-        button_names = self.get_button_name_map()
-        activity_ids = (
-            set(int(act_id) & 0xFF for act_id in self.activities.keys())
-            | set(int(act_id) & 0xFF for act_id in self._proxy.state.activity_keybinding_slots.keys())
-        )
-
-        for act_id in sorted(activity_id for activity_id in activity_ids if 1 <= activity_id <= 255):
-            act_lo = act_id & 0xFF
-            slots = self._proxy.state.get_activity_keybinding_slots(act_lo)
-            labels = {
-                (int(row.get("device_id", 0)) & 0xFF, int(row.get("command_id", 0)) & 0xFF): str(row.get("name") or "").strip()
-                for row in self._proxy.state.get_activity_keybinding_labels(act_lo)
-                if isinstance(row, dict)
-            }
-            if not slots:
-                continue
-
-            rows: list[dict[str, Any]] = []
-            for slot in slots:
-                button_id = int(slot.get("button_id", 0)) & 0xFF
-                device_id = int(slot.get("device_id", 0)) & 0xFF
-                command_id = int(slot.get("command_id", 0)) & 0xFF
-                label = labels.get((device_id, command_id)) or self._proxy.state.commands.get(device_id, {}).get(command_id)
-                rows.append(
-                    {
-                        "button_id": button_id,
-                        "button_name": button_names.get(button_id, f"Button {button_id}"),
-                        "device_id": device_id,
-                        "device_name": self._get_cached_device_name(device_id) or f"Device {device_id}",
-                        "command_id": command_id,
-                        "label": str(label).strip() if label else f"Command {command_id}",
-                        "source": str(slot.get("source", "cache")),
-                    }
-                )
-
-            keybindings_by_activity[str(act_lo)] = rows
-
-        return keybindings_by_activity
 
     def _build_cache_devices_list(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         devices_raw = data.get("devices", {})
@@ -924,9 +890,13 @@ class SofabatonHub:
     def get_favorites(self, activity_id: int) -> list[dict[str, Any]]:
         """Return cached favorites for *activity_id* (no hub round-trip).
 
-        Each entry comes from the activity map/keymap cache and contains the
-        activity-map ``button_id`` plus ``device_id``, ``command_id``, and
-        ``source``.
+        Each entry comes from the cached quick-access/keymap view and contains
+        the visible quick-access ``button_id`` plus ``device_id``,
+        ``command_id``, and ``source``.
+
+        ``favorite_button_id`` is the preferred neutral field name. The older
+        ``activity_map_button_id`` alias is still included for compatibility
+        with callers that already consume it.
 
         On X1S, these cached quick-access ``button_id`` values share the same
         identifier space used by the Macro & Favorite Keys UI. The hub's raw
@@ -939,6 +909,8 @@ class SofabatonHub:
         favorites: list[dict[str, Any]] = []
         for slot in self._proxy.state.get_activity_favorite_slots(act_lo):
             favorite = dict(slot)
+            favorite.setdefault("favorite_button_id", favorite.get("button_id"))
+            # Legacy alias retained for existing consumers.
             favorite.setdefault("activity_map_button_id", favorite.get("button_id"))
             favorites.append(favorite)
         return favorites
@@ -982,6 +954,7 @@ class SofabatonHub:
             favorite_by_id[entry_id] = {
                 "fav_id": entry_id,
                 "button_id": entry_id,
+                "favorite_button_id": entry_id,
                 "activity_map_button_id": entry_id,
                 "slot": None,
                 "type": "favorite",
@@ -1450,14 +1423,11 @@ class SofabatonHub:
                 command_index = int(parts[3])
                 if len(parts) >= 5 and parts[4] in ("short", "long"):
                     press_type = parts[4]
-                hass_data = getattr(self.hass, "data", {})
-                domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-                store = domain_data.get("command_config_store")
-                if store is not None:
-                    deployed = store.get_deployed_wifi_commands(self.entry_id, hub_device_id=device_id)
-                    if 0 <= command_index < len(deployed):
-                        resolved_slot = deployed[command_index]
-                        command_label = str(resolved_slot.get("name", ""))
+                store = await async_get_command_config_store(self.hass)
+                deployed = store.get_deployed_wifi_commands(self.entry_id, hub_device_id=device_id)
+                if 0 <= command_index < len(deployed):
+                    resolved_slot = deployed[command_index]
+                    command_label = str(resolved_slot.get("name", ""))
             else:
                 # Old format (backwards compat):
                 # launch/{hub_id}/{device_id}/{command_name}/{device_name}/{press_type}
@@ -1490,6 +1460,15 @@ class SofabatonHub:
             "body": body.decode("utf-8", errors="ignore"),
             "headers": headers,
         }
+        self._log.info(
+            "[WIFI_HTTP] mapped listener request source_ip=%s device_id=%s device_name=%s command=%s press_type=%s path=%s",
+            source_ip or "unknown",
+            device_id,
+            resolved_device_name or "<unknown>",
+            command_label or "<unresolved>",
+            press_type,
+            path,
+        )
         self._last_ip_command = record
         async_dispatcher_send(self.hass, signal_ip_commands(self.entry_id))
         if resolved_slot is not None and command_index is not None:
@@ -1541,50 +1520,135 @@ class SofabatonHub:
 
     def _managed_wifi_devices(
         self, devices: dict[int, dict[str, Any]] | None = None
-    ) -> list[tuple[int, str, str, str]]:
-        managed: list[tuple[int, str, str, str]] = []
+    ) -> list[tuple[int, str | None, str, str]]:
+        managed: list[tuple[int, str | None, str, str]] = []
         for dev_id, device in (devices or self.devices).items():
             brand = str(device.get("brand") or "").strip()
             device_key, command_hash = _parse_managed_wifi_brand(brand)
-            if device_key and command_hash:
+            if command_hash:
                 managed.append((int(dev_id), device_key, command_hash, brand))
         return managed
 
+    def _match_managed_wifi_devices(
+        self,
+        *,
+        managed_devices: list[tuple[int, str | None, str, str]],
+        stored_devices: list[dict[str, Any]] | None = None,
+        device_key: str | None = None,
+        deployed_device_id: Any = None,
+        deployed_commands_hash: str = "",
+        commands_hash: str = "",
+    ) -> tuple[list[tuple[int, str | None, str, str]], bool]:
+        if isinstance(deployed_device_id, int):
+            matches = [row for row in managed_devices if row[0] == int(deployed_device_id)]
+            return matches, len(matches) > 1
+
+        deployed_hash = str(deployed_commands_hash or "").strip()
+        if deployed_hash:
+            matches = [row for row in managed_devices if row[2] == deployed_hash]
+            if len(matches) == 1:
+                return matches, False
+            if len(matches) > 1:
+                return [], True
+
+        current_hash = str(commands_hash or "").strip()
+        if current_hash:
+            matches = [row for row in managed_devices if row[2] == current_hash]
+            if len(matches) == 1:
+                return matches, False
+            if len(matches) > 1:
+                return [], True
+
+        normalized_device_key = (
+            "".join(ch for ch in str(device_key or DEFAULT_WIFI_DEVICE_KEY).lower() if ch.isalnum())
+            or DEFAULT_WIFI_DEVICE_KEY
+        )
+        matches = [
+            row
+            for row in managed_devices
+            if row[1] is not None and row[1] == normalized_device_key
+        ]
+        if len(matches) == 1:
+            return matches, False
+        if len(matches) > 1:
+            return [], True
+
+        if stored_devices is None and len(managed_devices) == 1:
+            return [managed_devices[0]], False
+
+        if stored_devices is not None and len(stored_devices) <= 1 and len(managed_devices) == 1:
+            return [managed_devices[0]], False
+
+        return [], False
+
     async def _async_reconcile_deployed_wifi_device_ids(self) -> None:
-        hass_data = getattr(self.hass, "data", {})
-        domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-        store = domain_data.get("command_config_store")
-        if store is None:
-            return
+        store = await async_get_command_config_store(self.hass)
+        managed_devices = self._managed_wifi_devices()
+        stored_devices = await store.async_list_hub_devices(self.entry_id)
+        stored_by_key = {
+            str(device.get("device_key") or "").strip(): device
+            for device in stored_devices
+            if str(device.get("device_key") or "").strip()
+        }
+        assignments: list[tuple[str, int | None, str]] = []
+        assigned_keys: set[str] = set()
 
-        managed_by_key: dict[str, int] = {}
-        duplicate_keys: set[str] = set()
-        for managed_device_id, managed_key, _managed_hash, _brand in self._managed_wifi_devices():
-            if managed_key in managed_by_key and managed_by_key[managed_key] != managed_device_id:
-                duplicate_keys.add(managed_key)
+        def _pick_unique(matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+            remaining = [
+                device for device in matches
+                if str(device.get("device_key") or "").strip() not in assigned_keys
+            ]
+            if len(remaining) == 1:
+                return remaining[0]
+            return None
+
+        for managed_device_id, managed_device_key, managed_hash, _brand in managed_devices:
+            owner: dict[str, Any] | None = None
+
+            if managed_device_key:
+                device = stored_by_key.get(managed_device_key)
+                if device is not None and managed_device_key not in assigned_keys:
+                    owner = device
+
+            if owner is None:
+                owner = _pick_unique(
+                    [
+                        device for device in stored_devices
+                        if str(device.get("deployed_commands_hash") or "").strip() == managed_hash
+                    ]
+                )
+
+            if owner is None:
+                owner = _pick_unique(
+                    [
+                        device for device in stored_devices
+                        if str(device.get("commands_hash") or "").strip() == managed_hash
+                    ]
+                )
+
+            if owner is None:
+                owner = _pick_unique(
+                    [
+                        device for device in stored_devices
+                        if device.get("deployed_device_id") == managed_device_id
+                    ]
+                )
+
+            if owner is None and len(stored_devices) == 1 and len(managed_devices) == 1:
+                only_device_key = str(stored_devices[0].get("device_key") or "").strip()
+                if only_device_key and only_device_key not in assigned_keys:
+                    owner = stored_devices[0]
+
+            if owner is None:
                 continue
-            managed_by_key[managed_key] = managed_device_id
 
-        for duplicate_key in duplicate_keys:
-            managed_by_key.pop(duplicate_key, None)
-
-        if not managed_by_key:
-            return
-
-        changed = False
-        for device in await store.async_list_hub_devices(self.entry_id):
-            device_key = str(device.get("device_key") or "").strip()
-            if not device_key or isinstance(device.get("deployed_device_id"), int):
+            owner_device_key = str(owner.get("device_key") or "").strip()
+            if not owner_device_key:
                 continue
-            managed_device_id = managed_by_key.get(device_key)
-            if managed_device_id is None:
-                continue
-            if await store.async_set_deployed_device_id(
-                self.entry_id,
-                device_key,
-                managed_device_id,
-            ):
-                changed = True
+            assignments.append((owner_device_key, managed_device_id, managed_hash))
+            assigned_keys.add(owner_device_key)
+
+        changed = await store.async_reconcile_deployed_wifi_devices(self.entry_id, assignments)
 
         if changed:
             async_dispatcher_send(self.hass, signal_command_sync(self.entry_id))
@@ -1725,12 +1789,7 @@ class SofabatonHub:
         *,
         press_type: str = "short",
     ) -> None:
-        hass_data = getattr(self.hass, "data", {})
-        domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-        store = domain_data.get("command_config_store")
-        if store is None:
-            return
-
+        store = await async_get_command_config_store(self.hass)
         payload = await store.async_get_hub_config(self.entry_id, device_key=DEFAULT_WIFI_DEVICE_KEY)
         command_key = normalize_command_name(command_label)
         for slot in payload.get("commands", []):
@@ -1748,13 +1807,7 @@ class SofabatonHub:
         command_label: str,
         press_type: str = "short",
     ) -> None:
-        hass_data = getattr(self.hass, "data", {})
-        domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-        store = domain_data.get("command_config_store")
-        if store is None:
-            await self._async_run_wifi_slot_action(fallback_slot, command_label, press_type=press_type)
-            return
-
+        store = await async_get_command_config_store(self.hass)
         live_slot = store.get_live_wifi_command_slot(
             self.entry_id,
             command_index=command_index,
@@ -1767,13 +1820,9 @@ class SofabatonHub:
         )
 
     async def _async_wifi_listener_needed(self) -> bool:
-        hass_data = getattr(self.hass, "data", {})
-        domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-        store = domain_data.get("command_config_store")
-        if store is not None:
-            devices = await store.async_list_hub_devices(self.entry_id)
-            return any(wifi_device_requires_listener(device) for device in devices)
-        return False
+        store = await async_get_command_config_store(self.hass)
+        devices = await store.async_list_hub_devices(self.entry_id)
+        return any(wifi_device_requires_listener(device) for device in devices)
 
     async def async_sync_command_config(
         self,
@@ -1793,8 +1842,9 @@ class SofabatonHub:
             deployed_commands_hash = str(command_payload.get("deployed_commands_hash") or "")
             deployed_device_id = command_payload.get("deployed_device_id")
             normalized_device_key = "".join(ch for ch in str(device_key or DEFAULT_WIFI_DEVICE_KEY).lower() if ch.isalnum()) or DEFAULT_WIFI_DEVICE_KEY
-            brand_name = f"{COMMAND_BRAND_PREFIX}-{commands_hash}"
+            brand_name = f"{COMMAND_BRAND_PREFIX}-{normalized_device_key}-{commands_hash}"
             total_steps = 8 if configured_slots > 0 else 7
+            store = await async_get_command_config_store(self.hass)
             self._set_command_sync_progress(
                 device_key=normalized_device_key,
                 status="running",
@@ -1822,21 +1872,20 @@ class SofabatonHub:
                         )
 
                 device_snapshot = await self._async_refresh_devices_snapshot()
-                managed_by_id: dict[int, tuple[int, str, str, str]] = {}
-                for dev_id, managed_key, managed_hash, brand in self._managed_wifi_devices(device_snapshot):
-                    if isinstance(deployed_device_id, int) and int(dev_id) == deployed_device_id:
-                        managed_by_id[int(dev_id)] = (dev_id, managed_key, managed_hash, brand)
-                        continue
-                    if deployed_commands_hash and managed_hash == deployed_commands_hash:
-                        managed_by_id[int(dev_id)] = (dev_id, managed_key, managed_hash, brand)
-                        continue
-                    if (
-                        not isinstance(deployed_device_id, int)
-                        and not deployed_commands_hash
-                        and managed_key == normalized_device_key
-                    ):
-                        managed_by_id[int(dev_id)] = (dev_id, managed_key, managed_hash, brand)
-                managed = list(managed_by_id.values())
+                managed_devices = self._managed_wifi_devices(device_snapshot)
+                stored_devices = await store.async_list_hub_devices(self.entry_id) if store is not None else None
+                managed, ambiguous = self._match_managed_wifi_devices(
+                    managed_devices=managed_devices,
+                    stored_devices=stored_devices,
+                    device_key=normalized_device_key,
+                    deployed_device_id=deployed_device_id,
+                    deployed_commands_hash=deployed_commands_hash,
+                    commands_hash=commands_hash,
+                )
+                if ambiguous:
+                    raise HomeAssistantError(
+                        "Unable to safely identify existing managed Wifi Device; multiple matches found"
+                    )
                 self._set_command_sync_progress(
                     device_key=normalized_device_key,
                     current_step=2,
@@ -1850,9 +1899,6 @@ class SofabatonHub:
                         )
 
                 if configured_slots == 0:
-                    hass_data = getattr(self.hass, "data", {})
-                    domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-                    store = domain_data.get("command_config_store")
                     if store is not None:
                         await store.async_save_deployed_wifi_commands(
                             self.entry_id,
@@ -2003,6 +2049,11 @@ class SofabatonHub:
                     await self.async_delete_device(wifi_device_id)
                     raise HomeAssistantError("Failed adding Wifi Device to all activities")
 
+                # Warm the wifi-device command cache before activity refreshes
+                # so favorite-label resolution can reuse the full REQ_COMMANDS
+                # result instead of falling back to per-command lookups later.
+                await self.async_fetch_device_commands(wifi_device_id)
+
                 self._set_command_sync_progress(
                     device_key=normalized_device_key,
                     current_step=5,
@@ -2124,7 +2175,7 @@ class SofabatonHub:
                         clear_macros=True,
                     )
                     await self.hass.async_add_executor_job(self._proxy.request_activity_mapping, act_id)
-                    await self.hass.async_add_executor_job(
+                    _, buttons_ready = await self.hass.async_add_executor_job(
                         partial(self._proxy.get_buttons_for_entity, act_id, fetch_if_missing=True)
                     )
                     await self.hass.async_add_executor_job(
@@ -2134,19 +2185,19 @@ class SofabatonHub:
                         False,
                         True,
                     )
+                    if not buttons_ready:
+                        await self._async_wait_for_buttons_ready(act_id)
+                    await self._async_wait_for_activity_map_ready(act_id)
+                    await self.hass.async_add_executor_job(
+                        partial(self._proxy.ensure_commands_for_activity, act_id, fetch_if_missing=True)
+                    )
                     await self.hass.async_add_executor_job(
                         partial(self._proxy.get_macros_for_activity, act_id, fetch_if_missing=True)
                     )
 
-            # Fetch device commands for the newly-created wifi device so that
-            # state.commands[wifi_device_id] is populated with the real labels
-            # (e.g. "Dim the lights").  Without this, _build_cache_activity_favorites
-            # falls back to "Command N" because command_to_favorite clears
-            # activity_favorite_labels and the activity-map refresh only returns
-            # slot/command IDs, not labels.
-                await self.hass.async_add_executor_job(
-                    partial(self._proxy.get_commands_for_entity, wifi_device_id, fetch_if_missing=True)
-                )
+                if activity_ids:
+                    self._bump_cache_generation()
+                    async_dispatcher_send(self.hass, signal_commands(self.entry_id))
 
                 self._set_command_sync_progress(
                     device_key=normalized_device_key,
@@ -2155,12 +2206,9 @@ class SofabatonHub:
                 )
                 await self.async_resync_remote()
 
-            # Persist the command list that was just synced to the hub.
-            # Callbacks will resolve command indices against this frozen snapshot,
-            # independently of any subsequent staged-config edits.
-                hass_data = getattr(self.hass, "data", {})
-                domain_data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-                store = domain_data.get("command_config_store")
+                # Persist the command list that was just synced to the hub.
+                # Callbacks will resolve command indices against this frozen snapshot,
+                # independently of any subsequent staged-config edits.
                 if store is not None:
                     await store.async_save_deployed_wifi_commands(
                         self.entry_id,

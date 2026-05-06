@@ -618,6 +618,30 @@ var cardStyles = i`
   .hub-row-value, .setting-title, .entity-name, .cache-state-title { color: var(--primary-text-color); }
   .hub-row-label { font-size: 13px; font-weight: 700; color: color-mix(in srgb, var(--primary-text-color) 88%, var(--secondary-text-color)); }
   .hub-row-value { font-size: 13px; font-weight: 700; text-align: right; word-break: break-word; }
+  .hub-tab-layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .hub-tab-layout > .tab-panel { flex: 1; }
+  .panel-sticky-footer { flex-shrink: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
+  .bottom-dock-status {
+    width: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 16px;
+    color: var(--secondary-text-color);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.35;
+    text-align: center;
+  }
+  .dock-status-value {
+    color: var(--primary-text-color);
+    font-size: 13px;
+    font-weight: 700;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  }
   .setting-title { font-size: 14px; font-weight: 700; }
   .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .setting-tile { min-height: 132px; display: flex; flex-direction: column; border: 1px solid var(--divider-color); border-radius: calc(var(--ha-card-border-radius, 12px) + 2px); background: linear-gradient(180deg, color-mix(in srgb, var(--card-background-color, #fff) 92%, white), var(--card-background-color, #fff)); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02); overflow: hidden; }
@@ -676,6 +700,15 @@ var cardStyles = i`
   .cache-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px 16px; text-align: center; font-size: 13px; line-height: 1.6; }
   .cache-state-icon { font-size: 32px; line-height: 1; margin-bottom: 4px; }
   .cache-state-sub { font-size: 12px; line-height: 1.5; max-width: 260px; }
+  .version-mismatch-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 28px 20px; text-align: center; }
+  .version-mismatch-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--warning-color, #ff9800); }
+  .version-mismatch-icon ha-icon { --mdc-icon-size: 34px; }
+  .version-mismatch-title { font-size: 18px; font-weight: 800; color: var(--primary-text-color); }
+  .version-mismatch-copy { max-width: 420px; font-size: 13px; line-height: 1.6; color: var(--secondary-text-color); }
+  .version-mismatch-versions { width: min(100%, 360px); display: grid; gap: 10px; padding: 14px; border: 1px solid color-mix(in srgb, var(--error-color, #db4437) 24%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 2px); background: color-mix(in srgb, var(--error-color, #db4437) 4%, var(--card-background-color, var(--ha-card-background))); text-align: left; }
+  .version-mismatch-row { display: grid; gap: 3px; }
+  .version-mismatch-label { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary-text-color); }
+  .version-mismatch-value { font-size: 13px; font-weight: 700; font-family: "SF Mono", "Fira Code", Consolas, monospace; color: var(--primary-text-color); word-break: break-word; }
   .stale-banner { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--warning-color, #ff9800) 30%, transparent); }
   .stale-banner-text { flex: 1; }
   .stale-banner-btn { background: none; border: 1px solid var(--divider-color); border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--primary-text-color); }
@@ -953,10 +986,45 @@ function hubIcon(kind, classes = "") {
 }
 
 // custom_components/sofabaton_x1s/www/src/state/control-panel-store.ts
+var VIEW_STATE_STORAGE_KEY = "sofabaton_x1s:tools_card:view_state:v1";
+var VALID_TABS = /* @__PURE__ */ new Set(["hub", "settings", "wifi_commands", "cache", "logs"]);
+function viewStateStorage() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+  } catch (_error) {
+  }
+  return null;
+}
+function readPersistedViewState() {
+  const storage = viewStateStorage();
+  if (!storage) return {};
+  try {
+    const parsed = JSON.parse(storage.getItem(VIEW_STATE_STORAGE_KEY) || "{}");
+    const selectedHubEntryId = String(parsed?.selectedHubEntryId ?? "").trim() || null;
+    const selectedTab = VALID_TABS.has(parsed?.selectedTab) ? parsed.selectedTab : void 0;
+    return {
+      selectedHubEntryId,
+      ...selectedTab ? { selectedTab } : {}
+    };
+  } catch (_error) {
+    return {};
+  }
+}
+function normalizeLoadedFrontendVersion(value) {
+  const version = String(value ?? "").trim();
+  return version || "dev";
+}
+function normalizeExpectedFrontendVersion(value) {
+  const version = String(value ?? "").trim();
+  return version || null;
+}
 var INITIAL_SNAPSHOT = {
   hass: null,
   state: null,
   contents: null,
+  toolsFrontendVersionLoaded: "dev",
+  toolsFrontendVersionExpected: null,
+  toolsFrontendVersionMismatch: false,
   loading: false,
   loadError: null,
   selectedHubEntryId: null,
@@ -980,7 +1048,7 @@ var INITIAL_SNAPSHOT = {
   pendingScrollEntityKey: null
 };
 var ControlPanelStore = class {
-  constructor(onChange) {
+  constructor(onChange, options = {}) {
     this.onChange = onChange;
     this._snapshot = { ...INITIAL_SNAPSHOT };
     this._loadingStatePromise = null;
@@ -992,6 +1060,12 @@ var ControlPanelStore = class {
     this._lastObservedGenerations = cacheGenerationSnapshot(null);
     this._lastHassFingerprint = "";
     this._lastConnectionFingerprint = "";
+    this._loadedFrontendVersion = normalizeLoadedFrontendVersion(options.loadedFrontendVersion);
+    this._snapshot = {
+      ...INITIAL_SNAPSHOT,
+      ...readPersistedViewState(),
+      toolsFrontendVersionLoaded: this._loadedFrontendVersion
+    };
   }
   get snapshot() {
     return this._snapshot;
@@ -1057,6 +1131,7 @@ var ControlPanelStore = class {
       externalHubCommandBusy: false,
       externalHubCommandLabel: null
     };
+    this.persistViewState();
     this.unsubscribeLogs();
     this.emit();
     void this.loadControlPanelState().finally(() => {
@@ -1071,6 +1146,7 @@ var ControlPanelStore = class {
       logsStickToBottom: nextTab === "logs" ? true : this._snapshot.logsStickToBottom,
       logsScrollBehavior: nextTab === "logs" ? "auto" : this._snapshot.logsScrollBehavior
     };
+    this.persistViewState();
     if (nextTab === "logs") void this.syncLogsFeed();
     else this.unsubscribeLogs();
     this.emit();
@@ -1115,7 +1191,8 @@ var ControlPanelStore = class {
     this._loadingStatePromise = (async () => {
       try {
         const [state, contents] = await Promise.all([api.loadState(), api.loadCacheContents()]);
-        this._snapshot = { ...this._snapshot, state, contents, loadError: null };
+        this.applyControlPanelState(state);
+        this._snapshot = { ...this._snapshot, contents };
         this.syncSelection();
       } catch (error) {
         this._snapshot = { ...this._snapshot, loadError: formatError(error) };
@@ -1131,7 +1208,7 @@ var ControlPanelStore = class {
   }
   async loadControlPanelState() {
     const state = await this.api().loadState();
-    this._snapshot = { ...this._snapshot, state, loadError: null };
+    this.applyControlPanelState(state);
     this.syncSelection();
     this.emit();
   }
@@ -1337,6 +1414,16 @@ var ControlPanelStore = class {
     this._logsUnsub = null;
     this._snapshot = { ...this._snapshot, logsSubscribedEntryId: null };
   }
+  applyControlPanelState(state) {
+    const expectedVersion = normalizeExpectedFrontendVersion(state?.tools_frontend_version);
+    this._snapshot = {
+      ...this._snapshot,
+      state,
+      loadError: null,
+      toolsFrontendVersionExpected: expectedVersion,
+      toolsFrontendVersionMismatch: expectedVersion !== null && expectedVersion !== this._loadedFrontendVersion
+    };
+  }
   applyOptimisticSetting(setting, enabled) {
     if (!this._snapshot.state) return;
     const hub = selectedHub(this._snapshot);
@@ -1376,6 +1463,7 @@ var ControlPanelStore = class {
     const hubs = this._snapshot.state?.hubs ?? [];
     if (!hubs.length) {
       this._snapshot = { ...this._snapshot, selectedHubEntryId: null };
+      this.persistViewState();
       return;
     }
     if (!hubs.some((hub) => hub.entry_id === this._snapshot.selectedHubEntryId)) {
@@ -1384,10 +1472,25 @@ var ControlPanelStore = class {
     if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
       this._snapshot = { ...this._snapshot, selectedTab: "settings" };
     }
+    this.persistViewState();
   }
   api() {
     if (!this._snapshot.hass) throw new Error("Home Assistant context is unavailable");
     return new ControlPanelApi(this._snapshot.hass);
+  }
+  persistViewState() {
+    const storage = viewStateStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(
+        VIEW_STATE_STORAGE_KEY,
+        JSON.stringify({
+          selectedHubEntryId: this._snapshot.selectedHubEntryId,
+          selectedTab: this._snapshot.selectedTab
+        })
+      );
+    } catch (_error) {
+    }
   }
   _isHubCommandBusy() {
     return Boolean(
@@ -1459,6 +1562,7 @@ function renderHubTab(params) {
   const proxyOn = proxyClientConnected(params.hass, params.hub);
   const haActive = connected || proxyOn;
   const haFullyActive = connected && proxyOn;
+  const integrationVersion = String(params.integrationVersion ?? "").trim() || "unknown";
   const row = (kind, label, value) => b2`
     <div class="hub-row">
       <span class="hub-row-icon">${hubIcon(kind, "hub-row-icon-svg")}</span>
@@ -1467,40 +1571,51 @@ function renderHubTab(params) {
     </div>
   `;
   return b2`
-    <div class="tab-panel scrollable">
-      <div class="hub-hero">
-        <div class="hub-ident hub-ident--hero">
-          <div class="hub-ident-name">${params.hub.name || "Unknown"}</div>
+    <div class="hub-tab-layout">
+      <div class="tab-panel scrollable">
+        <div class="hub-hero">
+          <div class="hub-ident hub-ident--hero">
+            <div class="hub-ident-name">${params.hub.name || "Unknown"}</div>
+          </div>
+          <div class="hub-connection-strip" role="img" aria-label="Hub connection status">
+            <div class="hub-connection-node hub-connection-node--hub${connected ? " is-active" : ""}">
+              <span class="hub-connection-node-icon hub-connection-node-icon--hub">
+                ${hubIcon("hero", "hub-hero-icon")}
+              </span>
+            </div>
+            <div class="hub-connection-link${connected ? " is-active" : ""}"><span class="hub-connection-link-line"></span></div>
+            <div class="hub-connection-node hub-connection-node--ha${haActive ? " is-active" : ""}${haFullyActive ? " is-bridged" : ""}">
+              <span class="hub-connection-node-icon hub-connection-node-icon--mdi">
+                <ha-icon icon="mdi:home-assistant"></ha-icon>
+              </span>
+            </div>
+            <div class="hub-connection-link${proxyOn ? " is-active" : ""}"><span class="hub-connection-link-line"></span></div>
+            <div class="hub-connection-node hub-connection-node--app${proxyOn ? " is-active" : ""}">
+              <span class="hub-connection-node-icon hub-connection-node-icon--mdi">
+                <ha-icon icon="mdi:tablet-cellphone"></ha-icon>
+              </span>
+            </div>
+          </div>
         </div>
-        <div class="hub-connection-strip" role="img" aria-label="Hub connection status">
-          <div class="hub-connection-node hub-connection-node--hub${connected ? " is-active" : ""}">
-            <span class="hub-connection-node-icon hub-connection-node-icon--hub">
-              ${hubIcon("hero", "hub-hero-icon")}
-            </span>
-          </div>
-          <div class="hub-connection-link${connected ? " is-active" : ""}"><span class="hub-connection-link-line"></span></div>
-          <div class="hub-connection-node hub-connection-node--ha${haActive ? " is-active" : ""}${haFullyActive ? " is-bridged" : ""}">
-            <span class="hub-connection-node-icon hub-connection-node-icon--mdi">
-              <ha-icon icon="mdi:home-assistant"></ha-icon>
-            </span>
-          </div>
-          <div class="hub-connection-link${proxyOn ? " is-active" : ""}"><span class="hub-connection-link-line"></span></div>
-          <div class="hub-connection-node hub-connection-node--app${proxyOn ? " is-active" : ""}">
-            <span class="hub-connection-node-icon hub-connection-node-icon--mdi">
-              <ha-icon icon="mdi:tablet-cellphone"></ha-icon>
-            </span>
-          </div>
+        <div class="hub-badges">
+          <span class="hub-conn-badge ${connected ? "hub-conn-badge--on" : "hub-conn-badge--off"}">${connected ? "Hub connected" : "Hub not connected"}</span>
+          <span class="hub-proxy-badge ${proxyOn ? "hub-proxy-badge--on" : "hub-proxy-badge--off"}">${proxyOn ? "App connected" : "App not connected"}</span>
+        </div>
+        <div class="hub-info-list">
+          ${params.hub.version ? row("version", "Version", `Sofabaton ${params.hub.version}`) : null}
+          ${params.hub.ip_address ? row("ip", "IP Address", params.hub.ip_address) : null}
+          ${row("activities", "Activities", Number(params.hub.activity_count || 0))}
+          ${row("devices", "Devices", Number(params.hub.device_count || 0))}
         </div>
       </div>
-      <div class="hub-badges">
-        <span class="hub-conn-badge ${connected ? "hub-conn-badge--on" : "hub-conn-badge--off"}">${connected ? "Hub connected" : "Hub not connected"}</span>
-        <span class="hub-proxy-badge ${proxyOn ? "hub-proxy-badge--on" : "hub-proxy-badge--off"}">${proxyOn ? "App connected" : "App not connected"}</span>
-      </div>
-      <div class="hub-info-list">
-        ${params.hub.version ? row("version", "Version", `Sofabaton ${params.hub.version}`) : null}
-        ${params.hub.ip_address ? row("ip", "IP Address", params.hub.ip_address) : null}
-        ${row("activities", "Activities", Number(params.hub.activity_count || 0))}
-        ${row("devices", "Devices", Number(params.hub.device_count || 0))}
+      <div class="panel-sticky-footer">
+        <div class="bottom-dock-status">
+          <span>${hubIcon("version", "hub-row-icon-svg")}</span>
+          <span>
+            Integration version
+            <span class="dock-status-value">${integrationVersion}</span>
+          </span>
+        </div>
       </div>
     </div>
   `;
@@ -1777,6 +1892,35 @@ var i6 = e4(class extends i5 {
   }
 });
 
+// custom_components/sofabaton_x1s/www/src/tabs/wifi-commands-state.ts
+function findRunningWifiDevice(devices, selectedDeviceKey, selectedSyncStatus, selectedDeviceName = "") {
+  const runningDevice = devices.find((device) => String(device?.status || "") === "running");
+  if (runningDevice) return runningDevice;
+  const deviceKey = String(selectedDeviceKey || "").trim();
+  if (deviceKey && String(selectedSyncStatus || "") === "running") {
+    return {
+      device_key: deviceKey,
+      device_name: selectedDeviceName,
+      status: "running"
+    };
+  }
+  return null;
+}
+function shouldFinalizeWifiHubLoad({
+  entryId,
+  entityId,
+  deviceListLoaded
+}) {
+  return Boolean(String(entryId || "").trim()) && Boolean(String(entityId || "").trim()) && deviceListLoaded;
+}
+function selectedDeviceOwnsPendingSync({
+  selectedDeviceKey,
+  commandSyncRunning,
+  commandSyncDeviceKey
+}) {
+  return commandSyncRunning && String(commandSyncDeviceKey || "").trim() !== "" && String(selectedDeviceKey || "").trim() === String(commandSyncDeviceKey || "").trim();
+}
+
 // custom_components/sofabaton_x1s/www/src/tabs/wifi-commands-tab.ts
 var SLOT_COUNT = 10;
 var INPUT_ICON = "mdi:video-input-hdmi";
@@ -1913,6 +2057,7 @@ var SofabatonWifiCommandsTab = class extends i4 {
     this._syncState = this._defaultSyncState();
     this._commandSyncLoading = false;
     this._commandSyncRunning = false;
+    this._commandSyncDeviceKey = null;
     this._commandSyncPollTimer = null;
     this._activeCommandSlot = null;
     this._activeCommandModal = null;
@@ -2182,7 +2327,7 @@ var SofabatonWifiCommandsTab = class extends i4 {
     remoteUnavailable,
     syncRunning
   }) {
-    const externallyLocked = this._hubCommandLocked() && !this._commandSyncRunning;
+    const externallyLocked = this._hubCommandLocked() && !this._selectedDeviceOwnsPendingSync();
     return b2`
       <div class="tab-panel">
         <div class="detail-view">
@@ -2194,7 +2339,9 @@ var SofabatonWifiCommandsTab = class extends i4 {
                 </button>
                 <div class="detail-title">${selectedDevice.device_name}</div>
               </div>
-              ${this._renderSyncActionButton({ remoteUnavailable, syncRunning, externallyLocked })}
+              <div class="detail-title-actions">
+                ${this._renderSyncActionButton({ remoteUnavailable, syncRunning, externallyLocked })}
+              </div>
             </div>
           </div>
           <div class="detail-scroll">
@@ -2797,7 +2944,9 @@ var SofabatonWifiCommandsTab = class extends i4 {
       this._syncState = this._defaultSyncState();
     }
     if (this._configLoadedForEntryId === entryId && !this._deviceListLoading && !this._commandConfigLoading && !this._commandSyncLoading) return;
-    await this._loadWifiDevices(true);
+    const entityId = String(this._entityId() || "").trim();
+    const deviceListLoaded = await this._loadWifiDevices(true);
+    if (!shouldFinalizeWifiHubLoad({ entryId, entityId, deviceListLoaded })) return;
     if (this._selectedDeviceKey) {
       await this._loadCommandConfigFromBackend(true);
       await this._loadCommandSyncProgress(true);
@@ -2843,10 +2992,31 @@ var SofabatonWifiCommandsTab = class extends i4 {
     await this.refreshControlPanelState?.();
   }
   _hubCommandLocked() {
-    return Boolean(this.hubCommandBusy);
+    return Boolean(this.hubCommandBusy || this._runningWifiDevice());
   }
   _effectiveHubCommandLabel() {
+    const runningDevice = this._runningWifiDevice();
+    if (runningDevice) {
+      const deviceName = String(runningDevice.device_name || "").trim();
+      return deviceName ? `Syncing ${deviceName}\u2026` : "Syncing Wifi Device\u2026";
+    }
     return String(this.hubCommandBusyLabel || "").trim() || "Hub command in progress\u2026";
+  }
+  _runningWifiDevice() {
+    const selectedDevice = this._selectedWifiDevice();
+    return findRunningWifiDevice(
+      this._wifiDevices,
+      this._selectedDeviceKey,
+      this._syncState.status,
+      selectedDevice?.device_name || ""
+    );
+  }
+  _selectedDeviceOwnsPendingSync() {
+    return selectedDeviceOwnsPendingSync({
+      selectedDeviceKey: this._selectedDeviceKey,
+      commandSyncRunning: this._commandSyncRunning,
+      commandSyncDeviceKey: this._commandSyncDeviceKey
+    });
   }
   _defaultSyncState() {
     return {
@@ -3016,8 +3186,8 @@ var SofabatonWifiCommandsTab = class extends i4 {
   }
   async _loadWifiDevices(force = false) {
     const entityId = String(this._entityId() || "").trim();
-    if (!entityId || !this.hass?.callWS) return;
-    if (this._deviceListLoading && !force) return;
+    if (!entityId || !this.hass?.callWS) return false;
+    if (this._deviceListLoading && !force) return false;
     this._deviceListLoading = true;
     try {
       const result = await this.hass.callWS({
@@ -3039,6 +3209,9 @@ var SofabatonWifiCommandsTab = class extends i4 {
         this._commandsData = this._normalizeCommandsForStorage([]);
         this._syncState = this._defaultSyncState();
       }
+      return true;
+    } catch (_error) {
+      return false;
     } finally {
       this._deviceListLoading = false;
     }
@@ -3656,6 +3829,7 @@ var SofabatonWifiCommandsTab = class extends i4 {
       sync_needed: true
     };
     this._commandSyncRunning = true;
+    this._commandSyncDeviceKey = deviceKey;
     this._wifiDevices = this._wifiDevices.map(
       (device) => device.device_key === deviceKey ? {
         ...device,
@@ -3680,6 +3854,7 @@ var SofabatonWifiCommandsTab = class extends i4 {
       );
     } finally {
       this._commandSyncRunning = false;
+      this._commandSyncDeviceKey = null;
       await this._loadWifiDevices(true);
       await this._loadCommandSyncProgress(true);
       await this._refreshControlPanelState();
@@ -3755,6 +3930,7 @@ SofabatonWifiCommandsTab.properties = {
   _syncState: { state: true },
   _commandSyncLoading: { state: true },
   _commandSyncRunning: { state: true },
+  _commandSyncDeviceKey: { state: true },
   _activeCommandSlot: { state: true },
   _activeCommandModal: { state: true },
   _confirmClearSlot: { state: true },
@@ -3789,6 +3965,7 @@ SofabatonWifiCommandsTab.styles = i`
     .detail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
     .detail-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
     .detail-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+    .detail-title-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
     .detail-title { font-size: 18px; font-weight: 700; color: var(--primary-text-color); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .back-btn, .list-action-btn, .detail-sync-btn, .device-delete-btn { border: 1px solid var(--divider-color); border-radius: 10px; background: transparent; color: var(--primary-text-color); font: inherit; }
     .back-btn, .list-action-btn, .detail-sync-btn { padding: 8px 12px; font-weight: 700; cursor: pointer; }
@@ -3797,7 +3974,7 @@ SofabatonWifiCommandsTab.styles = i`
     .list-header-copy { min-width: 0; }
     .list-header-copy .acc-title { display: block; }
     .list-header-copy .section-subtitle { margin-top: 8px; }
-    .list-header-action { grid-column: 2; grid-row: 1; align-self: start; }
+    .list-header-action { grid-column: 2; grid-row: 1; align-self: start; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .device-list { display: grid; gap: 10px; }
     .device-card { width: 100%; max-width: 100%; box-sizing: border-box; border: 1px solid var(--divider-color); border-radius: 18px; padding: 10px 14px; background: var(--ha-card-background, var(--card-background-color)); text-align: left; display: flex; align-items: center; gap: 14px; cursor: pointer; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .device-card[aria-disabled="true"] { cursor: default; opacity: 0.72; }
@@ -4130,10 +4307,12 @@ SofabatonWifiCommandsTab.styles = i`
       .dialog-footer { padding-bottom: max(env(safe-area-inset-bottom), 12px); }
       .list-header { grid-template-columns: 1fr; }
       .list-header-action { grid-column: 1; grid-row: auto; width: 100%; }
-      .list-header-action > .detail-sync-btn { width: 100%; justify-content: center; }
+      .list-header-action > .detail-sync-btn,
+      .list-header-action > .list-action-btn { width: 100%; justify-content: center; }
       .detail-title-row { gap: 8px; }
       .detail-title-main { min-width: 0; flex: 1; }
-      .detail-sync-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .detail-title-actions { gap: 6px; }
+      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .device-card { align-items: center; gap: 10px; padding: 10px 12px; }
       .device-card-main { align-items: center; flex-direction: row; gap: 10px; }
       .device-card-name { flex: 1; }
@@ -4150,9 +4329,14 @@ if (!customElements.get("sofabaton-wifi-commands-tab")) {
 
 // custom_components/sofabaton_x1s/www/src/tools-card.ts
 var TOOLS_TYPE = "sofabaton-control-panel";
-var TOOLS_VERSION = "0.0.3";
 var LOG_ONCE_KEY = `__${TOOLS_TYPE}_logged__`;
 var EDITOR_TYPE = `${TOOLS_TYPE}-editor`;
+function resolveLoadedToolsFrontendVersion() {
+  const version = new URL(import.meta.url, window.location.href).searchParams.get("v");
+  return String(version || "").trim() || "dev";
+}
+var LOADED_TOOLS_FRONTEND_VERSION = resolveLoadedToolsFrontendVersion();
+var TOOLS_VERSION = LOADED_TOOLS_FRONTEND_VERSION;
 function logOnce() {
   const windowWithFlag = window;
   if (windowWithFlag[LOG_ONCE_KEY]) return;
@@ -4180,10 +4364,13 @@ var SofabatonControlPanelCard = class extends i4 {
     this._config = {};
     this._lastRenderedTab = null;
     this._pendingCacheScrollSnapshot = null;
-    this._store = new ControlPanelStore((snapshot) => {
-      this._snapshot = snapshot;
-      this.requestUpdate();
-    });
+    this._store = new ControlPanelStore(
+      (snapshot) => {
+        this._snapshot = snapshot;
+        this.requestUpdate();
+      },
+      { loadedFrontendVersion: LOADED_TOOLS_FRONTEND_VERSION }
+    );
     this._snapshot = this._store.snapshot;
   }
   setConfig(config) {
@@ -4301,12 +4488,46 @@ var SofabatonControlPanelCard = class extends i4 {
       behavior: "smooth"
     });
   }
+  renderVersionMismatch(height) {
+    return b2`
+      <ha-card>
+        <div class="card-inner" style=${`height:${height}px`}>
+          <div class="card-header">
+            <span class="card-title">Sofabaton Control Panel</span>
+          </div>
+          <div class="card-body">
+            <div class="version-mismatch-state">
+              <div class="version-mismatch-icon"><ha-icon icon="mdi:alert"></ha-icon></div>
+              <div class="version-mismatch-title">Refresh required to update the Sofabaton Control Panel card</div>
+              <div class="version-mismatch-copy">
+                This dashboard is still using an older cached version of the Sofabaton Control Panel card than the one now running in Home Assistant.
+                Refresh or reopen the dashboard/browser before using the control panel again so the updated card can load.
+              </div>
+              <div class="version-mismatch-versions">
+                <div class="version-mismatch-row">
+                  <div class="version-mismatch-label">Backend expects</div>
+                  <div class="version-mismatch-value">${this._snapshot.toolsFrontendVersionExpected || "unknown"}</div>
+                </div>
+                <div class="version-mismatch-row">
+                  <div class="version-mismatch-label">Card loaded</div>
+                  <div class="version-mismatch-value">${this._snapshot.toolsFrontendVersionLoaded}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ha-card>
+    `;
+  }
   render() {
     const hub = selectedHub(this._snapshot);
     const cacheHub = selectedHubCache(this._snapshot);
     const cacheEnabled = persistentCacheEnabled(this._snapshot);
     const hubs = this._snapshot.state?.hubs ?? [];
     const height = Number(this._config.card_height ?? 600);
+    if (this._snapshot.toolsFrontendVersionMismatch) {
+      return this.renderVersionMismatch(height);
+    }
     const sharedHubCommandBusy = Boolean(
       this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey
     );
@@ -4315,7 +4536,8 @@ var SofabatonControlPanelCard = class extends i4 {
       loading: this._snapshot.loading,
       error: this._snapshot.loadError,
       hub,
-      hass: this._snapshot.hass
+      hass: this._snapshot.hass,
+      integrationVersion: this._snapshot.toolsFrontendVersionExpected
     });
     if (this._snapshot.selectedTab === "settings") {
       activeTab = renderSettingsTab({

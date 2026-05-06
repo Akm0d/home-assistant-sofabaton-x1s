@@ -7,7 +7,6 @@ from typing import Any, Callable, Deque, Dict, Optional
 from .commands import iter_command_records
 from .protocol_const import BUTTONNAME_BY_CODE
 
-
 class ActivityCache:
     def __init__(self) -> None:
         self.current_activity: Optional[int] = None
@@ -30,7 +29,6 @@ class ActivityCache:
         self.activity_favorite_labels: dict[int, dict[tuple[int, int], str]] = defaultdict(dict)
         self.activity_keybinding_labels: dict[int, dict[tuple[int, int], str]] = defaultdict(dict)
         self.activity_macros: dict[int, list[dict[str, int | str]]] = defaultdict(list)
-        self.keymap_remainders: dict[int, bytes] = {}
         # Only track the most recent activation to avoid unbounded growth
         self.app_activations: Deque[dict[str, Any]] = deque(maxlen=1)
 
@@ -49,103 +47,32 @@ class ActivityCache:
             return None
         return self.activities.get(act_id & 0xFF, {}).get("name")
 
-    def accumulate_keymap(self, act_lo: int, payload: bytes) -> None:
-        if act_lo not in self.buttons:
-            self.buttons[act_lo] = set()
+    def replace_keymap_rows(self, act_lo: int, row_stream: bytes) -> None:
+        """Replace the physical-button view for ``act_lo`` from an assembled row stream."""
 
-        i, n = 0, len(payload)
+        self.buttons[act_lo] = set()
+        self.button_details.pop(act_lo, None)
 
-        RECORD_SIZE = 18
+        favorites_allowed = True
+        record_size = 18
+        usable = len(row_stream) - (len(row_stream) % record_size)
 
-        remainder = self.keymap_remainders.pop(act_lo, b"")
-        if remainder:
-            needed = RECORD_SIZE - len(remainder)
-            if len(payload) < needed:
-                self.keymap_remainders[act_lo] = remainder + payload
-                return
-            # Validate the stitch: act_lo must appear in the new payload at
-            # exactly `needed` bytes in.  If it appears earlier or later the
-            # new frame has a preamble (or no records at all) that would be
-            # incorrectly spliced into the stitched record — discard the stale
-            # remainder and let normal start_index processing handle this frame.
-            _probe_limit = min(len(payload) - RECORD_SIZE + 1, 20)
-            _stitch_ok = True
-            for _j in range(max(_probe_limit, 0)):
-                if payload[_j] == act_lo:
-                    _stitch_ok = (_j == needed)
-                    break
-            if _stitch_ok:
-                record = remainder + payload[:needed]
-                favorites_allowed = not bool(self.buttons[act_lo])
-                favorites_allowed, parsed = self._parse_keymap_record(
-                    act_lo, record, favorites_allowed=favorites_allowed
-                )
-                payload = payload[needed:]
-                if not parsed:
-                    return
-            else:
-                # Stitch is invalid — the new frame has a preamble that doesn't
-                # align.  Attempt to salvage the partial remainder using the
-                # WiFi-device encoding invariant: when record[7]==0x4E the byte
-                # at record[8] encodes cmd_id as (0x20 + cmd_id), so record[9]
-                # can be inferred without the continuation bytes.
-                if (
-                    len(remainder) >= 9
-                    and remainder[7] == 0x4E
-                    and remainder[8] > 0x20
-                ):
-                    cmd_id = remainder[8] - 0x20
-                    padded = remainder + bytes([cmd_id]) + b"\x00" * (RECORD_SIZE - len(remainder) - 1)
-                    _salvage_favorites_allowed = not bool(self.buttons[act_lo])
-                    self._parse_keymap_record(act_lo, padded, favorites_allowed=_salvage_favorites_allowed)
-            i, n = 0, len(payload)
+        for start in range(0, usable, record_size):
+            record = row_stream[start : start + record_size]
+            favorites_allowed, _ = self._parse_keymap_record(
+                act_lo,
+                record,
+                favorites_allowed=favorites_allowed,
+            )
 
-        start_index = -1
-        if n >= RECORD_SIZE:
-            for j in range(min(n - RECORD_SIZE + 1, 20)):
-                if payload[j] == act_lo:
-                    start_index = j
-                    break
-
-        if start_index >= 0:
-            favorites_allowed = not bool(self.buttons[act_lo])
-            i = start_index
-            while i + RECORD_SIZE <= n:
-                favorites_allowed, parsed = self._parse_keymap_record(
-                    act_lo, payload[i : i + RECORD_SIZE], favorites_allowed=favorites_allowed
-                )
-                if not parsed:
-                    break
-
-                i += RECORD_SIZE
-            if i < n and i + RECORD_SIZE > n and payload[i] == act_lo:
-                remainder = payload[i:]
-                if len(remainder) >= 2 and remainder[1] in BUTTONNAME_BY_CODE:
-                    padded = remainder + b"\x00" * (RECORD_SIZE - len(remainder))
-                    self._parse_keymap_record(act_lo, padded, favorites_allowed=favorites_allowed)
-                    return
-                self.keymap_remainders[act_lo] = remainder
-                return
-            # Only short-circuit when we consumed the payload as full records.
-            # If parsing broke early (e.g. unknown/favorite-only rows between
-            # standard key rows), fall back to byte-scanning so later known
-            # buttons in the same payload are still captured.
-            if i >= n and self.activity_favorite_slots.get(act_lo):
-                return
-
-        i = 0
-        while i + 1 < n:
-            if payload[i] == act_lo:
-                button_code = payload[i + 1]
-                if button_code in BUTTONNAME_BY_CODE:
-                    if i + 7 < n and payload[i + 3 : i + 7] == b"\x00\x00\x00\x00":
-                        stride = 16
-                    else:
-                        stride = 20
-                    self.buttons[act_lo].add(button_code)
-                    i += stride
-                    continue
-            i += 1
+        remainder = row_stream[usable:]
+        if len(remainder) >= 2 and remainder[0] == act_lo and remainder[1] in BUTTONNAME_BY_CODE:
+            padded = remainder + b"\x00" * (record_size - len(remainder))
+            self._parse_keymap_record(
+                act_lo,
+                padded,
+                favorites_allowed=favorites_allowed,
+            )
 
     def _parse_keymap_record(
         self, act_lo: int, record: bytes, *, favorites_allowed: bool
@@ -170,18 +97,6 @@ class ActivityCache:
                 details["long_press_device_id"] = record[10]
                 details["long_press_command_id"] = record[17]
             self.button_details[act_lo][button_id] = details
-            if self._looks_like_activity_keybinding_record(
-                record,
-                device_id=device_id,
-                command_id=command_id,
-            ):
-                self._upsert_activity_keybinding_slot(
-                    act_lo,
-                    button_id=button_id,
-                    device_id=device_id,
-                    command_id=command_id,
-                    source="keymap",
-                )
             return False, True
 
         if favorites_allowed:
@@ -194,32 +109,6 @@ class ActivityCache:
             )
             return True, True
         return favorites_allowed, False
-
-
-    def _looks_like_activity_keybinding_record(
-        self, record: bytes, *, device_id: int, command_id: int
-    ) -> bool:
-        if len(record) < 18:
-            return False
-        if device_id == 0 or command_id in (0x00, 0xFC):
-            return False
-        has_no_long_press = record[10:18] == b"\x00" * 8
-        has_long_press = (
-            record[10] != 0
-            and record[11:15] == b"\x00" * 4
-            and record[15] == 0x4E
-            and record[16] != 0
-            and record[17] != 0
-        )
-        if not has_no_long_press and not has_long_press:
-            return False
-        if record[3:7] == b"\x00" * 4 and record[7] == 0x4E:
-            return True
-        if record[3:8] == b"\x00" * 5 and record[8] == 0x33:
-            return True
-        if record[3:7] == b"\x00" * 4 and record[7] == 0x42 and record[8] == 0x2D:
-            return True
-        return False
 
     def _upsert_activity_keybinding_slot(
         self,
@@ -241,7 +130,9 @@ class ActivityCache:
             if slot["button_id"] != (button_id & 0xFF):
                 continue
             existing_source = slot.get("source", "keymap")
-            if existing_source != "activity_map" and source == "activity_map":
+            # Preserve legacy activity-map slots for compatibility, but treat
+            # keymap-derived data as the authoritative source when both exist.
+            if existing_source == "activity_map" and source != "activity_map":
                 slots[idx] = {
                     "button_id": button_id & 0xFF,
                     "device_id": pair[0],
@@ -285,7 +176,9 @@ class ActivityCache:
             if (slot["device_id"], slot["command_id"]) != pair:
                 continue
             existing_source = slot.get("source", "keymap")
-            if existing_source != "activity_map" and source == "activity_map":
+            # Preserve legacy activity-map slots for compatibility, but prefer
+            # keymap-derived favorite rows when both describe the same pair.
+            if existing_source == "activity_map" and source != "activity_map":
                 slots[idx] = {
                     "button_id": button_id,
                     "device_id": pair[0],
@@ -302,12 +195,6 @@ class ActivityCache:
                 "source": source,
             }
         )
-
-    def clear_keymap_remainders(self, act_lo: int | None = None) -> None:
-        if act_lo is None:
-            self.keymap_remainders.clear()
-        else:
-            self.keymap_remainders.pop(act_lo, None)
 
     def get_activity_command_refs(self, act_lo: int) -> set[tuple[int, int]]:
         """Return the set of (device_id, command_id) pairs for the activity."""
@@ -344,7 +231,13 @@ class ActivityCache:
         *,
         button_id: int | None = None,
     ) -> None:
-        """Record an activity favorite mapping entry."""
+        """Record a legacy activity-map favorite mapping entry.
+
+        Current protocol findings suggest activity favorites primarily come
+        from REQ_BUTTONS/keymap rows; REQ_ACTIVITY_MAP is now treated as a
+        membership roster. This helper remains for compatibility with restored
+        cache data and older tests.
+        """
 
         dev_lo = device_id & 0xFF
         self.record_activity_member(act_lo, dev_lo)
@@ -637,3 +530,4 @@ class BurstScheduler:
             prefix = key.split(":", 1)[0]
             for cb in self.listeners.get(prefix, []):
                 cb(key)
+

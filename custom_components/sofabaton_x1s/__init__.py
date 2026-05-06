@@ -48,6 +48,7 @@ from .hub import SofabatonHub, get_hub_model
 from .command_config import (
     CommandConfigStore,
     MAX_WIFI_DEVICES,
+    async_get_command_config_store,
     count_configured_command_slots,
     normalize_command_id_list,
     normalize_power_command_id,
@@ -108,15 +109,7 @@ def _resolve_roku_listen_port(hass: HomeAssistant, entry_id: str) -> int:
 
 
 async def _async_get_command_config_store(hass: HomeAssistant) -> CommandConfigStore:
-    domain_data = hass.data.setdefault(DOMAIN, {})
-    store = domain_data.get("command_config_store")
-    if isinstance(store, CommandConfigStore):
-        return store
-
-    store = CommandConfigStore(hass)
-    await store.async_load()
-    domain_data["command_config_store"] = store
-    return store
+    return await async_get_command_config_store(hass)
 
 
 async def _async_get_persistent_cache_store(hass: HomeAssistant) -> PersistentCacheStore:
@@ -261,6 +254,37 @@ async def _ws_get_command_config(hass: HomeAssistant, connection, msg: dict[str,
     except KeyError:
         connection.send_error(msg["id"], "not_found", "Could not resolve Wifi Device")
         return
+    connection.send_result(msg["id"], payload)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/command_config/export",
+        vol.Required("entity_id"): cv.entity_id,
+    }
+)
+@websocket_api.async_response
+async def _ws_export_command_config(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    hub = await _async_resolve_hub_from_data(hass, {"entity_id": msg["entity_id"]})
+    if hub is None:
+        connection.send_error(msg["id"], "not_found", "Could not resolve Sofabaton hub")
+        return
+
+    store = await _async_get_command_config_store(hass)
+    roku_listen_port = _resolve_roku_listen_port(hass, hub.entry_id)
+    payload = await store.async_export_hub_config(
+        hub.entry_id,
+        roku_listen_port=roku_listen_port,
+    )
+    payload["managed_wifi_devices"] = [
+        {
+            "device_id": dev_id,
+            "device_key": device_key,
+            "commands_hash": command_hash,
+            "brand": brand,
+        }
+        for dev_id, device_key, command_hash, brand in hub._managed_wifi_devices()
+    ]
     connection.send_result(msg["id"], payload)
 
 
@@ -417,13 +441,23 @@ async def _ws_delete_command_device(hass: HomeAssistant, connection, msg: dict[s
         deleted_hub_device = bool(result)
     if not deleted_hub_device:
         snapshot = await hub._async_refresh_devices_snapshot()
-        normalized_device_key = "".join(ch for ch in str(msg["device_key"]).strip().lower() if ch.isalnum())
-        for managed_device_id, managed_key, managed_hash, _brand in hub._managed_wifi_devices(snapshot):
-            if deployed_commands_hash:
-                if managed_hash != deployed_commands_hash:
-                    continue
-            elif managed_key != normalized_device_key:
-                continue
+        stored_devices = await store.async_list_hub_devices(hub.entry_id, roku_listen_port=roku_listen_port)
+        matches, ambiguous = hub._match_managed_wifi_devices(
+            managed_devices=hub._managed_wifi_devices(snapshot),
+            stored_devices=stored_devices,
+            device_key=msg["device_key"],
+            deployed_device_id=deployed_device_id,
+            deployed_commands_hash=deployed_commands_hash,
+            commands_hash=str(payload.get("commands_hash") or ""),
+        )
+        if ambiguous:
+            connection.send_error(
+                msg["id"],
+                "ambiguous",
+                "Could not safely identify existing Wifi Device on hub",
+            )
+            return
+        for managed_device_id, _managed_key, _managed_hash, _brand in matches:
             result = await hub.async_delete_device(managed_device_id)
             deleted_hub_device = bool(result)
             if deleted_hub_device:
@@ -469,8 +503,10 @@ async def _ws_get_control_panel_state(
     hass: HomeAssistant, connection, msg: dict[str, Any]
 ) -> None:
     store = await _async_get_persistent_cache_store(hass)
+    tools_frontend_version = await _async_get_integration_version(hass)
     payload = {
         "persistent_cache_enabled": store.enabled,
+        "tools_frontend_version": tools_frontend_version,
         "hubs": [
             _build_control_panel_hub_payload(
                 hass,
@@ -739,6 +775,7 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
         return
 
     websocket_api.async_register_command(hass, _ws_get_command_config)
+    websocket_api.async_register_command(hass, _ws_export_command_config)
     websocket_api.async_register_command(hass, _ws_set_command_config)
     websocket_api.async_register_command(hass, _ws_get_command_sync_progress)
     websocket_api.async_register_command(hass, _ws_list_command_devices)
@@ -906,6 +943,7 @@ async def _async_get_integration_version(hass: HomeAssistant) -> str:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_diagnostics(hass)
+    await _async_get_command_config_store(hass)
 
     data = entry.data
     opts = entry.options

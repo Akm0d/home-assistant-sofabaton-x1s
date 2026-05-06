@@ -67,6 +67,30 @@ export const cardStyles = css`
   .hub-row-value, .setting-title, .entity-name, .cache-state-title { color: var(--primary-text-color); }
   .hub-row-label { font-size: 13px; font-weight: 700; color: color-mix(in srgb, var(--primary-text-color) 88%, var(--secondary-text-color)); }
   .hub-row-value { font-size: 13px; font-weight: 700; text-align: right; word-break: break-word; }
+  .hub-tab-layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .hub-tab-layout > .tab-panel { flex: 1; }
+  .panel-sticky-footer { flex-shrink: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
+  .bottom-dock-status {
+    width: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 16px;
+    color: var(--secondary-text-color);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.35;
+    text-align: center;
+  }
+  .dock-status-value {
+    color: var(--primary-text-color);
+    font-size: 13px;
+    font-weight: 700;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  }
   .setting-title { font-size: 14px; font-weight: 700; }
   .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .setting-tile { min-height: 132px; display: flex; flex-direction: column; border: 1px solid var(--divider-color); border-radius: calc(var(--ha-card-border-radius, 12px) + 2px); background: linear-gradient(180deg, color-mix(in srgb, var(--card-background-color, #fff) 92%, white), var(--card-background-color, #fff)); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02); overflow: hidden; }
@@ -125,6 +149,15 @@ export const cardStyles = css`
   .cache-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px 16px; text-align: center; font-size: 13px; line-height: 1.6; }
   .cache-state-icon { font-size: 32px; line-height: 1; margin-bottom: 4px; }
   .cache-state-sub { font-size: 12px; line-height: 1.5; max-width: 260px; }
+  .version-mismatch-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 28px 20px; text-align: center; }
+  .version-mismatch-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--warning-color, #ff9800); }
+  .version-mismatch-icon ha-icon { --mdc-icon-size: 34px; }
+  .version-mismatch-title { font-size: 18px; font-weight: 800; color: var(--primary-text-color); }
+  .version-mismatch-copy { max-width: 420px; font-size: 13px; line-height: 1.6; color: var(--secondary-text-color); }
+  .version-mismatch-versions { width: min(100%, 360px); display: grid; gap: 10px; padding: 14px; border: 1px solid color-mix(in srgb, var(--error-color, #db4437) 24%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 2px); background: color-mix(in srgb, var(--error-color, #db4437) 4%, var(--card-background-color, var(--ha-card-background))); text-align: left; }
+  .version-mismatch-row { display: grid; gap: 3px; }
+  .version-mismatch-label { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary-text-color); }
+  .version-mismatch-value { font-size: 13px; font-weight: 700; font-family: "SF Mono", "Fira Code", Consolas, monospace; color: var(--primary-text-color); word-break: break-word; }
   .stale-banner { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--warning-color, #ff9800) 30%, transparent); }
   .stale-banner-text { flex: 1; }
   .stale-banner-btn { background: none; border: 1px solid var(--divider-color); border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--primary-text-color); }

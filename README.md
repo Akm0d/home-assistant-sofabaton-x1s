@@ -1,12 +1,12 @@
-# Sofabaton X1/X1S/X2 – Home Assistant Custom Integration
-
+# <img src="docs/hub.svg" width="50" height="50" alt="Hub Icon">  Sofabaton X1/X1S/X2 - Home Assistant Custom Integration  
 Bi-directional control of your Sofabaton **X1**, **X1S** and **X2** hub, from Home Assistant, using **100% local APIs**.
 
 > **X2 discovery is disabled by default!** Enable it in `configuration.yaml` (see below).  
 > There is also an **official X2 integration** (MQTT-based): https://github.com/yomonpet/ha-sofabaton-hub
 
 ---
-
+[![HACS Badge](https://img.shields.io/badge/HACS-Default-green.svg)](https://github.com/hacs/integration)
+![Version](https://img.shields.io/badge/version-0.5.6-blue)  
 ## Start here
 
 - 🚀 **Quick start**: install + add your hub
