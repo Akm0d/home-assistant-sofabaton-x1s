@@ -6,7 +6,8 @@ Bi-directional control of your Sofabaton **X1**, **X1S** and **X2** hub, from Ho
 > There is also an **official X2 integration** (MQTT-based): https://github.com/yomonpet/ha-sofabaton-hub
 
 ---
-
+[![HACS Badge](https://img.shields.io/badge/HACS-Default-green.svg)](https://github.com/hacs/integration)
+![Version](https://img.shields.io/badge/version-0.5.6-blue)  
 ## Start here
 
 - 🚀 **Quick start**: install + add your hub
