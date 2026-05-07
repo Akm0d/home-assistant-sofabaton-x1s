@@ -144,6 +144,14 @@ def _decode_ascii_blocks(payload: bytes) -> list[str]:
 
 
 
+@register_handler(opcode_families_low=(0x02,), directions=("H→A",))
+class BannerInfoHandler(BaseFrameHandler):
+    """Capture family-0x02 banner replies with model/build/firmware metadata."""
+
+    def handle(self, frame: FrameContext) -> None:
+        frame.proxy.record_banner_payload(frame.opcode, frame.payload)
+
+
 @register_handler(opcode_families_low=(FAMILY_MACROS,), directions=("H→A",))
 class MacroHandler(BaseFrameHandler):
     """Decode macro pages and populate the activity cache."""

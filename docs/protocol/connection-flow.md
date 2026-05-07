@@ -44,6 +44,7 @@ TXT records of interest:
 | Key   | Example value | Meaning              |
 |-------|---------------|----------------------|
 | `HVER`| `1`, `2`, `3` | Hub version (1=X1, 2=X1S, 3=X2) |
+| `AVER`| `17`, `5`, `8` | Hub firmware version |
 | `MAC` | `AA:BB:CC:DD:EE:FF` | Hub MAC address |
 | `NAME`| `Living Room` | Human-readable hub name |
 
@@ -81,9 +82,15 @@ slots for multiple hubs).
 
 ### 1.4 Initial data exchange
 
-After TCP connects, the client immediately requests all hub data:
+After TCP connects, the client typically requests banner/version metadata first,
+then the full catalog:
 
 ```
+Client → Hub: REQ_BANNER (0x0001)
+Hub → Client: family-0x02 BANNER
+              (observed full opcodes: 0x1A02 X1, 0x1D02 X1S, 0x1502 X2)
+              carries model, production batch, hub firmware, hub name
+
 Client → Hub: REQ_ACTIVITIES (0x003A)
 Hub → Client: CATALOG_ROW_ACTIVITY rows (0xD53B) + MARKER (0x0C3D) + more rows
               … until all activities sent …
@@ -95,6 +102,21 @@ Hub → Client: CATALOG_ROW_DEVICE rows (0xD50B) + MARKER (0x0C3D) + more rows
 
 The hub may also proactively push `ACK_READY (0x0160)` frames between response
 segments to indicate it is ready for more commands.
+
+When the official app opens the version screen, an additional exchange is commonly
+observed:
+
+```
+Client → Hub: REQ_VERSION (0x0058)
+Hub → Client: WIFI_FW (0x0359)
+Hub → Client: INFO_BANNER (0x112F)
+```
+
+Observed meaning:
+- `WIFI_FW` carries the WiFi firmware version (`major.minor.patch`)
+- `INFO_BANNER` repeats model/batch and, on X1/X1S, carries remote firmware
+- hub firmware is more directly exposed by the family-`0x02` banner and by the
+  mDNS `AVER` TXT record
 
 ---
 

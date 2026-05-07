@@ -40,6 +40,8 @@ class _Hub:
         self.fetched = None
         self.cache_generation = 7
         self.host = "192.168.1.50"
+        self.banner_model = None
+        self.hub_firmware_version = 5
         self.activities = {101: {"name": "Movies"}, 102: {"name": "TV"}}
         self.devices = {1: {"name": "TV"}, 2: {"name": "Amp"}}
         self.proxy_enabled = True
@@ -339,6 +341,7 @@ def test_ws_get_control_panel_state_returns_hub_metadata(monkeypatch):
                     "entry_id": "entry-1",
                     "name": "Living Room",
                     "version": "X1S",
+                    "firmware_version": 5,
                     "ip_address": "192.168.1.50",
                     "device_count": 2,
                     "activity_count": 2,

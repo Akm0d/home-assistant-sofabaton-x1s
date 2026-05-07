@@ -30,6 +30,7 @@ export interface ControlPanelHubState {
   entry_id: string;
   name?: string;
   version?: string;
+  firmware_version?: number | string | null;
   ip_address?: string;
   activity_count?: number;
   device_count?: number;

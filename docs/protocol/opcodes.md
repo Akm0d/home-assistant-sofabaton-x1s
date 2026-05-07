@@ -17,6 +17,7 @@ This document describes observed wire behavior. Implementation notes belong in
 
 | Opcode   | Name | Payload shape | Hub versions | Purpose |
 |----------|------|---------------|--------------|---------|
+| `0x0001` | `REQ_BANNER` | none observed | All observed | Request family-`0x02` banner with model, batch, and hub firmware |
 | `0x000A` | `REQ_DEVICES` | none observed | All | Request device catalog |
 | `0x003A` | `REQ_ACTIVITIES` | none observed | All | Request activity catalog |
 | `0x023C` | `REQ_BUTTONS` | `[act_lo, 0xFF]` | All | Request activity keymap and favorite rows |
@@ -28,7 +29,7 @@ This document describes observed wire behavior. Implementation notes belong in
 | `0x0162` | `FAV_ORDER_REQ` | `[act_lo]` | All observed | Request current favorite ordering |
 | `0x0210` | `FAV_DELETE` | activity/favorite ids | All observed | Delete one favorite |
 | `0x0109` | `DELETE_DEVICE` | `[dev_lo]` | All observed | Delete one device |
-| `0x0058` | `REQ_VERSION` | none observed | All observed | Request firmware/version banners |
+| `0x0058` | `REQ_VERSION` | none observed | All observed | Request WiFi firmware and follow-up version/info banner frames |
 | `0x0140` | `PING2` | none observed | All observed | Keepalive probe |
 | `0x024F` | `ACTIVITY_DEVICE_CONFIRM` | `[dev_lo, include_flag]` | All observed | Confirm device membership during activity assignment |
 | `0x0265` | `ACTIVITY_ASSIGN_COMMIT` | variable | X1S, X2 observed | Post-save commit marker in some activity/device flows |
@@ -288,9 +289,23 @@ Observed text encoding:
 | `0x0301` | `ACK_SUCCESS` | `H->A` | General acknowledgment |
 | `0x0160` | `ACK_READY` | `H->A` | Hub ready for next command |
 | `0x0242` | `PING2_ACK` | `H->A` | Keepalive reply on X1S/X2 |
-| `0x1D02` | `BANNER` | `H->A` | Hub identity/banner |
+| family `0x02` | `BANNER` | `H->A` | Hub identity/banner; observed full opcodes include `0x1A02` (X1), `0x1D02` (X1S), `0x1502` (X2) |
 | `0x0359` | `WIFI_FW` | `H->A` | WiFi firmware string |
 | `0x112F` | `INFO_BANNER` | `H->A` | Additional version/build data |
+
+Observed family-`0x02` banner semantics:
+- `payload[7]` = model code (`0x01` X1, `0x02` X1S, `0x03` X2)
+- `payload[8:12]` = production batch bytes (`20 22 11 20` -> `20221120`)
+- `payload[12]` = hub firmware version
+- `payload[13:15]` = trailing flags:
+  - X1 observed: `00 00`
+  - X1S/X2 observed: `01 00`
+- `payload[15:]` = UTF-8 hub name
+
+Observed `INFO_BANNER` (`0x112F`) semantics:
+- repeats model and production-batch bytes
+- X1/X1S carry remote firmware in `payload[12]`
+- hub firmware itself is more directly exposed by the family-`0x02` banner
 
 ---
 

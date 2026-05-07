@@ -1,7 +1,8 @@
 # Hub Versions
 
-The Sofabaton hub family has three observed hardware generations. The version is
-usually exposed in the mDNS TXT record `HVER`.
+The Sofabaton hub family has three observed hardware generations. The model is
+usually exposed in the mDNS TXT record `HVER`. The hub firmware version is also
+exposed in the mDNS TXT record `AVER`.
 
 ---
 
@@ -12,6 +13,14 @@ usually exposed in the mDNS TXT record `HVER`.
 | `1` | X1 |
 | `2` | X1S |
 | `3` | X2 |
+
+Observed `AVER` values:
+
+| Model | Example `AVER` | Meaning |
+|-------|----------------|---------|
+| X1 | `17` | Hub firmware version `17` |
+| X1S | `5` | Hub firmware version `5` |
+| X2 | `8` | Hub firmware version `8` |
 
 If `HVER` is unavailable, the first catalog opcode seen on the wire also
 distinguishes X1 from X1S/X2:
@@ -38,17 +47,44 @@ but the physical X2 hardware has been observed using `_sofabaton_hub._udp.local.
 
 ---
 
+## Banner / version block differences
+
+The same core version block appears in:
+
+- UDP `NOTIFY_ME` discovery replies
+- TCP family-`0x02` banner replies after `REQ_BANNER (0x0001)`
+
+Stable field meanings:
+
+| Offset within block | Meaning |
+|---------------------|---------|
+| byte 0 | leading marker (`0x64` in observed UDP discovery replies, `0x00` or `0x64` in observed TCP banners) |
+| byte 1 | model code (`0x01` X1, `0x02` X1S, `0x03` X2) |
+| bytes 2-5 | production batch as packed date bytes |
+| byte 6 | hub firmware version |
+| bytes 7-8 | trailing flags (`00 00` on observed X1 TCP banners, `01 00` on observed X1S/X2 banners) |
+
+Representative observed blocks:
+
+| Model | Observed block | Interpreted as |
+|-------|----------------|----------------|
+| X1 | `64 01 20 21 06 09 11 00 00` | model `X1`, batch `20210609`, hub fw `17` |
+| X1S | `00 02 20 22 11 20 05 01 00` | model `X1S`, batch `20221120`, hub fw `5` |
+| X2 | `00 03 20 22 11 20 08 01 00` | model `X2`, batch `20221120`, hub fw `8` |
+
+---
+
 ## NOTIFY_ME reply differences
 
 The UDP discovery reply differs by hub line.
 
-| Field | X1 / X2 | X1S |
-|-------|---------|-----|
-| Frame-type byte | `0x1A` | `0x1D` |
-| Device-id suffix byte | `0x4B` | `0x45` |
-| Version block | `64 01 20 21 06 09 11 00 00` | `64 02 20 22 11 20 05 01 00` |
-| Name field size | up to 12 bytes | 14 bytes, zero-padded |
-| Trailer byte | none observed | `0xBE` |
+| Field | X1 | X1S | X2 |
+|-------|----|-----|----|
+| Frame-type byte | `0x1A` | `0x1D` | `0x1A` in observed UDP discovery, `0x15` in observed TCP banner replies |
+| Device-id suffix byte | `0x4B` | `0x45` | `0x4B` |
+| Representative version block | `64 01 20 21 06 09 11 00 00` | `64 02 20 22 11 20 05 01 00` | `00 03 20 22 11 20 08 01 00` observed in TCP banner replies |
+| Name field size | up to 12 bytes | 14 bytes, zero-padded | `X2 HUB` observed in TCP banner replies |
+| Trailer byte | none observed | `0xBE` | none observed |
 
 ---
 

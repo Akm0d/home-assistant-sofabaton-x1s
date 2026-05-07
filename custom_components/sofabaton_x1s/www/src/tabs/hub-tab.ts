@@ -59,6 +59,7 @@ export function renderHubTab(params: {
         </div>
         <div class="hub-info-list">
           ${params.hub.version ? row("version", "Version", `Sofabaton ${params.hub.version}`) : null}
+          ${params.hub.firmware_version != null ? row("version", "Firmware Version", params.hub.firmware_version) : null}
           ${params.hub.ip_address ? row("ip", "IP Address", params.hub.ip_address) : null}
           ${row("activities", "Activities", Number(params.hub.activity_count || 0))}
           ${row("devices", "Devices", Number(params.hub.device_count || 0))}

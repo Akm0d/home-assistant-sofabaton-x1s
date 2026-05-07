@@ -53,6 +53,7 @@ BUTTONNAME_BY_CODE = {
 
 
 # A→H requests (from app/client to hub)
+OP_REQ_BANNER = 0x0001  # yields family-0x02 banner reply with model/batch/hub-fw
 OP_REQ_DEVICES = 0x000A  # yields CATALOG_ROW_DEVICE rows (0xD50B)
 OP_REQ_ACTIVITIES = 0x003A  # yields CATALOG_ROW_ACTIVITY rows (0xD53B)
 OP_REQ_BUTTONS = 0x023C  # payload: [act_lo, 0xFF]
@@ -145,13 +146,14 @@ OP_ACTIVITY_ASSIGN_FINALIZE = 0xD538  # A→H post-macro activity assignment sav
 OP_ACTIVITY_ASSIGN_COMMIT = 0x0265  # A→H post-save commit marker (observed on X2)
 OP_ACTIVITY_CONFIRM = 0x7B38  # A→H activity confirmation row write (observed X1)
 OP_ACTIVITY_MAP_PAGE_X1S = 0xD56D  # H→A activity mapping page variant (X1S/X2)
-OP_BANNER = 0x1D02  # hub ident, name, batch, hub fw (first screen)
+OP_BANNER = 0x1D02  # representative family-0x02 banner reply with hub ident/name/batch/fw
 OP_WIFI_FW = 0x0359  # WiFi firmware ver (Vx.y.z)
 OP_INFO_BANNER = 0x112F  # vendor tag, batch date, remote fw byte, etc.
 
 
 OPNAMES: Dict[int, str] = {
     OP_CALL_ME: "CALL_ME",
+    OP_REQ_BANNER: "REQ_BANNER",
     OP_REQ_ACTIVITIES: "REQ_ACTIVITIES",
     OP_REQ_DEVICES: "REQ_DEVICES",
     OP_REQ_BUTTONS: "REQ_BUTTONS",
@@ -285,6 +287,7 @@ __all__ = [
     "SYNC1",
     "ButtonName",
     "BUTTONNAME_BY_CODE",
+    "OP_REQ_BANNER",
     "OP_REQ_DEVICES",
     "OP_REQ_ACTIVITIES",
     "OP_REQ_BUTTONS",

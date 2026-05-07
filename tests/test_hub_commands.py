@@ -514,6 +514,76 @@ def test_async_restore_persistent_cache_bumps_cache_generation():
     loop.close()
 
 
+def test_async_initial_sync_fetches_banner_first_and_persists_cache(monkeypatch):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    hass = FakeHass(loop)
+
+    class _Store:
+        enabled = True
+
+        def __init__(self):
+            self.saved = []
+
+        async def async_set_hub_cache(self, entry_id, payload):
+            self.saved.append((entry_id, payload))
+
+    store = _Store()
+
+    hub = SofabatonHub(
+        hass,
+        "entry-id",
+        "hub-name",
+        "127.0.0.1",
+        1234,
+        {},
+        9999,
+        10000,
+        True,
+        False,
+    )
+
+    calls: list[str] = []
+
+    def _fetch_banner_info(*, force_refresh=True, timeout=2.0):
+        calls.append("banner")
+        info = {
+            "model": "X2",
+            "production_batch": "20221120",
+            "firmware_version": 8,
+            "name": "X2 HUB",
+        }
+        hub._proxy._banner_info = dict(info)
+        return (info, True)
+
+    def _get_activities(*, force_refresh=True):
+        calls.append("activities")
+        return ({}, False)
+
+    def _get_devices():
+        calls.append("devices")
+        return ({}, False)
+
+    async def _get_store():
+        return store
+
+    monkeypatch.setattr(hub._proxy, "fetch_banner_info", _fetch_banner_info)
+    monkeypatch.setattr(hub._proxy, "get_activities", _get_activities)
+    monkeypatch.setattr(hub._proxy, "get_devices", _get_devices)
+    monkeypatch.setattr(hub, "_async_get_persistent_cache_store", _get_store)
+
+    loop.run_until_complete(hub._async_initial_sync())
+
+    assert calls == ["banner", "activities", "devices"]
+    assert hub.banner_model == "X2"
+    assert hub.production_batch == "20221120"
+    assert hub.hub_firmware_version == 8
+    assert store.saved
+    assert store.saved[-1][1]["banner_info"]["firmware_version"] == 8
+
+    loop.close()
+
+
 def test_device_fetch_waits_until_command_burst_completes(monkeypatch):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

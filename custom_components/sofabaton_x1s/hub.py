@@ -42,6 +42,7 @@ from .const import (
 )
 from .diagnostics import async_disable_hex_logging_capture, async_enable_hex_logging_capture
 from .logging_utils import get_hub_logger
+from .cache_store import PersistentCacheStore
 from .lib.protocol_const import ButtonName
 from .lib.x1_proxy import X1Proxy
 from .command_config import (
@@ -127,6 +128,9 @@ class SofabatonHub:
         self.current_activity: Optional[int] = None
         self.client_connected: bool = False
         self.hub_connected: bool = False
+        self.banner_model: str | None = None
+        self.hub_firmware_version: int | None = None
+        self.production_batch: str | None = None
         self.activities_ready: bool = False
         self.devices_ready: bool = False
         self._devices_generation: int = 0
@@ -169,6 +173,45 @@ class SofabatonHub:
     def _bump_cache_generation(self) -> int:
         self._cache_generation += 1
         return self._cache_generation
+
+    def _apply_banner_info(self, banner_info: dict[str, Any] | None) -> bool:
+        info = banner_info if isinstance(banner_info, dict) else {}
+        next_model = str(info.get("model") or "").strip() or None
+        next_batch = str(info.get("production_batch") or "").strip() or None
+        firmware_value = info.get("firmware_version")
+        next_firmware = int(firmware_value) if isinstance(firmware_value, (int, float)) else None
+
+        changed = (
+            self.banner_model != next_model
+            or self.production_batch != next_batch
+            or self.hub_firmware_version != next_firmware
+        )
+        if not changed:
+            return False
+
+        self.banner_model = next_model
+        self.production_batch = next_batch
+        self.hub_firmware_version = next_firmware
+        return True
+
+    async def _async_get_persistent_cache_store(self) -> PersistentCacheStore:
+        domain_data = self.hass.data.setdefault(DOMAIN, {})
+        store = domain_data.get("persistent_cache_store")
+        if isinstance(store, PersistentCacheStore):
+            return store
+
+        store = PersistentCacheStore(self.hass)
+        await store.async_load()
+        domain_data["persistent_cache_store"] = store
+        return store
+
+    async def _async_persist_cache_if_enabled(self) -> bool:
+        store = await self._async_get_persistent_cache_store()
+        if not store.enabled:
+            return False
+
+        await store.async_set_hub_cache(self.entry_id, await self.async_export_cache_state())
+        return True
 
     def _activity_catalog_signature(
         self, activities: dict[int, dict[str, Any]] | None = None
@@ -486,6 +529,23 @@ class SofabatonHub:
     # async helpers
     # ------------------------------------------------------------------
     async def _async_initial_sync(self) -> None:
+        banner_info, banner_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.fetch_banner_info, force_refresh=True)
+        )
+        banner_changed = self._apply_banner_info(banner_info if banner_ready else {})
+        self._log.debug(
+            "[%s] initial_sync: got banner ready=%s model=%s batch=%s fw=%s",
+            self.entry_id,
+            banner_ready,
+            self.banner_model,
+            self.production_batch,
+            self.hub_firmware_version,
+        )
+        if banner_changed:
+            self._bump_cache_generation()
+            async_dispatcher_send(self.hass, signal_hub(self.entry_id))
+        await self._async_persist_cache_if_enabled()
+
         acts, acts_ready = await self.hass.async_add_executor_job(partial(self._proxy.get_activities, force_refresh=True))
         self._log.debug(
             "[%s] initial_sync: got activities ready=%s count=%s",
@@ -526,6 +586,7 @@ class SofabatonHub:
 
     async def async_restore_persistent_cache(self, payload: dict[str, Any]) -> None:
         await self.hass.async_add_executor_job(self._proxy.import_cache_state, payload)
+        self._apply_banner_info(self._proxy.get_banner_info())
 
         devs, devs_ready = await self.hass.async_add_executor_job(self._proxy.get_devices)
         self.devices_ready = devs_ready

@@ -99,10 +99,74 @@ def _build_payload_context(proxy: X1Proxy, opcode: int, payload: bytes, name: st
     )
 
 
+def test_record_banner_payload_parses_all_hub_lines() -> None:
+    x1_proxy = X1Proxy("127.0.0.1", hub_version=HUB_VERSION_X1)
+    x1 = x1_proxy.record_banner_payload(
+        0x1A02,
+        bytes.fromhex("cb383539684b6401202106091100005831204855422074657374"),
+    )
+    assert x1 == {
+        "model": "X1",
+        "production_batch": "20210609",
+        "firmware_version": 17,
+        "name": "X1 HUB test",
+    }
+
+    x1s_proxy = X1Proxy("127.0.0.1", hub_version=HUB_VERSION_X1S)
+    x1s = x1s_proxy.record_banner_payload(
+        0x1D02,
+        bytes.fromhex("e26a44861b45000220221120050100536f757465727261696e20687562"),
+    )
+    assert x1s == {
+        "model": "X1S",
+        "production_batch": "20221120",
+        "firmware_version": 5,
+        "name": "Souterrain hub",
+    }
+
+    x2_proxy = X1Proxy("127.0.0.1", hub_version=HUB_VERSION_X1S)
+    x2 = x2_proxy.record_banner_payload(
+        0x1502,
+        bytes.fromhex("fc012c39d390000320221120080100583220485542"),
+    )
+    assert x2 == {
+        "model": "X2",
+        "production_batch": "20221120",
+        "firmware_version": 8,
+        "name": "X2 HUB",
+    }
+    assert x2_proxy.hub_version == "X2"
+
+
+def test_banner_info_roundtrips_through_cache_export() -> None:
+    proxy = X1Proxy("127.0.0.1", hub_version=HUB_VERSION_X1S)
+    proxy.record_banner_payload(
+        0x1D02,
+        bytes.fromhex("e26a44861b45000220221120050100536f757465727261696e20687562"),
+    )
+
+    payload = proxy.export_cache_state()
+
+    restored = X1Proxy("127.0.0.1", hub_version=HUB_VERSION_X1)
+    restored.import_cache_state(payload)
+
+    assert restored.get_banner_info() == {
+        "model": "X1S",
+        "production_batch": "20221120",
+        "firmware_version": 5,
+        "name": "Souterrain hub",
+    }
+    assert restored.hub_version == "X1S"
+
+
 def _start_activity_request(proxy: X1Proxy, *, allow_noninitial_rows: bool = False) -> None:
     proxy._begin_activity_request()
     if allow_noninitial_rows:
         proxy._activity_pending_generation = proxy._activity_request_inflight
+
+
+def _start_device_request(proxy: X1Proxy) -> None:
+    proxy._begin_device_request()
 
 
 def _build_macro_raw(op_hi: int, frag_index: int, total_frags: int, act: int, payload: bytes) -> str:
@@ -852,6 +916,7 @@ def test_x1_device_row_updates_state_and_burst() -> None:
         "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
     )
     handler = X1CatalogDeviceHandler()
+    _start_device_request(proxy)
 
     frame = _build_context(
         proxy,
@@ -862,7 +927,8 @@ def test_x1_device_row_updates_state_and_burst() -> None:
 
     handler.handle(frame)
 
-    assert proxy.state.devices[0x01] == {
+    assert proxy._device_pending_rows[0x09] == {
+        "id": 0x01,
         "brand": "Streaming Stick 4K",
         "name": "Roku",
     }

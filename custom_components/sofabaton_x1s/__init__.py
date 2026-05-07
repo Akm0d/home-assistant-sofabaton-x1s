@@ -170,7 +170,8 @@ def _build_control_panel_hub_payload(
     persistent_cache_enabled: bool,
 ) -> dict[str, Any]:
     entry = hass.config_entries.async_get_entry(hub.entry_id)
-    version = get_hub_model(entry) if entry is not None else getattr(hub, "version", "")
+    banner_model = str(getattr(hub, "banner_model", "") or "").strip()
+    version = banner_model or (get_hub_model(entry) if entry is not None else getattr(hub, "version", ""))
     can_run_hub_actions = bool(getattr(hub, "hub_connected", False)) and not bool(
         getattr(hub, "client_connected", False)
     )
@@ -180,6 +181,7 @@ def _build_control_panel_hub_payload(
         "entry_id": hub.entry_id,
         "name": hub.name,
         "version": version,
+        "firmware_version": getattr(hub, "hub_firmware_version", None),
         "ip_address": getattr(hub, "host", ""),
         "device_count": len(devices),
         "activity_count": len(activities),

@@ -68,6 +68,7 @@ from .protocol_const import (
     OP_REQ_ACTIVITIES,
     OP_REQ_ACTIVATE,
     OP_REQ_ACTIVITY_MAP,
+    OP_REQ_BANNER,
     OP_DELETE_DEVICE,
     OP_ACTIVITY_ASSIGN_FINALIZE,
     OP_ACTIVITY_CONFIRM,
@@ -94,6 +95,18 @@ from .transport_bridge import TransportBridge
 log = logging.getLogger("x1proxy")
 
 ACTIVITY_INCOMPLETE_RETRY_DELAY_S = 0.75
+_HUB_MODEL_BY_CODE = {
+    0x01: HUB_VERSION_X1,
+    0x02: HUB_VERSION_X1S,
+    0x03: HUB_VERSION_X2,
+}
+
+
+def _normalize_banner_model(value: Any) -> str | None:
+    text = str(value or "").strip().upper()
+    if text in _HUB_MODEL_BY_CODE.values():
+        return text
+    return None
 
 def _sum8(b: bytes) -> int: return sum(b) & 0xFF
 def _hexdump(data: bytes) -> str: return data.hex(" ")
@@ -360,6 +373,9 @@ class X1Proxy:
         self._activity_inputs_last_ts = 0.0
         self._activity_inputs_event = threading.Event()
         self._activity_inputs_payloads: list[bytes] = []
+        self._banner_info_lock = threading.Lock()
+        self._banner_info_event = threading.Event()
+        self._banner_info: dict[str, Any] = {}
 
         self.transport = TransportBridge(
             real_hub_ip,
@@ -581,6 +597,79 @@ class X1Proxy:
         #  "commands:101"   -> just entity 101
         self._burst.on_burst_end(key, cb)
 
+    def get_banner_info(self) -> dict[str, Any]:
+        with self._banner_info_lock:
+            return dict(self._banner_info)
+
+    def request_banner_info(self) -> bool:
+        return self.enqueue_cmd(OP_REQ_BANNER)
+
+    def fetch_banner_info(
+        self,
+        *,
+        force_refresh: bool = True,
+        timeout: float = 2.0,
+    ) -> tuple[dict[str, Any], bool]:
+        cached = self.get_banner_info()
+        if cached and not force_refresh:
+            return (cached, True)
+
+        if not self.can_issue_commands():
+            return (cached, bool(cached))
+
+        self._banner_info_event.clear()
+        if not self.request_banner_info():
+            return (cached, bool(cached))
+
+        self._banner_info_event.wait(timeout)
+        info = self.get_banner_info()
+        return (info, bool(info))
+
+    def record_banner_payload(self, opcode: int, payload: bytes) -> dict[str, Any] | None:
+        if opcode_family(opcode) != 0x02 or len(payload) < 15:
+            return None
+
+        model = _HUB_MODEL_BY_CODE.get(payload[7] & 0xFF)
+        trailer_flag = payload[13] & 0xFF
+        trailer_zero = payload[14] & 0xFF
+        if model is None or trailer_zero != 0x00 or trailer_flag not in (0x00, 0x01):
+            return None
+
+        batch = payload[8:12].hex()
+        firmware_version = payload[12] & 0xFF
+        banner_name = payload[15:].decode("utf-8", errors="ignore").strip("\x00").strip()
+        parsed = {
+            "model": model,
+            "production_batch": batch,
+            "firmware_version": firmware_version,
+            "name": banner_name,
+        }
+
+        changed = False
+        with self._banner_info_lock:
+            if self._banner_info != parsed:
+                self._banner_info = dict(parsed)
+                changed = True
+
+        if changed:
+            if self.hub_version != model:
+                self._log.info(
+                    "[BANNER] model corrected from %s to %s",
+                    self.hub_version,
+                    model,
+                )
+                self.hub_version = model
+            self._log.info(
+                "[BANNER] model=%s batch=%s fw=%d name=%s",
+                model,
+                batch,
+                firmware_version,
+                banner_name or "<unknown>",
+            )
+
+        self._banner_info_event.set()
+        return parsed
+
     # High-level helpers
     def request_devices(self) -> bool:    return self.enqueue_cmd(OP_REQ_DEVICES, expects_burst=True, burst_kind="devices")
     def request_activities(self, *, is_retry: bool = False) -> bool:
@@ -756,6 +845,7 @@ class X1Proxy:
 
     def export_cache_state(self) -> dict[str, Any]:
         return {
+            "banner_info": self.get_banner_info(),
             "devices": {str(k): dict(v) for k, v in self.state.devices.items()},
             "buttons": {str(k): sorted(v) for k, v in self.state.buttons.items()},
             "commands": {
@@ -812,6 +902,27 @@ class X1Proxy:
 
     def import_cache_state(self, payload: dict[str, Any]) -> None:
         data = payload if isinstance(payload, dict) else {}
+
+        banner_info = data.get("banner_info", {})
+        if isinstance(banner_info, dict):
+            sanitized: dict[str, Any] = {}
+            model = _normalize_banner_model(banner_info.get("model"))
+            if model:
+                sanitized["model"] = model
+            batch = str(banner_info.get("production_batch", "")).strip()
+            if batch:
+                sanitized["production_batch"] = batch
+            firmware_version = banner_info.get("firmware_version")
+            if isinstance(firmware_version, (int, float)):
+                sanitized["firmware_version"] = int(firmware_version)
+            name = str(banner_info.get("name", "")).strip()
+            if name:
+                sanitized["name"] = name
+            with self._banner_info_lock:
+                self._banner_info = sanitized
+            if sanitized.get("model"):
+                self.hub_version = str(sanitized["model"])
+            self._banner_info_event.set()
 
         devices = data.get("devices", {})
         self.state.devices = {
