@@ -586,8 +586,8 @@ class SofabatonWifiCommandsTab extends LitElement {
       .list-header-action > .list-action-btn { width: 100%; justify-content: center; }
       .detail-title-row { gap: 8px; }
       .detail-title-main { min-width: 0; flex: 1; }
-      .detail-title-actions { gap: 6px; }
-      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .detail-title-actions { gap: 6px; min-width: max-content; }
+      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; white-space: nowrap; }
       .device-card { align-items: center; gap: 10px; padding: 10px 12px; }
       .device-card-main { align-items: center; flex-direction: row; gap: 10px; }
       .device-card-name { flex: 1; }

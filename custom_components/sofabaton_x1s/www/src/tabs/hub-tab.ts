@@ -18,6 +18,9 @@ export function renderHubTab(params: {
   const haActive = connected || proxyOn;
   const haFullyActive = connected && proxyOn;
   const integrationVersion = String(params.integrationVersion ?? "").trim() || "unknown";
+  const hubVersion = String(params.hub.version ?? "").trim();
+  const firmwareVersion = params.hub.firmware_version != null ? `FW: v${params.hub.firmware_version}` : "";
+  const versionValue = [hubVersion ? `Sofabaton ${hubVersion}` : "", firmwareVersion].filter(Boolean).join(" / ");
   const row = (kind: "version" | "ip" | "activities" | "devices", label: string, value: unknown) => html`
     <div class="hub-row">
       <span class="hub-row-icon">${hubIcon(kind, "hub-row-icon-svg")}</span>
@@ -58,8 +61,7 @@ export function renderHubTab(params: {
           <span class="hub-proxy-badge ${proxyOn ? "hub-proxy-badge--on" : "hub-proxy-badge--off"}">${proxyOn ? "App connected" : "App not connected"}</span>
         </div>
         <div class="hub-info-list">
-          ${params.hub.version ? row("version", "Version", `Sofabaton ${params.hub.version}`) : null}
-          ${params.hub.firmware_version != null ? row("version", "Firmware Version", params.hub.firmware_version) : null}
+          ${versionValue ? row("version", "Version", versionValue) : null}
           ${params.hub.ip_address ? row("ip", "IP Address", params.hub.ip_address) : null}
           ${row("activities", "Activities", Number(params.hub.activity_count || 0))}
           ${row("devices", "Devices", Number(params.hub.device_count || 0))}

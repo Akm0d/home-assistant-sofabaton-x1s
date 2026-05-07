@@ -1563,6 +1563,9 @@ function renderHubTab(params) {
   const haActive = connected || proxyOn;
   const haFullyActive = connected && proxyOn;
   const integrationVersion = String(params.integrationVersion ?? "").trim() || "unknown";
+  const hubVersion = String(params.hub.version ?? "").trim();
+  const firmwareVersion = params.hub.firmware_version != null ? `FW: v${params.hub.firmware_version}` : "";
+  const versionValue = [hubVersion ? `Sofabaton ${hubVersion}` : "", firmwareVersion].filter(Boolean).join(" / ");
   const row = (kind, label, value) => b2`
     <div class="hub-row">
       <span class="hub-row-icon">${hubIcon(kind, "hub-row-icon-svg")}</span>
@@ -1602,8 +1605,7 @@ function renderHubTab(params) {
           <span class="hub-proxy-badge ${proxyOn ? "hub-proxy-badge--on" : "hub-proxy-badge--off"}">${proxyOn ? "App connected" : "App not connected"}</span>
         </div>
         <div class="hub-info-list">
-          ${params.hub.version ? row("version", "Version", `Sofabaton ${params.hub.version}`) : null}
-          ${params.hub.firmware_version != null ? row("version", "Firmware Version", params.hub.firmware_version) : null}
+          ${versionValue ? row("version", "Version", versionValue) : null}
           ${params.hub.ip_address ? row("ip", "IP Address", params.hub.ip_address) : null}
           ${row("activities", "Activities", Number(params.hub.activity_count || 0))}
           ${row("devices", "Devices", Number(params.hub.device_count || 0))}
@@ -4312,8 +4314,8 @@ SofabatonWifiCommandsTab.styles = i`
       .list-header-action > .list-action-btn { width: 100%; justify-content: center; }
       .detail-title-row { gap: 8px; }
       .detail-title-main { min-width: 0; flex: 1; }
-      .detail-title-actions { gap: 6px; }
-      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .detail-title-actions { gap: 6px; min-width: max-content; }
+      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; white-space: nowrap; }
       .device-card { align-items: center; gap: 10px; padding: 10px 12px; }
       .device-card-main { align-items: center; flex-direction: row; gap: 10px; }
       .device-card-name { flex: 1; }
