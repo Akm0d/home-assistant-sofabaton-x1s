@@ -546,21 +546,10 @@ class SofabatonWifiCommandsTab extends LitElement {
     .action-selector-wrap[hidden] { display: none; }
     .dialog-text { font-size: 14px; line-height: 1.55; color: var(--primary-text-color); }
     .warning-optout { display: flex; align-items: center; gap: 10px; }
+    .dialog-body ha-input,
     .dialog-body ha-textfield,
     .dialog-body ha-selector {
       width: 100%;
-      --input-fill-color: var(--ha-color-form-background);
-      --mdc-theme-surface: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
-      --mdc-text-field-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
-      --mdc-text-field-hover-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
-      --mdc-text-field-disabled-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, black);
-      --mdc-text-field-idle-line-color: var(--divider-color);
-      --mdc-text-field-hover-line-color: var(--primary-color);
-      --mdc-text-field-focused-line-color: var(--primary-color);
-      --mdc-text-field-label-ink-color: var(--secondary-text-color);
-      --mdc-text-field-ink-color: var(--primary-text-color);
-      --mdc-text-field-input-text-color: var(--primary-text-color);
-      --text-field-hover-color: var(--primary-text-color);
       --mdc-select-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
       --mdc-select-hover-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
       --mdc-select-idle-line-color: var(--divider-color);
@@ -571,6 +560,10 @@ class SofabatonWifiCommandsTab extends LitElement {
       --mdc-theme-on-surface: var(--primary-text-color);
       --mdc-theme-text-primary-on-background: var(--primary-text-color);
       --mdc-theme-primary: var(--primary-color);
+    }
+    .dialog-body ha-input {
+      --ha-input-padding-top: 0;
+      --ha-input-padding-bottom: 0;
     }
     @media (max-width: 640px) {
       .command-grid { grid-template-columns: 1fr; }
@@ -650,6 +643,30 @@ class SofabatonWifiCommandsTab extends LitElement {
     this.renderRoot
       .querySelectorAll<HTMLElement>("ha-selector[data-hide-action-type='1']")
       .forEach((element) => this._hideUiActionTypeSelector(element));
+    if (changed.has("_createDeviceModalOpen") && this._createDeviceModalOpen) {
+      this._focusInputAfterRender("#sb-new-device-name");
+    }
+    if (changed.has("_activeCommandModal") && this._activeCommandModal === "details") {
+      this._focusInputAfterRender("#sb-command-display-name");
+    }
+  }
+
+  private _focusInputAfterRender(selector: string) {
+    requestAnimationFrame(() => {
+      const field = this.renderRoot.querySelector<HTMLElement>(selector) as (HTMLElement & { shadowRoot?: ShadowRoot | null }) | null;
+      if (field) {
+        field.focus();
+        if (field instanceof HTMLInputElement) {
+          field.select();
+          return;
+        }
+        field.shadowRoot?.querySelector<HTMLInputElement>("input")?.select();
+      }
+    });
+  }
+
+  private _useLegacyTextField() {
+    return Boolean(customElements.get("ha-textfield")) && !customElements.get("ha-input");
   }
 
   protected render() {
@@ -905,26 +922,56 @@ class SofabatonWifiCommandsTab extends LitElement {
             <button class="dialog-close" @click=${this._closeCreateDeviceModal}><ha-icon icon="mdi:close"></ha-icon></button>
           </div>
           <div class="dialog-body">
-            <ha-textfield
-              .label=${"Device name"}
-              .maxLength=${20}
-              .value=${this._newDeviceName}
-              @input=${(event: Event) => {
-                const input = event.currentTarget as HTMLInputElement;
-                const value = this._sanitizeWifiDeviceName(input.value);
-                input.value = value;
-                this._newDeviceName = value;
-                this._deviceMutationError = "";
-              }}
-              @change=${(event: Event) => {
-                const input = event.currentTarget as HTMLInputElement;
-                const value = this._sanitizeWifiDeviceName(input.value);
-                input.value = value;
-                this._newDeviceName = value;
-                this._deviceMutationError = "";
-              }}
-              @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); void this._createWifiDevice(); } }}
-            ></ha-textfield>
+            ${this._useLegacyTextField()
+              ? html`
+                  <ha-textfield
+                    id="sb-new-device-name"
+                    .label=${"Device name"}
+                    .maxLength=${20}
+                    .value=${this._newDeviceName}
+                    .disabled=${this._creatingDevice}
+                    @input=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @change=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); void this._createWifiDevice(); } }}
+                  ></ha-textfield>
+                `
+              : html`
+                  <ha-input
+                    id="sb-new-device-name"
+                    type="text"
+                    .label=${"Device name"}
+                    .maxlength=${20}
+                    .value=${this._newDeviceName}
+                    .disabled=${this._creatingDevice}
+                    @input=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @change=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); void this._createWifiDevice(); } }}
+                  ></ha-input>
+                `}
           </div>
           <div class="dialog-footer">
             <div class="dialog-footer-note">${this._deviceMutationError}</div>
@@ -1054,23 +1101,48 @@ class SofabatonWifiCommandsTab extends LitElement {
             </div>
             <div class="config-block">
               <div class="config-group">
-                <ha-textfield
-                  .label=${"Command Display Name"}
-                  .maxLength=${20}
-                  .value=${draft.name}
-                  @input=${(event: Event) => {
-                    const input = event.currentTarget as HTMLInputElement;
-                    const value = this._sanitizeCommandName(input.value);
-                    if (input.value !== value) input.value = value;
-                  }}
-                  @change=${(event: Event) => {
-                    const input = event.currentTarget as HTMLInputElement;
-                    const value = this._sanitizeCommandName(input.value);
-                    input.value = value;
-                    this._updateActiveCommandDraft({ name: value });
-                    this._commandSaveError = "";
-                  }}
-                ></ha-textfield>
+                ${this._useLegacyTextField()
+                  ? html`
+                      <ha-textfield
+                        id="sb-command-display-name"
+                        .label=${"Command Display Name"}
+                        .maxLength=${20}
+                        .value=${draft.name}
+                        @input=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          if (input.value !== value) input.value = value;
+                        }}
+                        @change=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          input.value = value;
+                          this._updateActiveCommandDraft({ name: value });
+                          this._commandSaveError = "";
+                        }}
+                      ></ha-textfield>
+                    `
+                  : html`
+                      <ha-input
+                        id="sb-command-display-name"
+                        type="text"
+                        .label=${"Command Display Name"}
+                        .maxlength=${20}
+                        .value=${draft.name}
+                        @input=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          if (input.value !== value) input.value = value;
+                        }}
+                        @change=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          input.value = value;
+                          this._updateActiveCommandDraft({ name: value });
+                          this._commandSaveError = "";
+                        }}
+                      ></ha-input>
+                    `}
                 <button
                   class="advanced-toggle ${this._advancedOptionsOpen ? "expanded" : ""}"
                   @click=${() => {
