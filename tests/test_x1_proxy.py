@@ -468,6 +468,36 @@ def test_start_mdns_advertises_x1_service_for_x2_hub(monkeypatch) -> None:
     assert proxy._adv_started is True
 
 
+def test_update_discovery_identity_uses_model_hub_mac_suffix_instance() -> None:
+    proxy = X1Proxy("127.0.0.1", proxy_enabled=True, diag_dump=False, diag_parse=False)
+
+    proxy.update_discovery_identity(
+        mdns_txt={
+            "MAC": "AA:BB:CC:11:22:33",
+            "NAME": "Living Room",
+            "HVER": "1",
+            "AVER": "17",
+            "HA_PROXY": "1",
+        },
+        hub_version="X1",
+    )
+
+    assert proxy.mdns_instance == "X1-HUB-112233"
+    assert proxy.mdns_host == "X1-HUB-112233.local"
+
+
+def test_start_discovery_waits_for_banner_identity(monkeypatch) -> None:
+    proxy = X1Proxy("127.0.0.1", proxy_enabled=True, diag_dump=False, diag_parse=False)
+    calls: list[str] = []
+
+    monkeypatch.setattr(proxy, "_start_mdns", lambda: calls.append("mdns") or True)
+    monkeypatch.setattr(proxy.transport, "start_notify_listener", lambda: calls.append("notify"))
+
+    proxy._start_discovery()
+
+    assert calls == []
+
+
 def test_find_remote_uses_classic_opcode(monkeypatch) -> None:
     proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
 

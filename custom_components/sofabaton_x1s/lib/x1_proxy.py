@@ -108,6 +108,25 @@ def _normalize_banner_model(value: Any) -> str | None:
         return text
     return None
 
+
+def _sanitize_mdns_label_component(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9-]+", "-", str(value or "").strip())
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text or "X1"
+
+
+def _mac_suffix_for_instance(mdns_txt: Dict[str, str]) -> str:
+    raw_mac = str(mdns_txt.get("MAC") or mdns_txt.get("mac") or "").strip()
+    compact = re.sub(r"[^0-9A-Fa-f]", "", raw_mac).lower()
+    if len(compact) >= 6:
+        return compact[-6:]
+    return "000000"
+
+
+def _mdns_instance_for_identity(model: str | None, mdns_txt: Dict[str, str]) -> str:
+    display_model = _sanitize_mdns_label_component(_normalize_banner_model(model) or HUB_VERSION_X1)
+    return f"{display_model}-HUB-{_mac_suffix_for_instance(mdns_txt)}"
+
 def _sum8(b: bytes) -> int: return sum(b) & 0xFF
 def _hexdump(data: bytes) -> str: return data.hex(" ")
 
@@ -419,6 +438,52 @@ class X1Proxy:
 
         self._zc = zc
         self._zc_owned = False
+
+    def has_banner_identity(self) -> bool:
+        info = self.get_banner_info()
+        model = _normalize_banner_model(info.get("model"))
+        name = str(info.get("name") or "").strip()
+        firmware_version = info.get("firmware_version")
+        return bool(
+            model
+            and name
+            and isinstance(firmware_version, (int, float))
+        )
+
+    def update_discovery_identity(
+        self,
+        *,
+        mdns_txt: Dict[str, str],
+        hub_version: str | None,
+    ) -> bool:
+        changed = False
+        next_txt = dict(mdns_txt)
+        if self.mdns_txt != next_txt:
+            self.mdns_txt = next_txt
+            changed = True
+
+        next_version = _normalize_banner_model(hub_version) or classify_hub_version(self.mdns_txt)
+        if self.hub_version != next_version:
+            self.hub_version = next_version
+            changed = True
+
+        next_instance = _normalize_mdns_instance(
+            _mdns_instance_for_identity(self.hub_version, self.mdns_txt)
+        )
+        next_host = next_instance + ".local"
+        if self.mdns_instance != next_instance or self.mdns_host != next_host:
+            self.mdns_instance = next_instance
+            self.mdns_host = next_host
+            changed = True
+
+        self.transport.update_discovery_metadata(mdns_txt=self.mdns_txt)
+
+        if changed and self._adv_started:
+            self._stop_discovery()
+        if self.transport.is_hub_connected and self.has_banner_identity():
+            self._start_discovery()
+
+        return changed
 
     # ---------------------------------------------------------------------
     # Local command API
@@ -4436,7 +4501,7 @@ class X1Proxy:
                 "[mDNS] service type %s was rejected; advertisement will not be started",
                 service_type,
             )
-            return
+            return False
         self._mdns_infos.append(info)
         self._log.info(
             "[mDNS] registered %s on %s:%d (HVER=%s)",
@@ -4448,6 +4513,7 @@ class X1Proxy:
 
         self._adv_started = True
         self._log.info("[mDNS] registration complete; verify via Zeroconf browser if available")
+        return True
 
     # ---------------------------------------------------------------------
     # Parsing helpers
@@ -4783,12 +4849,18 @@ class X1Proxy:
             return
         if self._adv_started:
             return
+        if not self.has_banner_identity():
+            self._log.debug("[mDNS] discovery deferred until banner identity is ready")
+            return
             
         self.proxy_udp_port = self.transport.proxy_udp_port
-        self._start_mdns()
+        if not self._start_mdns():
+            return
+        self.transport.start_notify_listener()
         self._adv_started = True
 
     def _stop_discovery(self) -> None:
+        self.transport.stop_notify_listener()
         # unregister mDNS
         if self._zc is not None and self._mdns_infos:
             try:

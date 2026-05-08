@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
-from ..const import HUB_VERSION_X1, HUB_VERSION_X2, classify_hub_version
+from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2, classify_hub_version
 from ..logging_utils import get_hub_logger
 from .protocol_const import OP_CALL_ME, SYNC0, SYNC1
 
@@ -17,6 +17,25 @@ log = logging.getLogger("x1proxy.notify")
 
 NOTIFY_ME_PAYLOAD = bytes.fromhex("a55a00c1c0")
 BROADCAST_LISTEN_PORT = 8100
+_NOTIFY_BATCH_BYTES: dict[str, bytes] = {
+    HUB_VERSION_X1: bytes.fromhex("20210609"),
+    HUB_VERSION_X1S: bytes.fromhex("20221120"),
+    HUB_VERSION_X2: bytes.fromhex("20221120"),
+}
+_NOTIFY_FW_DEFAULTS: dict[str, int] = {
+    HUB_VERSION_X1: 17,
+    HUB_VERSION_X1S: 5,
+    HUB_VERSION_X2: 8,
+}
+_NOTIFY_MODEL_BYTES: dict[str, int] = {
+    HUB_VERSION_X1: 0x01,
+    HUB_VERSION_X1S: 0x02,
+    HUB_VERSION_X2: 0x03,
+}
+
+
+def _sum8(payload: bytes) -> int:
+    return sum(payload) & 0xFF
 
 
 def _route_local_ip(peer_ip: str) -> str:
@@ -196,25 +215,19 @@ class NotifyDemuxer:
             or reg.mdns_txt.get("Name")
             or "X1 Hub"
         ).encode("utf-8")
-        if reg.hub_version in (HUB_VERSION_X1, HUB_VERSION_X2):
-            name_bytes = name[:12]
-            version_block = bytes.fromhex("640120210609110000")
-            frame = (
-                bytes([SYNC0, SYNC1, 0x1A])
-                + reg.device_id
-                + version_block
-                + name_bytes
-            )
-        else:
-            name_bytes = name[:14].ljust(14, b"\x00")
-            version_block = bytes.fromhex("640220221120050100")
-            frame = (
-                bytes([SYNC0, SYNC1, 0x1D])
-                + reg.device_id
-                + version_block
-                + name_bytes
-                + b"\xBE"
-            )
+        # Physical hubs use a variable-length UTF-8 name field. The byte after the
+        # sync header is a length covering the 6-byte device-id tail, 9-byte version
+        # block, and UTF-8 name bytes; it does not count the fixed leading 0xC2.
+        name_bytes = name[:30]
+        version_block = self._build_notify_version_block(reg)
+        payload_len = (len(reg.device_id) - 1) + len(version_block) + len(name_bytes)
+        frame = (
+            bytes([SYNC0, SYNC1, payload_len & 0xFF])
+            + reg.device_id
+            + version_block
+            + name_bytes
+        )
+        frame += bytes([_sum8(frame)])
 
         get_hub_logger(log, reg.proxy_id).info(
             "[DEMUX][REPLY] mac=%s name=%s",
@@ -222,6 +235,36 @@ class NotifyDemuxer:
             name.decode("utf-8", "ignore"),
         )
         return frame
+
+    def _build_notify_version_block(self, reg: NotifyRegistration) -> bytes:
+        hub_version = reg.hub_version
+        model_byte = _NOTIFY_MODEL_BYTES.get(
+            hub_version, _NOTIFY_MODEL_BYTES[HUB_VERSION_X1]
+        )
+        batch_bytes = _NOTIFY_BATCH_BYTES.get(
+            hub_version, _NOTIFY_BATCH_BYTES[HUB_VERSION_X1]
+        )
+        firmware_version = self._extract_firmware_version(reg.mdns_txt, hub_version)
+        tail_flags = (
+            b"\x00\x00" if hub_version == HUB_VERSION_X1 else b"\x01\x00"
+        )
+        return (
+            bytes([0x64, model_byte])
+            + batch_bytes
+            + bytes([firmware_version])
+            + tail_flags
+        )
+
+    def _extract_firmware_version(self, mdns_txt: Dict[str, str], hub_version: str) -> int:
+        raw = mdns_txt.get("AVER")
+        try:
+            if raw is not None:
+                value = int(str(raw).strip(), 10)
+                if 0 <= value <= 0xFF:
+                    return value
+        except (TypeError, ValueError):
+            pass
+        return _NOTIFY_FW_DEFAULTS.get(hub_version, _NOTIFY_FW_DEFAULTS[HUB_VERSION_X1])
 
     def _handle_notify_me(
         self, sock: socket.socket, pkt: bytes, src_ip: str, src_port: int
@@ -335,11 +378,13 @@ class NotifyDemuxer:
         """Return the device id used in NOTIFY_ME replies and the CALL_ME hint."""
 
         required_prefix_byte = b"\xc2"
-        static_id_suffix_byte = (
-            b"\x4b" if hub_version in (HUB_VERSION_X1, HUB_VERSION_X2) else b"\x45"
-        )
-        unique_tail_mac = mac_bytes[0:5]
+        if hub_version == HUB_VERSION_X2:
+            device_id = required_prefix_byte + mac_bytes
+            call_me_hint = mac_bytes
+            return device_id, call_me_hint
 
+        static_id_suffix_byte = b"\x4b" if hub_version == HUB_VERSION_X1 else b"\x45"
+        unique_tail_mac = mac_bytes[0:5]
         device_id = required_prefix_byte + unique_tail_mac + static_id_suffix_byte
         call_me_hint = unique_tail_mac + static_id_suffix_byte
 

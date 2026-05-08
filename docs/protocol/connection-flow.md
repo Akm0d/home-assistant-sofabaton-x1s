@@ -148,45 +148,99 @@ When a hub receives the `NOTIFY_ME` probe, it broadcasts a reply to **UDP port
 When a proxy is impersonating a hub for the official app, it emits the same style of
 reply.
 
-The reply format varies by hub version:
-
-**X1 / X2 reply (28 bytes total):**
+The reply format is mostly shared across hub versions:
 
 ```
  Byte   Size  Value
     0     1   0xA5 (sync 0)
     1     1   0x5A (sync 1)
-    2     1   0x1A (frame type marker)
+    2     1   Variable length byte
+               = 6-byte device-id tail + 9-byte version block + name length
+               (does not count the fixed leading 0xC2 or the trailing checksum)
+    3     7   Device ID: 0xC2 + 6-byte device-id tail
+   10     9   Version block
+   19     N   Hub name (UTF-8, observed max 30 bytes)
+  19+N    1   Checksum (sum8 of all preceding bytes)
+```
+
+Observed device-id tail differences:
+
+- X1: `MAC[0:5] + 0x4B`
+- X1S: `MAC[0:5] + 0x45`
+- X2: full `MAC[0:6]`
+
+Observed version-block differences:
+
+- X1: `64 01 20 21 06 09 11 00 00`
+- X1S: `64 02 20 22 11 20 05 01 00`
+- X2: `64 03 20 22 11 20 08 01 00`
+
+Representative observed replies:
+
+**X1 reply (31 bytes total in observed sample):**
+
+```
+ Byte   Size  Value
+    0     1   0xA5 (sync 0)
+    1     1   0x5A (sync 1)
+    2     1   0x1A (= 6 + 9 + 11)
     3     7   Device ID: 0xC2 + MAC[0:5] + 0x4B
    10     9   Version block: 64 01 20 21 06 09 11 00 00
-   19     up to 12 bytes  Hub name (UTF-8, truncated to 12)
+   19    11   Hub name (UTF-8, observed sample: `X1 HUB test`)
+   30     1   Checksum (sum8 of all preceding bytes)
 ```
 
-**X1S reply (32 bytes total):**
+The observed X1 reply name matches the earlier TCP banner text exactly (`X1 HUB test`);
+the final byte `0x2D` is therefore best interpreted as the trailing checksum, not as a
+literal hyphen in the name.
+
+**X2 reply (26 bytes total in observed sample):**
 
 ```
  Byte   Size  Value
     0     1   0xA5 (sync 0)
     1     1   0x5A (sync 1)
-    2     1   0x1D (frame type marker)
+    2     1   0x15 (= 6 + 9 + 6)
+    3     7   Device ID: 0xC2 + MAC[0:6]
+   10     9   Version block: 64 03 20 22 11 20 08 01 00
+   19     6   Hub name (UTF-8, observed: `X2 HUB`)
+   25     1   Checksum
+```
+
+**X1S reply (27 bytes total in short observed sample):**
+
+```
+ Byte   Size  Value
+    0     1   0xA5 (sync 0)
+    1     1   0x5A (sync 1)
+    2     1   0x16 (= 6 + 9 + 7)
     3     7   Device ID: 0xC2 + MAC[0:5] + 0x45
    10     9   Version block: 64 02 20 22 11 20 05 01 00
-   19    14   Hub name (UTF-8, zero-padded to 14)
-   33     1   Trailer byte: 0xBE
+   19     7   Hub name (UTF-8, observed: `X1S HUB`)
+   26     1   Checksum (sum8 of all preceding bytes)
 ```
+
+Longer X1S names have been observed growing the packet exactly the same way as X1/X2.
 
 **Device ID construction:**
 
 ```
 device_id[0]   = 0xC2  (fixed required prefix)
-device_id[1:6] = MAC[0:5]  (first 5 bytes of hub MAC address)
-device_id[6]   = 0x4B  (X1 / X2)
+device_id[1:6] = MAC[0:5]  (X1 / X1S)
+device_id[6]   = 0x4B  (X1)
                  0x45  (X1S)
+
+X2 uses a different observed layout:
+
+device_id[0]   = 0xC2
+device_id[1:7] = MAC[0:6]  (full 6-byte MAC address)
 ```
 
 The **CALL_ME hint** (useful when matching subsequent `CALL_ME` frames back to the
-correct virtual hub) is
-`MAC[0:5] + suffix_byte` (the same as `device_id[1:7]`).
+correct virtual hub) matches the device-id tail:
+
+- X1 / X1S: `MAC[0:5] + suffix_byte`
+- X2: full `MAC[0:6]`
 
 ### 2.3 Client sends CALL_ME after discovery
 

@@ -69,22 +69,28 @@ Representative observed blocks:
 | Model | Observed block | Interpreted as |
 |-------|----------------|----------------|
 | X1 | `64 01 20 21 06 09 11 00 00` | model `X1`, batch `20210609`, hub fw `17` |
-| X1S | `00 02 20 22 11 20 05 01 00` | model `X1S`, batch `20221120`, hub fw `5` |
-| X2 | `00 03 20 22 11 20 08 01 00` | model `X2`, batch `20221120`, hub fw `8` |
+| X1S | `64 02 20 22 11 20 05 01 00` in UDP discovery, `00 02 20 22 11 20 05 01 00` in TCP banners | model `X1S`, batch `20221120`, hub fw `5` |
+| X2 | `64 03 20 22 11 20 08 01 00` in UDP discovery, `00 03 20 22 11 20 08 01 00` in TCP banners | model `X2`, batch `20221120`, hub fw `8` |
 
 ---
 
 ## NOTIFY_ME reply differences
 
-The UDP discovery reply differs by hub line.
+The UDP discovery reply is structurally shared across all observed hub lines:
+
+- byte `2` is a dynamic length byte, not a family marker
+- the length is `6-byte device-id tail + 9-byte version block + UTF-8 name length`
+- the final byte is a sum8 checksum of all preceding bytes
+
+The main per-family differences are the device-id tail and the version block contents.
 
 | Field | X1 | X1S | X2 |
 |-------|----|-----|----|
-| Frame-type byte | `0x1A` | `0x1D` | `0x1A` in observed UDP discovery, `0x15` in observed TCP banner replies |
-| Device-id suffix byte | `0x4B` | `0x45` | `0x4B` |
-| Representative version block | `64 01 20 21 06 09 11 00 00` | `64 02 20 22 11 20 05 01 00` | `00 03 20 22 11 20 08 01 00` observed in TCP banner replies |
-| Name field size | up to 12 bytes | 14 bytes, zero-padded | `X2 HUB` observed in TCP banner replies |
-| Trailer byte | none observed | `0xBE` | none observed |
+| Length byte example | `0x1A` for 11-byte name, `0x2D` for 30-byte name | `0x16` for 7-byte name, `0x2D` for 30-byte name | `0x15` for 6-byte name, `0x2D` for 30-byte name |
+| Device-id tail | `MAC[0:5] + 0x4B` | `MAC[0:5] + 0x45` | full `MAC[0:6]` |
+| Representative version block | `64 01 20 21 06 09 11 00 00` | `64 02 20 22 11 20 05 01 00` | `64 03 20 22 11 20 08 01 00` |
+| Name field behavior | variable UTF-8, observed up to 30 bytes | variable UTF-8, observed from 7 to 30 bytes | variable UTF-8, observed from 6 to 30 bytes |
+| Final byte | sum8 checksum in observed reply | sum8 checksum in observed replies | sum8 checksum in observed reply |
 
 ---
 

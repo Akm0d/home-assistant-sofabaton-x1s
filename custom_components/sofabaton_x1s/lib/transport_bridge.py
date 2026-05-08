@@ -175,6 +175,7 @@ class TransportBridge:
         self._claim_thr: Optional[threading.Thread] = None
         self._bridge_thr: Optional[threading.Thread] = None
         self._notify_registered = False
+        self._discovery_enabled = False
 
         self._hub_listen_port: Optional[int] = None
         self._local_to_hub = bytearray()
@@ -229,7 +230,7 @@ class TransportBridge:
     def enable_proxy(self) -> None:
         self._proxy_enabled = True
         self._log.info("[PROXY] enabled")
-        if not self._notify_registered:
+        if self._discovery_enabled and not self._notify_registered and not self.is_client_connected:
             self._register_demuxer()
 
     def disable_proxy(self) -> None:
@@ -254,8 +255,6 @@ class TransportBridge:
             self.proxy_udp_port = udp_port
         demuxer = get_notify_demuxer(self.proxy_udp_port)
         self.proxy_udp_port = demuxer.listen_port
-        if self._proxy_enabled:
-            self._register_demuxer()
 
         self._claim_thr = threading.Thread(
             target=self._hub_guard_loop, name="x1proxy-hub-guard", daemon=True
@@ -315,6 +314,22 @@ class TransportBridge:
             call_me_cb=self._handle_call_me,
         )
         self._notify_registered = True
+
+    def update_discovery_metadata(
+        self,
+        *,
+        mdns_txt: Dict[str, str],
+    ) -> None:
+        self._mdns_txt = mdns_txt
+
+    def start_notify_listener(self) -> None:
+        self._discovery_enabled = True
+        if self._proxy_enabled and not self.is_client_connected:
+            self._register_demuxer()
+
+    def stop_notify_listener(self) -> None:
+        self._discovery_enabled = False
+        self._stop_notify_listener()
 
     def _handle_call_me(
         self, src_ip: str, src_port: int, app_ip: str, app_port: int
@@ -764,7 +779,7 @@ class TransportBridge:
     def _notify_client_state(self, connected: bool) -> None:
         if connected:
             self._stop_notify_listener()
-        elif self._proxy_enabled:
+        elif self._proxy_enabled and self._discovery_enabled:
             self._register_demuxer()
         for cb in self._client_state_cbs:
             try:

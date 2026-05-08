@@ -12,12 +12,28 @@ class FakeHass:
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.loop = loop
         self.data = {}
+        self._entries = {}
+        self.config_entries = SimpleNamespace(
+            async_get_entry=self._async_get_entry,
+            async_update_entry=self._async_update_entry,
+        )
 
     async def async_add_executor_job(self, func, *args, **kwargs):  # pragma: no cover - passthrough
         return func(*args, **kwargs)
 
     def async_create_task(self, coro):  # pragma: no cover - passthrough
         return self.loop.create_task(coro)
+
+    def _async_get_entry(self, entry_id):
+        return self._entries.get(entry_id)
+
+    def _async_update_entry(self, entry, *, data=None, options=None, title=None):
+        if data is not None:
+            entry.data = data
+        if options is not None:
+            entry.options = options
+        if title is not None:
+            entry.title = title
 
 
 def test_activity_fetch_clears_inflight_after_favorite_labels(monkeypatch):
@@ -542,8 +558,23 @@ def test_async_initial_sync_fetches_banner_first_and_persists_cache(monkeypatch)
         True,
         False,
     )
+    entry = SimpleNamespace(
+        entry_id="entry-id",
+        data={
+            "name": "hub-name",
+            "host": "127.0.0.1",
+            "port": 1234,
+            "mac": "aa:bb:cc:dd:ee:ff",
+            "mdns_txt": {"MAC": "aa:bb:cc:dd:ee:ff"},
+            "mdns_version": "X1",
+        },
+        options={"mdns_version": "X1"},
+        title="old title",
+    )
+    hass._entries["entry-id"] = entry
 
     calls: list[str] = []
+    discovery_updates: list[tuple[dict[str, str], str | None]] = []
 
     def _fetch_banner_info(*, force_refresh=True, timeout=2.0):
         calls.append("banner")
@@ -571,6 +602,11 @@ def test_async_initial_sync_fetches_banner_first_and_persists_cache(monkeypatch)
     monkeypatch.setattr(hub._proxy, "get_activities", _get_activities)
     monkeypatch.setattr(hub._proxy, "get_devices", _get_devices)
     monkeypatch.setattr(hub, "_async_get_persistent_cache_store", _get_store)
+    monkeypatch.setattr(
+        hub._proxy,
+        "update_discovery_identity",
+        lambda *, mdns_txt, hub_version: discovery_updates.append((dict(mdns_txt), hub_version)) or True,
+    )
 
     loop.run_until_complete(hub._async_initial_sync())
 
@@ -578,6 +614,17 @@ def test_async_initial_sync_fetches_banner_first_and_persists_cache(monkeypatch)
     assert hub.banner_model == "X2"
     assert hub.production_batch == "20221120"
     assert hub.hub_firmware_version == 8
+    assert hub.name == "X2 HUB"
+    assert hub.version == "X2"
+    assert hub.mdns_txt["NAME"] == "X2 HUB"
+    assert hub.mdns_txt["HVER"] == "3"
+    assert hub.mdns_txt["AVER"] == "8"
+    assert entry.data["name"] == "X2 HUB"
+    assert entry.data["mdns_version"] == "X2"
+    assert entry.data["mdns_txt"]["NAME"] == "X2 HUB"
+    assert entry.options["mdns_version"] == "X2"
+    assert discovery_updates[-1][0]["NAME"] == "X2 HUB"
+    assert discovery_updates[-1][1] == "X2"
     assert store.saved
     assert store.saved[-1][1]["banner_info"]["firmware_version"] == 8
 
@@ -2856,54 +2903,6 @@ def test_on_devices_burst_repairs_duplicate_deployed_device_claims_by_unique_has
 
     loop.close()
 
-
-def test_async_set_hub_version_persists_hver_and_updates_proxy() -> None:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    entry = SimpleNamespace(
-        entry_id="entry-id",
-        title="Old title",
-        data={"host": "127.0.0.1", "mac": "aa:bb:cc", "mdns_txt": {}, "mdns_version": "X1"},
-        options={"mdns_version": "X1"},
-    )
-    updates: list[dict] = []
-
-    class HassWithEntries(FakeHass):
-        def __init__(self, l):
-            super().__init__(l)
-            self.config_entries = SimpleNamespace(
-                async_get_entry=lambda _entry_id: entry,
-                async_update_entry=lambda _entry, **kwargs: updates.append(kwargs),
-            )
-
-    hass = HassWithEntries(loop)
-    hub = SofabatonHub(
-        hass,
-        "entry-id",
-        "hub-name",
-        "127.0.0.1",
-        1234,
-        {},
-        9999,
-        10000,
-        True,
-        False,
-        version="X1",
-    )
-
-    loop.run_until_complete(hub.async_set_hub_version("X1S"))
-
-    assert hub.version == "X1S"
-    assert hub._proxy.hub_version == "X1S"
-    assert hub._proxy.mdns_txt["HVER"] == "2"
-    assert updates
-    update = updates[-1]
-    assert update["data"]["mdns_txt"]["HVER"] == "2"
-    assert update["data"]["mdns_version"] == "X1S"
-    assert update["options"]["mdns_version"] == "X1S"
-
-    loop.close()
 
 def test_prime_buttons_skips_activity_map_when_cached(monkeypatch):
     loop = asyncio.new_event_loop()

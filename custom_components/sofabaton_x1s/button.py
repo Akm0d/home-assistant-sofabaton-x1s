@@ -12,14 +12,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     DOMAIN,
     CONF_MAC,
-    CONF_NAME,
     HUB_VERSION_X2,
     signal_activity,
     signal_buttons,
     signal_client,
     signal_hub,
 )
-from .hub import SofabatonHub, get_hub_model
+from .hub import SofabatonHub, get_hub_display_name, get_hub_model
 from .lib.protocol_const import ButtonName  # your proxy enum
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,14 +95,17 @@ class SofabatonFindRemoteButton(ButtonEntity):
     def __init__(self, hub: SofabatonHub, entry: ConfigEntry) -> None:
         self._hub = hub
         self._entry = entry
-        self._attr_name = f"{entry.data[CONF_NAME]} find remote"
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_find_remote"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} find remote"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -141,14 +143,17 @@ class SofabatonResyncRemoteButton(ButtonEntity):
     def __init__(self, hub: SofabatonHub, entry: ConfigEntry) -> None:
         self._hub = hub
         self._entry = entry
-        self._attr_name = f"{entry.data[CONF_NAME]} resync remote"
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_resync_remote"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} resync remote"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -190,15 +195,19 @@ class SofabatonDynamicButton(ButtonEntity):
         self._entry = entry
         self._code = code
 
-        self._attr_name = f"{entry.data[CONF_NAME]} {label}"
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_btn_{code:02x}"
         self._attr_icon = icon
+        self._label = label
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} {self._label}"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 

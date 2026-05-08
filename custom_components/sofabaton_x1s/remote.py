@@ -10,7 +10,6 @@ from homeassistant.helpers.entity import DeviceInfo
 from .const import (
     DOMAIN,
     CONF_MAC,
-    CONF_NAME,
     signal_activity,
     signal_hub,
     signal_client,
@@ -18,7 +17,7 @@ from .const import (
     signal_commands,
     signal_macros,
 )
-from .hub import get_hub_model
+from .hub import get_hub_display_name, get_hub_model
 
 
 async def async_setup_entry(
@@ -134,7 +133,7 @@ class SofabatonRemote(RemoteEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             manufacturer="Sofabaton",
             model=get_hub_model(self._entry),
         )

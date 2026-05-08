@@ -212,8 +212,6 @@ class SofabatonWifiCommandsTab extends LitElement {
     _activeCommandActionTab: { state: true },
     _syncWarningOpen: { state: true },
     _syncWarningOptOut: { state: true },
-    _hubVersionModalOpen: { state: true },
-    _hubVersionModalSelectedVersion: { state: true },
     _advancedOptionsOpen: { state: true },
     _commandEditorDrafts: { state: true },
     _shortSelectorVersion: { state: true },
@@ -361,7 +359,6 @@ class SofabatonWifiCommandsTab extends LitElement {
     .section-title-wrap { display: flex; align-items: center; gap: 8px; }
     .section-subtitle, .dialog-note, .dialog-footer-note, .slot-confirm-sub, .sync-message, .sync-warning-text, .empty-hint { color: var(--secondary-text-color); }
     .section-subtitle { font-size: 13px; line-height: 1.5; }
-    .hub-version-warn-btn { width: 100%; border: 1px solid color-mix(in srgb, var(--warning-color, #ff9800) 45%, var(--divider-color)); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--warning-color, #ff9800) 10%, transparent); color: var(--primary-text-color); text-align: left; font: inherit; font-weight: 600; cursor: pointer; }
     .sync-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--divider-color); border-radius: 18px; background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 82%, transparent); }
     .sync-row.sync-error { border-color: color-mix(in srgb, var(--error-color, #db4437) 35%, var(--divider-color)); }
     .sync-row.sync-ok { border-color: color-mix(in srgb, #48b851 35%, var(--divider-color)); }
@@ -626,8 +623,6 @@ class SofabatonWifiCommandsTab extends LitElement {
   private _activeCommandActionTab: PressType = "short";
   private _syncWarningOpen = false;
   private _syncWarningOptOut = false;
-  private _hubVersionModalOpen = false;
-  private _hubVersionModalSelectedVersion = "X1";
   private _advancedOptionsOpen = false;
   private _commandEditorDrafts: Record<number, WifiCommandSlot> = {};
   private _shortSelectorVersion = 0;
@@ -680,7 +675,6 @@ class SofabatonWifiCommandsTab extends LitElement {
           ${this._renderDetailsModal()}
           ${this._renderActionModal()}
           ${this._renderSyncWarningModal()}
-          ${this._renderHubVersionModal()}
           ${this._renderCreateDeviceModal()}
           ${this._renderDeleteDeviceModal()}
         </div>
@@ -773,11 +767,6 @@ class SofabatonWifiCommandsTab extends LitElement {
             </div>
           </div>
           <div class="detail-scroll">
-            ${this._hubVersionConfident() ? nothing : html`
-              <button class="hub-version-warn-btn" @click=${this._openHubVersionModal}>
-                Your hub may be miss-versioned. Click here to fix it.
-              </button>
-            `}
             ${remoteUnavailable ? nothing : html`
               <div class="command-grid">
                 ${this._commandsList().map((command, idx) => this._renderSlot(command, idx))}
@@ -791,7 +780,6 @@ class SofabatonWifiCommandsTab extends LitElement {
         ${this._renderDetailsModal()}
         ${this._renderActionModal()}
         ${this._renderSyncWarningModal()}
-        ${this._renderHubVersionModal()}
         ${this._renderCreateDeviceModal()}
         ${this._renderDeleteDeviceModal()}
       </div>
@@ -1316,7 +1304,7 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _renderHubVersionModal() {
-    if (!this._hubVersionModalOpen) return nothing;
+    return nothing;
     return html`
       <div class="modal-backdrop" @click=${() => { this._hubVersionModalOpen = false; }}>
         <div class="dialog small" @click=${(event: Event) => event.stopPropagation()}>
@@ -1387,7 +1375,7 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _hubVersionConfident() {
-    return this._remoteAttrs()?.hub_version_confident !== false;
+    return true;
   }
 
   private _supportsUnicodeCommandNames() {
@@ -2599,18 +2587,10 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _openHubVersionModal = () => {
-    this._hubVersionModalSelectedVersion = this._hubVersion() || "X1";
-    this._hubVersionModalOpen = true;
+    this._hubVersionModalOpen = false;
   };
 
   private _submitHubVersionModal = async () => {
-    const entityId = String(this._entityId() || "").trim();
-    if (!entityId || !this.hass?.callWS) return;
-    await this.hass.callWS({
-      type: "sofabaton_x1s/hub/set_version",
-      entity_id: entityId,
-      version: this._hubVersionModalSelectedVersion,
-    });
     this._hubVersionModalOpen = false;
   };
 
