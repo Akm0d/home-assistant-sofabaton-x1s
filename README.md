@@ -126,8 +126,6 @@ For full networking details, see → [`docs/networking.md`](docs/networking.md)
 - **Select**:
   - `select.<hub>_activity`  
     Options = `Powered off` + all activities. Selecting activates it. Unavailable while app is connected.
-  - `select.<hub>_hub_version` (disabled by default)  
-    Force-override the version of the hub in the integration's configuration. Do not use unless certain a correction is required.
 
 - **Switches**
   - `switch.<hub>_proxy_enabled`  
