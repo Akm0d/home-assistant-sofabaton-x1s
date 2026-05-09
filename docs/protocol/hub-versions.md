@@ -1,7 +1,8 @@
 # Hub Versions
 
-The Sofabaton hub family has three observed hardware generations. The version is
-usually exposed in the mDNS TXT record `HVER`.
+The Sofabaton hub family has three observed hardware generations. The model is
+usually exposed in the mDNS TXT record `HVER`. The hub firmware version is also
+exposed in the mDNS TXT record `AVER`.
 
 ---
 
@@ -12,6 +13,14 @@ usually exposed in the mDNS TXT record `HVER`.
 | `1` | X1 |
 | `2` | X1S |
 | `3` | X2 |
+
+Observed `AVER` values:
+
+| Model | Example `AVER` | Meaning |
+|-------|----------------|---------|
+| X1 | `17` | Hub firmware version `17` |
+| X1S | `5` | Hub firmware version `5` |
+| X2 | `8` | Hub firmware version `8` |
 
 If `HVER` is unavailable, the first catalog opcode seen on the wire also
 distinguishes X1 from X1S/X2:
@@ -38,17 +47,50 @@ but the physical X2 hardware has been observed using `_sofabaton_hub._udp.local.
 
 ---
 
+## Banner / version block differences
+
+The same core version block appears in:
+
+- UDP `NOTIFY_ME` discovery replies
+- TCP family-`0x02` banner replies after `REQ_BANNER (0x0001)`
+
+Stable field meanings:
+
+| Offset within block | Meaning |
+|---------------------|---------|
+| byte 0 | leading marker (`0x64` in observed UDP discovery replies, `0x00` or `0x64` in observed TCP banners) |
+| byte 1 | model code (`0x01` X1, `0x02` X1S, `0x03` X2) |
+| bytes 2-5 | production batch as packed date bytes |
+| byte 6 | hub firmware version |
+| bytes 7-8 | trailing flags (`00 00` on observed X1 TCP banners, `01 00` on observed X1S/X2 banners) |
+
+Representative observed blocks:
+
+| Model | Observed block | Interpreted as |
+|-------|----------------|----------------|
+| X1 | `64 01 20 21 06 09 11 00 00` | model `X1`, batch `20210609`, hub fw `17` |
+| X1S | `64 02 20 22 11 20 05 01 00` in UDP discovery, `00 02 20 22 11 20 05 01 00` in TCP banners | model `X1S`, batch `20221120`, hub fw `5` |
+| X2 | `64 03 20 22 11 20 08 01 00` in UDP discovery, `00 03 20 22 11 20 08 01 00` in TCP banners | model `X2`, batch `20221120`, hub fw `8` |
+
+---
+
 ## NOTIFY_ME reply differences
 
-The UDP discovery reply differs by hub line.
+The UDP discovery reply is structurally shared across all observed hub lines:
 
-| Field | X1 / X2 | X1S |
-|-------|---------|-----|
-| Frame-type byte | `0x1A` | `0x1D` |
-| Device-id suffix byte | `0x4B` | `0x45` |
-| Version block | `64 01 20 21 06 09 11 00 00` | `64 02 20 22 11 20 05 01 00` |
-| Name field size | up to 12 bytes | 14 bytes, zero-padded |
-| Trailer byte | none observed | `0xBE` |
+- byte `2` is a dynamic length byte, not a family marker
+- the length is `6-byte device-id tail + 9-byte version block + UTF-8 name length`
+- the final byte is a sum8 checksum of all preceding bytes
+
+The main per-family differences are the device-id tail and the version block contents.
+
+| Field | X1 | X1S | X2 |
+|-------|----|-----|----|
+| Length byte example | `0x1A` for 11-byte name, `0x2D` for 30-byte name | `0x16` for 7-byte name, `0x2D` for 30-byte name | `0x15` for 6-byte name, `0x2D` for 30-byte name |
+| Device-id tail | `MAC[0:5] + 0x4B` | `MAC[0:5] + 0x45` | full `MAC[0:6]` |
+| Representative version block | `64 01 20 21 06 09 11 00 00` | `64 02 20 22 11 20 05 01 00` | `64 03 20 22 11 20 08 01 00` |
+| Name field behavior | variable UTF-8, observed up to 30 bytes | variable UTF-8, observed from 7 to 30 bytes | variable UTF-8, observed from 6 to 30 bytes |
+| Final byte | sum8 checksum in observed reply | sum8 checksum in observed replies | sum8 checksum in observed reply |
 
 ---
 

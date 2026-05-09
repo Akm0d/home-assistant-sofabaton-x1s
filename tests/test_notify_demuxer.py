@@ -28,6 +28,24 @@ def test_call_me_routes_by_mac(monkeypatch):
     assert called == [("10.0.0.5", 5678, "10.0.0.5", 1234)]
 
 
+def test_call_me_routes_by_x2_full_mac_hint(monkeypatch):
+    demux = NotifyDemuxer()
+    demux._ensure_running_locked = lambda: None  # type: ignore[assignment]
+
+    called = []
+
+    def cb(src_ip: str, src_port: int, app_ip: str, app_port: int) -> None:
+        called.append((src_ip, src_port, app_ip, app_port))
+
+    mdns_txt = {"MAC": "FC:01:2C:39:D3:90", "HVER": "3"}
+    demux.register_proxy("proxy1", "192.168.1.10", mdns_txt, 8102, cb)
+
+    pkt = _build_call_me(bytes.fromhex("fc012c39d390"), "10.0.0.5", 1234)
+    demux._handle_call_me(pkt, "10.0.0.5", 5678)
+
+    assert called == [("10.0.0.5", 5678, "10.0.0.5", 1234)]
+
+
 def test_call_me_ignored_when_no_match(monkeypatch):
     demux = NotifyDemuxer()
     demux._ensure_running_locked = lambda: None  # type: ignore[assignment]
@@ -52,7 +70,7 @@ def test_notify_reply_x1_matches_hub_format():
     demux.register_proxy(
         "proxy1",
         "192.168.1.10",
-        {"MAC": "CB:38:35:39:68:AA", "NAME": "X1 HUB test-", "HVER": "1"},
+        {"MAC": "CB:38:35:39:68:AA", "NAME": "X1 HUB test", "HVER": "1"},
         8102,
         lambda *_: None,
     )
@@ -71,7 +89,7 @@ def test_notify_reply_x1s_matches_proxy_format():
     demux.register_proxy(
         "proxy1",
         "192.168.1.10",
-        {"MAC": "CB:38:35:39:68:AA", "NAME": "X1 HUB test", "HVER": "2"},
+        {"MAC": "E2:6A:44:86:1B:AA", "NAME": "Souterrain hub", "HVER": "2"},
         8102,
         lambda *_: None,
     )
@@ -80,5 +98,24 @@ def test_notify_reply_x1s_matches_proxy_format():
     reply = demux._build_notify_reply(reg)
 
     assert reply == bytes.fromhex(
-        "a55a1dc2cb38353968456402202211200501005831204855422074657374000000be"
+        "a55a1dc2e26a44861b45640220221120050100536f757465727261696e20687562be"
+    )
+
+
+def test_notify_reply_x2_matches_hub_format():
+    demux = NotifyDemuxer()
+    demux._ensure_running_locked = lambda: None  # type: ignore[assignment]
+    demux.register_proxy(
+        "proxy1",
+        "192.168.1.10",
+        {"MAC": "FC:01:2C:39:D3:90", "NAME": "X2 HUB", "HVER": "3", "AVER": "8"},
+        8102,
+        lambda *_: None,
+    )
+
+    reg = demux._registrations["proxy1"]
+    reply = demux._build_notify_reply(reg)
+
+    assert reply == bytes.fromhex(
+        "a55a15c2fc012c39d39064032022112008010058322048554207"
     )

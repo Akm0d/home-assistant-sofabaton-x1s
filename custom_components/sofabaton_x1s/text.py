@@ -10,8 +10,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_HOST, CONF_MAC, CONF_NAME, DOMAIN
-from .hub import SofabatonHub, get_hub_model
+from .const import CONF_HOST, CONF_MAC, DOMAIN
+from .hub import SofabatonHub, get_hub_display_name, get_hub_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +35,10 @@ class SofabatonHubIpText(TextEntity):
         self._hub = hub
         self._entry = entry
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_ip_address"
-        self._attr_name = f"{entry.data[CONF_NAME]} hub IP address"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} hub IP address"
 
     @property
     def native_value(self) -> str | None:
@@ -45,7 +48,7 @@ class SofabatonHubIpText(TextEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 

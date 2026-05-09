@@ -44,6 +44,7 @@ TXT records of interest:
 | Key   | Example value | Meaning              |
 |-------|---------------|----------------------|
 | `HVER`| `1`, `2`, `3` | Hub version (1=X1, 2=X1S, 3=X2) |
+| `AVER`| `17`, `5`, `8` | Hub firmware version |
 | `MAC` | `AA:BB:CC:DD:EE:FF` | Hub MAC address |
 | `NAME`| `Living Room` | Human-readable hub name |
 
@@ -81,9 +82,15 @@ slots for multiple hubs).
 
 ### 1.4 Initial data exchange
 
-After TCP connects, the client immediately requests all hub data:
+After TCP connects, the client typically requests banner/version metadata first,
+then the full catalog:
 
 ```
+Client → Hub: REQ_BANNER (0x0001)
+Hub → Client: family-0x02 BANNER
+              (observed full opcodes: 0x1A02 X1, 0x1D02 X1S, 0x1502 X2)
+              carries model, production batch, hub firmware, hub name
+
 Client → Hub: REQ_ACTIVITIES (0x003A)
 Hub → Client: CATALOG_ROW_ACTIVITY rows (0xD53B) + MARKER (0x0C3D) + more rows
               … until all activities sent …
@@ -94,7 +101,22 @@ Hub → Client: CATALOG_ROW_DEVICE rows (0xD50B) + MARKER (0x0C3D) + more rows
 ```
 
 The hub may also proactively push `ACK_READY (0x0160)` frames between response
-segments to indicate it is ready for more commands.
+segments to indicate a material state change has taken place. Clients typically respond by refreshing the Activity list to learn the running Activity.
+
+When the official app opens the version screen, an additional exchange is commonly
+observed:
+
+```
+Client → Hub: REQ_VERSION (0x0058)
+Hub → Client: WIFI_FW (0x0359)
+Hub → Client: INFO_BANNER (0x112F)
+```
+
+Observed meaning:
+- `WIFI_FW` carries the WiFi firmware version (`major.minor.patch`)
+- `INFO_BANNER` repeats model/batch and, on X1/X1S, carries remote firmware
+- hub firmware is more directly exposed by the family-`0x02` banner and by the
+  mDNS `AVER` TXT record
 
 ---
 
@@ -126,45 +148,97 @@ When a hub receives the `NOTIFY_ME` probe, it broadcasts a reply to **UDP port
 When a proxy is impersonating a hub for the official app, it emits the same style of
 reply.
 
-The reply format varies by hub version:
-
-**X1 / X2 reply (28 bytes total):**
+The reply format is mostly shared across hub versions:
 
 ```
  Byte   Size  Value
     0     1   0xA5 (sync 0)
     1     1   0x5A (sync 1)
-    2     1   0x1A (frame type marker)
+    2     1   Variable length byte
+               = 6-byte device-id tail + 9-byte version block + name length
+               (does not count the fixed leading 0xC2 or the trailing checksum)
+    3     7   Device ID: 0xC2 + 6-byte device-id tail
+   10     9   Version block
+   19     N   Hub name (UTF-8, observed max 30 bytes)
+  19+N    1   Checksum (sum8 of all preceding bytes)
+```
+
+Observed device-id tail differences:
+
+- X1: `MAC[0:5] + 0x4B`
+- X1S: `MAC[0:5] + 0x45`
+- X2: full `MAC[0:6]`
+
+Observed version-block differences:
+
+- X1: `64 01 20 21 06 09 11 00 00`
+- X1S: `64 02 20 22 11 20 05 01 00`
+- X2: `64 03 20 22 11 20 08 01 00`
+
+Representative observed replies:
+
+**X1 reply (31 bytes total in observed sample):**
+
+```
+ Byte   Size  Value
+    0     1   0xA5 (sync 0)
+    1     1   0x5A (sync 1)
+    2     1   0x1A (= 6 + 9 + 11)
     3     7   Device ID: 0xC2 + MAC[0:5] + 0x4B
    10     9   Version block: 64 01 20 21 06 09 11 00 00
-   19     up to 12 bytes  Hub name (UTF-8, truncated to 12)
+   19    11   Hub name (UTF-8, observed sample: `X1 HUB test`)
+   30     1   Checksum (sum8 of all preceding bytes)
 ```
 
-**X1S reply (32 bytes total):**
+The observed X1 reply name matches the earlier TCP banner text exactly (`X1 HUB test`).
+
+**X2 reply (26 bytes total in observed sample):**
 
 ```
  Byte   Size  Value
     0     1   0xA5 (sync 0)
     1     1   0x5A (sync 1)
-    2     1   0x1D (frame type marker)
+    2     1   0x15 (= 6 + 9 + 6)
+    3     7   Device ID: 0xC2 + MAC[0:6]
+   10     9   Version block: 64 03 20 22 11 20 08 01 00
+   19     6   Hub name (UTF-8, observed: `X2 HUB`)
+   25     1   Checksum
+```
+
+**X1S reply (27 bytes total in short observed sample):**
+
+```
+ Byte   Size  Value
+    0     1   0xA5 (sync 0)
+    1     1   0x5A (sync 1)
+    2     1   0x16 (= 6 + 9 + 7)
     3     7   Device ID: 0xC2 + MAC[0:5] + 0x45
    10     9   Version block: 64 02 20 22 11 20 05 01 00
-   19    14   Hub name (UTF-8, zero-padded to 14)
-   33     1   Trailer byte: 0xBE
+   19     7   Hub name (UTF-8, observed: `X1S HUB`)
+   26     1   Checksum (sum8 of all preceding bytes)
 ```
+
+Longer X1S names have been observed growing the packet exactly the same way as X1/X2.
 
 **Device ID construction:**
 
 ```
 device_id[0]   = 0xC2  (fixed required prefix)
-device_id[1:6] = MAC[0:5]  (first 5 bytes of hub MAC address)
-device_id[6]   = 0x4B  (X1 / X2)
+device_id[1:6] = MAC[0:5]  (X1 / X1S)
+device_id[6]   = 0x4B  (X1)
                  0x45  (X1S)
+
+X2 uses a different observed layout:
+
+device_id[0]   = 0xC2
+device_id[1:7] = MAC[0:6]  (full 6-byte MAC address)
 ```
 
 The **CALL_ME hint** (useful when matching subsequent `CALL_ME` frames back to the
-correct virtual hub) is
-`MAC[0:5] + suffix_byte` (the same as `device_id[1:7]`).
+correct virtual hub) matches the device-id tail:
+
+- X1 / X1S: `MAC[0:5] + suffix_byte`
+- X2: full `MAC[0:6]`
 
 ### 2.3 Client sends CALL_ME after discovery
 
@@ -181,13 +255,69 @@ frame and opens a TCP connection **to** the app.
 ### 2.4 CONNECT_READY_BROADCAST
 
 Immediately after a proxy establishes the TCP session with the app, it broadcasts a
-fixed 12-byte beacon to port `8100` on the subnet broadcast address:
+12-byte beacon to port `8100` on the subnet broadcast address:
 
 ```
-CONNECT_READY_BROADCAST: A5 5A 07 C4 E2 6A 44 86 1B 45 00 40
+X1 example:  A5 5A 07 C4 CB 38 35 39 68 4B 00 EE
+X1S example: A5 5A 07 C4 E2 6A 44 86 1B 45 00 40
 ```
 
-This tells the app that the hub connection is now live.
+Observed structure:
+
+```
+ Byte   Size  Value
+    0     1   0xA5 (sync 0)
+    1     1   0x5A (sync 1)
+    2     1   0x07
+    3     1   0xC4
+    4     6   CALL_ME hint
+   10     1   0x00
+   11     1   Checksum (sum8 of all preceding bytes)
+```
+
+The beacon reuses the same **CALL_ME hint** observed in discovery:
+
+- X1: `MAC[0:5] + 0x4B`
+- X1S: `MAC[0:5] + 0x45`
+- X2: full `MAC[0:6]`
+
+This appears to signal that the hub connection is live, but current testing suggests
+it is **not required** for successful operation of the official app. Removing it did
+not change connection behavior in observed X1 testing.
+
+### 2.5 Discovery-path name query
+
+When the user changes hubs through the app's discovery overlay, an additional
+application-level query may appear that is not normally seen when reconnecting
+directly to the previously selected hub:
+
+```
+Client -> Hub: OP_0032
+Hub    -> Client: OP_0631 <UTF-8 hub name>
+```
+
+Observed X1 example:
+
+```
+Request:  A5 5A 00 32 31
+Response: A5 5A 06 31 58 31 20 48 55 42 BE
+```
+
+The response payload is a UTF-8 hub name (`X1 HUB` in the observed sample) plus a
+trailing checksum byte.
+
+### 2.6 X1 default-name quirk
+
+Observed X1 behavior in the official app:
+
+- if the hub advertises the default name `X1 HUB`, the app may open the
+  "name your hub" dialog when connecting through the discovery-driven hub switch flow
+- the same hub can still connect normally when the app reconnects directly to the
+  last-used hub without discovery
+- changing the X1 to a non-default name avoids the observed rename prompt
+
+This appears to be an app quirk tied to the default X1 name rather than a transport
+or framing error in discovery or banner handling.
 
 ---
 
@@ -235,7 +365,7 @@ PROXY                                APP
    |                                     |
    |-- TCP connect -------------------- >|  (proxy connects to app IP:port from CALL_ME)
    |                                     |
-   |-- CONNECT_READY_BROADCAST (bcast) ->|  (UDP broadcast to subnet:8100)
+   |-- CONNECT_READY_BROADCAST (bcast) ->|  (optional/observed UDP broadcast to subnet:8100)
    |                                     |
    |  … proxy relays all hub traffic …   |
 ```

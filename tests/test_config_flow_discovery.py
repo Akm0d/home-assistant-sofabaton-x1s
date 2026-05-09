@@ -6,7 +6,6 @@ from custom_components.sofabaton_x1s.config_flow import _prepare_discovered_hub
 from custom_components.sofabaton_x1s.config_flow import ConfigFlow
 from custom_components.sofabaton_x1s.const import (
     CONF_ENABLE_X2_DISCOVERY,
-    CONF_MDNS_VERSION,
     HUB_VERSION_X1,
     HUB_VERSION_X2,
     DOMAIN,
@@ -89,32 +88,19 @@ def _flow_with_x2_enabled(enabled: bool) -> ConfigFlow:
     return flow
 
 
-def test_manual_flow_prompts_for_hub_version() -> None:
+def test_manual_flow_prompts_for_host_only() -> None:
     flow = _flow_with_x2_enabled(False)
 
     result = _run(flow.async_step_manual())
 
     assert result["type"] == "form"
-    assert CONF_MDNS_VERSION in result["data_schema"].schema
+    assert list(result["data_schema"].schema.keys()) == ["host"]
 
 
-def test_manual_flow_includes_x2_when_discovery_disabled() -> None:
+def test_manual_flow_bootstraps_default_identity_from_host() -> None:
     flow = _flow_with_x2_enabled(False)
 
-    result = _run(flow.async_step_manual())
-
-    version_options = result["data_schema"].schema[CONF_MDNS_VERSION][0]
-    assert HUB_VERSION_X2 in version_options
-
-
-def test_manual_flow_persists_selected_hub_version() -> None:
-    flow = _flow_with_x2_enabled(False)
-
-    _run(flow.async_step_manual({
-        "name": "Manual Hub",
-        "host": "1.2.3.4",
-        CONF_MDNS_VERSION: HUB_VERSION_X2,
-    }))
+    _run(flow.async_step_manual({"host": "1.2.3.4"}))
 
     result = _run(flow.async_step_ports({
         "proxy_udp_port": 8000,
@@ -122,9 +108,10 @@ def test_manual_flow_persists_selected_hub_version() -> None:
     }))
 
     assert result["type"] == "create_entry"
-    assert result["data"][CONF_MDNS_VERSION] == HUB_VERSION_X2
-    assert result["options"][CONF_MDNS_VERSION] == HUB_VERSION_X2
-    assert result["data"]["mdns_txt"]["HVER"] == "3"
+    assert result["data"]["name"] == "1.2.3.4"
+    assert result["data"]["mdns_version"] == HUB_VERSION_X1
+    assert result["options"]["mdns_version"] == HUB_VERSION_X1
+    assert result["data"]["mdns_txt"] == {"MAC": result["data"]["mac"]}
 
 
 def test_zeroconf_x2_aborts_when_disabled() -> None:
@@ -172,9 +159,7 @@ def test_manual_flow_formats_entry_title_with_version_host_and_mac() -> None:
     flow = _flow_with_x2_enabled(False)
 
     _run(flow.async_step_manual({
-        "name": "Manual Hub",
         "host": "192.168.2.181",
-        CONF_MDNS_VERSION: HUB_VERSION_X2,
     }))
 
     result = _run(flow.async_step_ports({
@@ -184,10 +169,56 @@ def test_manual_flow_formats_entry_title_with_version_host_and_mac() -> None:
 
     assert result["type"] == "create_entry"
     assert result["title"] == format_hub_entry_title(
-        HUB_VERSION_X2,
+        HUB_VERSION_X1,
         "192.168.2.181",
         result["data"]["mac"],
     )
+
+
+def test_zeroconf_existing_entry_updates_host_only() -> None:
+    flow = _flow_with_x2_enabled(True)
+    existing_entry = SimpleNamespace(
+        unique_id="aa:bb:cc:dd:ee:ff",
+        data={
+            "host": "1.2.3.4",
+            "port": 8102,
+            "name": "Configured Hub",
+            "mdns_txt": {"NAME": "Configured Hub", "HVER": "1", "AVER": "17"},
+            "mdns_version": "X1",
+        },
+        options={},
+    )
+    updated: dict[str, dict] = {}
+
+    flow._async_current_entries = lambda: [existing_entry]  # type: ignore[assignment]
+    flow.async_set_unique_id = lambda *_args, **_kwargs: asyncio.sleep(0)  # type: ignore[assignment]
+    flow.hass.config_entries = SimpleNamespace(
+        async_update_entry=lambda entry, *, data=None, options=None: updated.update(
+            {"data": data or entry.data, "options": options or entry.options}
+        )
+    )
+
+    result = _run(
+        flow.async_step_zeroconf(
+            _service_info(
+                MDNS_SERVICE_TYPES[0],
+                host="5.6.7.8",
+                properties={
+                    "NAME": b"Discovered Hub",
+                    "MAC": b"aa:bb:cc:dd:ee:ff",
+                    "HVER": b"3",
+                    "AVER": b"8",
+                },
+            )
+        )
+    )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+    assert updated["data"]["host"] == "5.6.7.8"
+    assert updated["data"]["name"] == "Configured Hub"
+    assert updated["data"]["mdns_txt"] == {"NAME": "Configured Hub", "HVER": "1", "AVER": "17"}
+    assert updated["data"]["mdns_version"] == "X1"
 
 
 def test_format_hub_entry_title_defaults_unknown_values() -> None:

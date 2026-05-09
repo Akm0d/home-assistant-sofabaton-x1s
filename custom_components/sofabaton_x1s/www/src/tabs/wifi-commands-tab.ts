@@ -212,8 +212,6 @@ class SofabatonWifiCommandsTab extends LitElement {
     _activeCommandActionTab: { state: true },
     _syncWarningOpen: { state: true },
     _syncWarningOptOut: { state: true },
-    _hubVersionModalOpen: { state: true },
-    _hubVersionModalSelectedVersion: { state: true },
     _advancedOptionsOpen: { state: true },
     _commandEditorDrafts: { state: true },
     _shortSelectorVersion: { state: true },
@@ -361,7 +359,6 @@ class SofabatonWifiCommandsTab extends LitElement {
     .section-title-wrap { display: flex; align-items: center; gap: 8px; }
     .section-subtitle, .dialog-note, .dialog-footer-note, .slot-confirm-sub, .sync-message, .sync-warning-text, .empty-hint { color: var(--secondary-text-color); }
     .section-subtitle { font-size: 13px; line-height: 1.5; }
-    .hub-version-warn-btn { width: 100%; border: 1px solid color-mix(in srgb, var(--warning-color, #ff9800) 45%, var(--divider-color)); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--warning-color, #ff9800) 10%, transparent); color: var(--primary-text-color); text-align: left; font: inherit; font-weight: 600; cursor: pointer; }
     .sync-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--divider-color); border-radius: 18px; background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 82%, transparent); }
     .sync-row.sync-error { border-color: color-mix(in srgb, var(--error-color, #db4437) 35%, var(--divider-color)); }
     .sync-row.sync-ok { border-color: color-mix(in srgb, #48b851 35%, var(--divider-color)); }
@@ -370,6 +367,10 @@ class SofabatonWifiCommandsTab extends LitElement {
     .sync-message { font-size: 13px; line-height: 1.4; }
     .sync-doc-link { color: var(--primary-color); font-weight: 600; text-decoration: none; }
     .sync-doc-link:hover { text-decoration: underline; }
+    .list-view .sticky-footer { border-top: none; }
+    .wifi-docs-bar { display: flex; justify-content: center; padding: 7px 16px 6px; border-bottom: 1px solid var(--divider-color); }
+    .wifi-docs-link { font-size: 12px; font-weight: 500; color: var(--primary-color); text-decoration: none; opacity: 0.85; }
+    .wifi-docs-link:hover { opacity: 1; text-decoration: underline; }
     .sync-btn, .dialog-btn, .slot-action-btn, .sync-static { border: 1px solid var(--divider-color); border-radius: 10px; padding: 8px 12px; background: transparent; color: var(--primary-text-color); font: inherit; font-size: 13px; font-weight: 700; }
     .sync-btn, .dialog-btn, .slot-action-btn, .activity-chip, .checkbox-row, .slot-btn, .icon-btn, .version-chip, .action-tab { cursor: pointer; }
     .sync-btn:hover, .dialog-btn:hover, .slot-action-btn:hover, .activity-chip:hover, .version-chip:hover, .action-tab:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
@@ -549,21 +550,10 @@ class SofabatonWifiCommandsTab extends LitElement {
     .action-selector-wrap[hidden] { display: none; }
     .dialog-text { font-size: 14px; line-height: 1.55; color: var(--primary-text-color); }
     .warning-optout { display: flex; align-items: center; gap: 10px; }
+    .dialog-body ha-input,
     .dialog-body ha-textfield,
     .dialog-body ha-selector {
       width: 100%;
-      --input-fill-color: var(--ha-color-form-background);
-      --mdc-theme-surface: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
-      --mdc-text-field-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
-      --mdc-text-field-hover-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
-      --mdc-text-field-disabled-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, black);
-      --mdc-text-field-idle-line-color: var(--divider-color);
-      --mdc-text-field-hover-line-color: var(--primary-color);
-      --mdc-text-field-focused-line-color: var(--primary-color);
-      --mdc-text-field-label-ink-color: var(--secondary-text-color);
-      --mdc-text-field-ink-color: var(--primary-text-color);
-      --mdc-text-field-input-text-color: var(--primary-text-color);
-      --text-field-hover-color: var(--primary-text-color);
       --mdc-select-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
       --mdc-select-hover-fill-color: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, black);
       --mdc-select-idle-line-color: var(--divider-color);
@@ -574,6 +564,10 @@ class SofabatonWifiCommandsTab extends LitElement {
       --mdc-theme-on-surface: var(--primary-text-color);
       --mdc-theme-text-primary-on-background: var(--primary-text-color);
       --mdc-theme-primary: var(--primary-color);
+    }
+    .dialog-body ha-input {
+      --ha-input-padding-top: 0;
+      --ha-input-padding-bottom: 0;
     }
     @media (max-width: 640px) {
       .command-grid { grid-template-columns: 1fr; }
@@ -586,8 +580,8 @@ class SofabatonWifiCommandsTab extends LitElement {
       .list-header-action > .list-action-btn { width: 100%; justify-content: center; }
       .detail-title-row { gap: 8px; }
       .detail-title-main { min-width: 0; flex: 1; }
-      .detail-title-actions { gap: 6px; }
-      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; max-width: 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .detail-title-actions { gap: 6px; min-width: max-content; }
+      .detail-sync-btn, .list-action-btn { flex: 0 0 auto; white-space: nowrap; }
       .device-card { align-items: center; gap: 10px; padding: 10px 12px; }
       .device-card-main { align-items: center; flex-direction: row; gap: 10px; }
       .device-card-name { flex: 1; }
@@ -626,8 +620,6 @@ class SofabatonWifiCommandsTab extends LitElement {
   private _activeCommandActionTab: PressType = "short";
   private _syncWarningOpen = false;
   private _syncWarningOptOut = false;
-  private _hubVersionModalOpen = false;
-  private _hubVersionModalSelectedVersion = "X1";
   private _advancedOptionsOpen = false;
   private _commandEditorDrafts: Record<number, WifiCommandSlot> = {};
   private _shortSelectorVersion = 0;
@@ -657,6 +649,10 @@ class SofabatonWifiCommandsTab extends LitElement {
       .forEach((element) => this._hideUiActionTypeSelector(element));
   }
 
+  private _useLegacyTextField() {
+    return Boolean(customElements.get("ha-textfield")) && !customElements.get("ha-input");
+  }
+
   protected render() {
     if (this.loading) return html`<div class="state">Loading…</div>`;
     if (this.error) return html`<div class="state error">${this.error}</div>`;
@@ -680,7 +676,6 @@ class SofabatonWifiCommandsTab extends LitElement {
           ${this._renderDetailsModal()}
           ${this._renderActionModal()}
           ${this._renderSyncWarningModal()}
-          ${this._renderHubVersionModal()}
           ${this._renderCreateDeviceModal()}
           ${this._renderDeleteDeviceModal()}
         </div>
@@ -773,11 +768,6 @@ class SofabatonWifiCommandsTab extends LitElement {
             </div>
           </div>
           <div class="detail-scroll">
-            ${this._hubVersionConfident() ? nothing : html`
-              <button class="hub-version-warn-btn" @click=${this._openHubVersionModal}>
-                Your hub may be miss-versioned. Click here to fix it.
-              </button>
-            `}
             ${remoteUnavailable ? nothing : html`
               <div class="command-grid">
                 ${this._commandsList().map((command, idx) => this._renderSlot(command, idx))}
@@ -791,7 +781,6 @@ class SofabatonWifiCommandsTab extends LitElement {
         ${this._renderDetailsModal()}
         ${this._renderActionModal()}
         ${this._renderSyncWarningModal()}
-        ${this._renderHubVersionModal()}
         ${this._renderCreateDeviceModal()}
         ${this._renderDeleteDeviceModal()}
       </div>
@@ -901,6 +890,9 @@ class SofabatonWifiCommandsTab extends LitElement {
           ` : html`<div class="empty-state-card">No Wifi Devices configured yet. Add one to start assigning command slots.</div>`}
         </div>
         <div class="sticky-footer">
+          <div class="wifi-docs-bar">
+            <a class="wifi-docs-link" href=${WIFI_COMMANDS_DOCS_URL} target="_blank" rel="noreferrer noopener">Wifi Commands documentation</a>
+          </div>
           ${this._renderStatusDock(this._listDockLabel(canAdd), this._listDockTone(canAdd))}
         </div>
       </div>
@@ -917,26 +909,56 @@ class SofabatonWifiCommandsTab extends LitElement {
             <button class="dialog-close" @click=${this._closeCreateDeviceModal}><ha-icon icon="mdi:close"></ha-icon></button>
           </div>
           <div class="dialog-body">
-            <ha-textfield
-              .label=${"Device name"}
-              .maxLength=${20}
-              .value=${this._newDeviceName}
-              @input=${(event: Event) => {
-                const input = event.currentTarget as HTMLInputElement;
-                const value = this._sanitizeWifiDeviceName(input.value);
-                input.value = value;
-                this._newDeviceName = value;
-                this._deviceMutationError = "";
-              }}
-              @change=${(event: Event) => {
-                const input = event.currentTarget as HTMLInputElement;
-                const value = this._sanitizeWifiDeviceName(input.value);
-                input.value = value;
-                this._newDeviceName = value;
-                this._deviceMutationError = "";
-              }}
-              @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); void this._createWifiDevice(); } }}
-            ></ha-textfield>
+            ${this._useLegacyTextField()
+              ? html`
+                  <ha-textfield
+                    id="sb-new-device-name"
+                    .label=${"Device name"}
+                    .maxLength=${20}
+                    .value=${this._newDeviceName}
+                    .disabled=${this._creatingDevice}
+                    @input=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @change=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); void this._createWifiDevice(); } }}
+                  ></ha-textfield>
+                `
+              : html`
+                  <ha-input
+                    id="sb-new-device-name"
+                    type="text"
+                    .label=${"Device name"}
+                    .maxlength=${20}
+                    .value=${this._newDeviceName}
+                    .disabled=${this._creatingDevice}
+                    @input=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @change=${(event: Event) => {
+                      const input = event.currentTarget as HTMLElement & { value: string };
+                      const value = this._sanitizeWifiDeviceName(input.value);
+                      input.value = value;
+                      this._newDeviceName = value;
+                      this._deviceMutationError = "";
+                    }}
+                    @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); void this._createWifiDevice(); } }}
+                  ></ha-input>
+                `}
           </div>
           <div class="dialog-footer">
             <div class="dialog-footer-note">${this._deviceMutationError}</div>
@@ -1066,23 +1088,48 @@ class SofabatonWifiCommandsTab extends LitElement {
             </div>
             <div class="config-block">
               <div class="config-group">
-                <ha-textfield
-                  .label=${"Command Display Name"}
-                  .maxLength=${20}
-                  .value=${draft.name}
-                  @input=${(event: Event) => {
-                    const input = event.currentTarget as HTMLInputElement;
-                    const value = this._sanitizeCommandName(input.value);
-                    if (input.value !== value) input.value = value;
-                  }}
-                  @change=${(event: Event) => {
-                    const input = event.currentTarget as HTMLInputElement;
-                    const value = this._sanitizeCommandName(input.value);
-                    input.value = value;
-                    this._updateActiveCommandDraft({ name: value });
-                    this._commandSaveError = "";
-                  }}
-                ></ha-textfield>
+                ${this._useLegacyTextField()
+                  ? html`
+                      <ha-textfield
+                        id="sb-command-display-name"
+                        .label=${"Command Display Name"}
+                        .maxLength=${20}
+                        .value=${draft.name}
+                        @input=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          if (input.value !== value) input.value = value;
+                        }}
+                        @change=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          input.value = value;
+                          this._updateActiveCommandDraft({ name: value });
+                          this._commandSaveError = "";
+                        }}
+                      ></ha-textfield>
+                    `
+                  : html`
+                      <ha-input
+                        id="sb-command-display-name"
+                        type="text"
+                        .label=${"Command Display Name"}
+                        .maxlength=${20}
+                        .value=${draft.name}
+                        @input=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          if (input.value !== value) input.value = value;
+                        }}
+                        @change=${(event: Event) => {
+                          const input = event.currentTarget as HTMLElement & { value: string };
+                          const value = this._sanitizeCommandName(input.value);
+                          input.value = value;
+                          this._updateActiveCommandDraft({ name: value });
+                          this._commandSaveError = "";
+                        }}
+                      ></ha-input>
+                    `}
                 <button
                   class="advanced-toggle ${this._advancedOptionsOpen ? "expanded" : ""}"
                   @click=${() => {
@@ -1316,7 +1363,7 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _renderHubVersionModal() {
-    if (!this._hubVersionModalOpen) return nothing;
+    return nothing;
     return html`
       <div class="modal-backdrop" @click=${() => { this._hubVersionModalOpen = false; }}>
         <div class="dialog small" @click=${(event: Event) => event.stopPropagation()}>
@@ -1387,7 +1434,7 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _hubVersionConfident() {
-    return this._remoteAttrs()?.hub_version_confident !== false;
+    return true;
   }
 
   private _supportsUnicodeCommandNames() {
@@ -2599,18 +2646,10 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   private _openHubVersionModal = () => {
-    this._hubVersionModalSelectedVersion = this._hubVersion() || "X1";
-    this._hubVersionModalOpen = true;
+    this._hubVersionModalOpen = false;
   };
 
   private _submitHubVersionModal = async () => {
-    const entityId = String(this._entityId() || "").trim();
-    if (!entityId || !this.hass?.callWS) return;
-    await this.hass.callWS({
-      type: "sofabaton_x1s/hub/set_version",
-      entity_id: entityId,
-      version: this._hubVersionModalSelectedVersion,
-    });
     this._hubVersionModalOpen = false;
   };
 

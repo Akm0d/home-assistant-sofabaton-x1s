@@ -1,4 +1,4 @@
-export type TabId = "hub" | "settings" | "wifi_commands" | "cache" | "logs";
+export type TabId = "settings" | "wifi_commands" | "cache" | "logs";
 export type SectionId = "activities" | "devices";
 export type SettingKey =
   | "persistent_cache"
@@ -30,6 +30,7 @@ export interface ControlPanelHubState {
   entry_id: string;
   name?: string;
   version?: string;
+  firmware_version?: number | string | null;
   ip_address?: string;
   activity_count?: number;
   device_count?: number;

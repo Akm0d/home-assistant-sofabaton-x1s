@@ -68,6 +68,7 @@ from .protocol_const import (
     OP_REQ_ACTIVITIES,
     OP_REQ_ACTIVATE,
     OP_REQ_ACTIVITY_MAP,
+    OP_REQ_BANNER,
     OP_DELETE_DEVICE,
     OP_ACTIVITY_ASSIGN_FINALIZE,
     OP_ACTIVITY_CONFIRM,
@@ -94,6 +95,37 @@ from .transport_bridge import TransportBridge
 log = logging.getLogger("x1proxy")
 
 ACTIVITY_INCOMPLETE_RETRY_DELAY_S = 0.75
+_HUB_MODEL_BY_CODE = {
+    0x01: HUB_VERSION_X1,
+    0x02: HUB_VERSION_X1S,
+    0x03: HUB_VERSION_X2,
+}
+
+
+def _normalize_banner_model(value: Any) -> str | None:
+    text = str(value or "").strip().upper()
+    if text in _HUB_MODEL_BY_CODE.values():
+        return text
+    return None
+
+
+def _sanitize_mdns_label_component(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9-]+", "-", str(value or "").strip())
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text or "X1"
+
+
+def _mac_suffix_for_instance(mdns_txt: Dict[str, str]) -> str:
+    raw_mac = str(mdns_txt.get("MAC") or mdns_txt.get("mac") or "").strip()
+    compact = re.sub(r"[^0-9A-Fa-f]", "", raw_mac).lower()
+    if len(compact) >= 6:
+        return compact[-6:]
+    return "000000"
+
+
+def _mdns_instance_for_identity(model: str | None, mdns_txt: Dict[str, str]) -> str:
+    display_model = _sanitize_mdns_label_component(_normalize_banner_model(model) or HUB_VERSION_X1)
+    return f"{display_model}-HUB-{_mac_suffix_for_instance(mdns_txt)}"
 
 def _sum8(b: bytes) -> int: return sum(b) & 0xFF
 def _hexdump(data: bytes) -> str: return data.hex(" ")
@@ -360,6 +392,9 @@ class X1Proxy:
         self._activity_inputs_last_ts = 0.0
         self._activity_inputs_event = threading.Event()
         self._activity_inputs_payloads: list[bytes] = []
+        self._banner_info_lock = threading.Lock()
+        self._banner_info_event = threading.Event()
+        self._banner_info: dict[str, Any] = {}
 
         self.transport = TransportBridge(
             real_hub_ip,
@@ -403,6 +438,52 @@ class X1Proxy:
 
         self._zc = zc
         self._zc_owned = False
+
+    def has_banner_identity(self) -> bool:
+        info = self.get_banner_info()
+        model = _normalize_banner_model(info.get("model"))
+        name = str(info.get("name") or "").strip()
+        firmware_version = info.get("firmware_version")
+        return bool(
+            model
+            and name
+            and isinstance(firmware_version, (int, float))
+        )
+
+    def update_discovery_identity(
+        self,
+        *,
+        mdns_txt: Dict[str, str],
+        hub_version: str | None,
+    ) -> bool:
+        changed = False
+        next_txt = dict(mdns_txt)
+        if self.mdns_txt != next_txt:
+            self.mdns_txt = next_txt
+            changed = True
+
+        next_version = _normalize_banner_model(hub_version) or classify_hub_version(self.mdns_txt)
+        if self.hub_version != next_version:
+            self.hub_version = next_version
+            changed = True
+
+        next_instance = _normalize_mdns_instance(
+            _mdns_instance_for_identity(self.hub_version, self.mdns_txt)
+        )
+        next_host = next_instance + ".local"
+        if self.mdns_instance != next_instance or self.mdns_host != next_host:
+            self.mdns_instance = next_instance
+            self.mdns_host = next_host
+            changed = True
+
+        self.transport.update_discovery_metadata(mdns_txt=self.mdns_txt)
+
+        if changed and self._adv_started:
+            self._stop_discovery()
+        if self.transport.is_hub_connected and self.has_banner_identity():
+            self._start_discovery()
+
+        return changed
 
     # ---------------------------------------------------------------------
     # Local command API
@@ -581,6 +662,79 @@ class X1Proxy:
         #  "commands:101"   -> just entity 101
         self._burst.on_burst_end(key, cb)
 
+    def get_banner_info(self) -> dict[str, Any]:
+        with self._banner_info_lock:
+            return dict(self._banner_info)
+
+    def request_banner_info(self) -> bool:
+        return self.enqueue_cmd(OP_REQ_BANNER)
+
+    def fetch_banner_info(
+        self,
+        *,
+        force_refresh: bool = True,
+        timeout: float = 2.0,
+    ) -> tuple[dict[str, Any], bool]:
+        cached = self.get_banner_info()
+        if cached and not force_refresh:
+            return (cached, True)
+
+        if not self.can_issue_commands():
+            return (cached, bool(cached))
+
+        self._banner_info_event.clear()
+        if not self.request_banner_info():
+            return (cached, bool(cached))
+
+        self._banner_info_event.wait(timeout)
+        info = self.get_banner_info()
+        return (info, bool(info))
+
+    def record_banner_payload(self, opcode: int, payload: bytes) -> dict[str, Any] | None:
+        if opcode_family(opcode) != 0x02 or len(payload) < 15:
+            return None
+
+        model = _HUB_MODEL_BY_CODE.get(payload[7] & 0xFF)
+        trailer_flag = payload[13] & 0xFF
+        trailer_zero = payload[14] & 0xFF
+        if model is None or trailer_zero != 0x00 or trailer_flag not in (0x00, 0x01):
+            return None
+
+        batch = payload[8:12].hex()
+        firmware_version = payload[12] & 0xFF
+        banner_name = payload[15:].decode("utf-8", errors="ignore").strip("\x00").strip()
+        parsed = {
+            "model": model,
+            "production_batch": batch,
+            "firmware_version": firmware_version,
+            "name": banner_name,
+        }
+
+        changed = False
+        with self._banner_info_lock:
+            if self._banner_info != parsed:
+                self._banner_info = dict(parsed)
+                changed = True
+
+        if changed:
+            if self.hub_version != model:
+                self._log.info(
+                    "[BANNER] model corrected from %s to %s",
+                    self.hub_version,
+                    model,
+                )
+                self.hub_version = model
+            self._log.info(
+                "[BANNER] model=%s batch=%s fw=%d name=%s",
+                model,
+                batch,
+                firmware_version,
+                banner_name or "<unknown>",
+            )
+
+        self._banner_info_event.set()
+        return parsed
+
     # High-level helpers
     def request_devices(self) -> bool:    return self.enqueue_cmd(OP_REQ_DEVICES, expects_burst=True, burst_kind="devices")
     def request_activities(self, *, is_retry: bool = False) -> bool:
@@ -704,7 +858,12 @@ class X1Proxy:
 
         return ({}, False)
 
-    def get_devices(self) -> tuple[dict[int, dict], bool]:
+    def get_devices(self, *, force_refresh: bool = False) -> tuple[dict[int, dict], bool]:
+        if force_refresh:
+            if self.can_issue_commands():
+                self.enqueue_cmd(OP_REQ_DEVICES, expects_burst=True, burst_kind="devices")
+            return ({}, False)
+
         if self.state.devices:
             return ({k: v.copy() for k, v in self.state.devices.items()}, True)
 
@@ -756,6 +915,7 @@ class X1Proxy:
 
     def export_cache_state(self) -> dict[str, Any]:
         return {
+            "banner_info": self.get_banner_info(),
             "devices": {str(k): dict(v) for k, v in self.state.devices.items()},
             "buttons": {str(k): sorted(v) for k, v in self.state.buttons.items()},
             "commands": {
@@ -812,6 +972,27 @@ class X1Proxy:
 
     def import_cache_state(self, payload: dict[str, Any]) -> None:
         data = payload if isinstance(payload, dict) else {}
+
+        banner_info = data.get("banner_info", {})
+        if isinstance(banner_info, dict):
+            sanitized: dict[str, Any] = {}
+            model = _normalize_banner_model(banner_info.get("model"))
+            if model:
+                sanitized["model"] = model
+            batch = str(banner_info.get("production_batch", "")).strip()
+            if batch:
+                sanitized["production_batch"] = batch
+            firmware_version = banner_info.get("firmware_version")
+            if isinstance(firmware_version, (int, float)):
+                sanitized["firmware_version"] = int(firmware_version)
+            name = str(banner_info.get("name", "")).strip()
+            if name:
+                sanitized["name"] = name
+            with self._banner_info_lock:
+                self._banner_info = sanitized
+            if sanitized.get("model"):
+                self.hub_version = str(sanitized["model"])
+            self._banner_info_event.set()
 
         devices = data.get("devices", {})
         self.state.devices = {
@@ -4291,7 +4472,7 @@ class X1Proxy:
     # mDNS advertisement
     # ---------------------------------------------------------------------
     def _start_mdns(self) -> None:
-        from zeroconf import BadTypeInNameException, IPVersion, ServiceInfo, Zeroconf
+        from zeroconf import BadTypeInNameException, IPVersion, NonUniqueNameException, ServiceInfo, Zeroconf
 
         ip_bytes = socket.inet_aton(_route_local_ip(self.real_hub_ip))
         service_type = mdns_service_type_for_props(self.mdns_txt)
@@ -4325,7 +4506,13 @@ class X1Proxy:
                 "[mDNS] service type %s was rejected; advertisement will not be started",
                 service_type,
             )
-            return
+            return False
+        except NonUniqueNameException:
+            self._log.warning(
+                "[mDNS] service name %s is already in use; advertisement will not be started",
+                info.name,
+            )
+            return False
         self._mdns_infos.append(info)
         self._log.info(
             "[mDNS] registered %s on %s:%d (HVER=%s)",
@@ -4337,6 +4524,7 @@ class X1Proxy:
 
         self._adv_started = True
         self._log.info("[mDNS] registration complete; verify via Zeroconf browser if available")
+        return True
 
     # ---------------------------------------------------------------------
     # Parsing helpers
@@ -4344,8 +4532,6 @@ class X1Proxy:
     
     def _notify_hub_state(self, connected: bool) -> None:
         self._hub_connected = connected
-        if connected and self._proxy_enabled and not self._adv_started:
-            self._start_discovery()
         for cb in self._hub_state_listeners:
             try:
                 cb(connected)
@@ -4672,12 +4858,18 @@ class X1Proxy:
             return
         if self._adv_started:
             return
+        if not self.has_banner_identity():
+            self._log.debug("[mDNS] discovery deferred until banner identity is ready")
+            return
             
         self.proxy_udp_port = self.transport.proxy_udp_port
-        self._start_mdns()
+        if not self._start_mdns():
+            return
+        self.transport.start_notify_listener()
         self._adv_started = True
 
     def _stop_discovery(self) -> None:
+        self.transport.stop_notify_listener()
         # unregister mDNS
         if self._zc is not None and self._mdns_infos:
             try:

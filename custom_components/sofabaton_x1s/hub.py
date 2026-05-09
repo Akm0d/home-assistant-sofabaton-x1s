@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     CONF_HEX_LOGGING_ENABLED,
     CONF_MAC,
+    CONF_NAME,
     CONF_MDNS_TXT,
     CONF_MDNS_VERSION,
     CONF_PROXY_ENABLED,
@@ -42,6 +43,7 @@ from .const import (
 )
 from .diagnostics import async_disable_hex_logging_capture, async_enable_hex_logging_capture
 from .logging_utils import get_hub_logger
+from .cache_store import PersistentCacheStore
 from .lib.protocol_const import ButtonName
 from .lib.x1_proxy import X1Proxy
 from .command_config import (
@@ -95,6 +97,21 @@ def get_hub_model(entry: ConfigEntry) -> str:
     return "X1"
 
 
+def get_hub_display_name(hub: "SofabatonHub", entry: ConfigEntry | None = None) -> str:
+    """Return the current authoritative hub name for UI and discovery."""
+
+    name = str(getattr(hub, "name", "") or "").strip()
+    if name:
+        return name
+
+    if entry is not None:
+        fallback = str(entry.data.get(CONF_NAME) or "").strip()
+        if fallback:
+            return fallback
+
+    return "Sofabaton Hub"
+
+
 class SofabatonHub:
     def __init__(
         self,
@@ -116,9 +133,9 @@ class SofabatonHub:
         self.name = name
         self.host = host
         self.port = port
-        self.mdns_txt = mdns_txt
+        self.mdns_txt = dict(mdns_txt or {})
         self.mdns_txt["HA_PROXY"] = "1"
-        self.version = version
+        self.version = version or classify_hub_version(self.mdns_txt)
 
         self._proxy_udp_port = proxy_udp_port
         self._hub_listen_base = hub_listen_base
@@ -127,6 +144,9 @@ class SofabatonHub:
         self.current_activity: Optional[int] = None
         self.client_connected: bool = False
         self.hub_connected: bool = False
+        self.banner_model: str | None = None
+        self.hub_firmware_version: int | None = None
+        self.production_batch: str | None = None
         self.activities_ready: bool = False
         self.devices_ready: bool = False
         self._devices_generation: int = 0
@@ -169,6 +189,137 @@ class SofabatonHub:
     def _bump_cache_generation(self) -> int:
         self._cache_generation += 1
         return self._cache_generation
+
+    def _apply_banner_info(self, banner_info: dict[str, Any] | None) -> bool:
+        info = banner_info if isinstance(banner_info, dict) else {}
+        next_model = str(info.get("model") or "").strip() or None
+        next_batch = str(info.get("production_batch") or "").strip() or None
+        firmware_value = info.get("firmware_version")
+        next_firmware = int(firmware_value) if isinstance(firmware_value, (int, float)) else None
+
+        changed = (
+            self.banner_model != next_model
+            or self.production_batch != next_batch
+            or self.hub_firmware_version != next_firmware
+        )
+        if not changed:
+            return False
+
+        self.banner_model = next_model
+        self.production_batch = next_batch
+        self.hub_firmware_version = next_firmware
+        return True
+
+    def _build_authoritative_mdns_txt(
+        self,
+        *,
+        name: str,
+        version: str,
+        firmware_version: int,
+    ) -> dict[str, str]:
+        next_txt = dict(self.mdns_txt)
+        next_txt.pop("HA_PROXY", None)
+        next_txt["NAME"] = name
+        next_txt["HVER"] = HVER_BY_HUB_VERSION[version]
+        next_txt["AVER"] = str(int(firmware_version))
+        return next_txt
+
+    async def _async_sync_authoritative_identity(
+        self,
+        banner_info: dict[str, Any] | None,
+    ) -> bool:
+        banner_changed = self._apply_banner_info(banner_info)
+        if not isinstance(banner_info, dict):
+            return banner_changed
+
+        next_name = str(banner_info.get("name") or "").strip()
+        next_version = self.banner_model
+        next_firmware = self.hub_firmware_version
+        if not next_name or not next_version or next_firmware is None:
+            return banner_changed
+
+        next_txt = self._build_authoritative_mdns_txt(
+            name=next_name,
+            version=next_version,
+            firmware_version=next_firmware,
+        )
+        runtime_txt = dict(next_txt)
+        runtime_txt["HA_PROXY"] = "1"
+
+        identity_changed = (
+            self.name != next_name
+            or self.version != next_version
+            or dict((k, v) for k, v in self.mdns_txt.items() if k != "HA_PROXY") != next_txt
+        )
+
+        self.name = next_name
+        self.version = next_version
+        self.mdns_txt = runtime_txt
+        self.mac = runtime_txt.get("MAC") or runtime_txt.get("mac") or None
+        await self.hass.async_add_executor_job(
+            partial(
+                self._proxy.update_discovery_identity,
+                mdns_txt=self.mdns_txt,
+                hub_version=self.version,
+            )
+        )
+
+        config_entries = getattr(self.hass, "config_entries", None)
+        entry = (
+            config_entries.async_get_entry(self.entry_id)
+            if config_entries is not None and hasattr(config_entries, "async_get_entry")
+            else None
+        )
+        if entry is not None:
+            data = dict(entry.data)
+            options = dict(entry.options)
+            changed = False
+            if data.get(CONF_NAME) != next_name:
+                data[CONF_NAME] = next_name
+                changed = True
+            if data.get(CONF_MDNS_TXT) != next_txt:
+                data[CONF_MDNS_TXT] = next_txt
+                changed = True
+            if data.get(CONF_MDNS_VERSION) != next_version:
+                data[CONF_MDNS_VERSION] = next_version
+                changed = True
+            if options.get(CONF_MDNS_VERSION) != next_version:
+                options[CONF_MDNS_VERSION] = next_version
+                changed = True
+            expected_title = format_hub_entry_title(
+                next_version,
+                data.get("host"),
+                data.get(CONF_MAC),
+            )
+            update_kwargs: dict[str, Any] = {}
+            if changed:
+                update_kwargs["data"] = data
+                update_kwargs["options"] = options
+            if entry.title != expected_title:
+                update_kwargs["title"] = expected_title
+            if update_kwargs:
+                self.hass.config_entries.async_update_entry(entry, **update_kwargs)
+
+        return banner_changed or identity_changed
+
+    async def _async_get_persistent_cache_store(self) -> PersistentCacheStore:
+        domain_data = self.hass.data.setdefault(DOMAIN, {})
+        store = domain_data.get("persistent_cache_store")
+        if isinstance(store, PersistentCacheStore):
+            return store
+
+        store = PersistentCacheStore(self.hass)
+        await store.async_load()
+        domain_data["persistent_cache_store"] = store
+        return store
+
+    async def _async_persist_cache_if_enabled(self) -> bool:
+        store = await self._async_get_persistent_cache_store()
+        if not store.enabled:
+            return False
+
+        await store.async_set_hub_cache(self.entry_id, await self.async_export_cache_state())
+        return True
 
     def _activity_catalog_signature(
         self, activities: dict[int, dict[str, Any]] | None = None
@@ -486,16 +637,28 @@ class SofabatonHub:
     # async helpers
     # ------------------------------------------------------------------
     async def _async_initial_sync(self) -> None:
-        acts, acts_ready = await self.hass.async_add_executor_job(partial(self._proxy.get_activities, force_refresh=True))
-        self._log.debug(
-            "[%s] initial_sync: got activities ready=%s count=%s",
-            self.entry_id,
-            acts_ready,
-            len(acts) if acts else 0,
+        banner_info, banner_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.fetch_banner_info, force_refresh=True)
         )
-        self.activities_ready = acts_ready
+        banner_changed = await self._async_sync_authoritative_identity(
+            banner_info if banner_ready else {}
+        )
+        self._log.debug(
+            "[%s] initial_sync: got banner ready=%s model=%s batch=%s fw=%s",
+            self.entry_id,
+            banner_ready,
+            self.banner_model,
+            self.production_batch,
+            self.hub_firmware_version,
+        )
+        if banner_changed:
+            self._bump_cache_generation()
+            async_dispatcher_send(self.hass, signal_hub(self.entry_id))
+        await self._async_persist_cache_if_enabled()
 
-        devs, devs_ready = await self.hass.async_add_executor_job(self._proxy.get_devices)
+        devs, devs_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_devices, force_refresh=True)
+        )
         self._log.debug(
             "[%s] initial_sync: got devices ready=%s count=%s",
             self.entry_id,
@@ -509,6 +672,17 @@ class SofabatonHub:
             self._bump_cache_generation()
             await self._async_reconcile_deployed_wifi_device_ids()
             async_dispatcher_send(self.hass, signal_devices(self.entry_id))
+
+        acts, acts_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_activities, force_refresh=True)
+        )
+        self._log.debug(
+            "[%s] initial_sync: got activities ready=%s count=%s",
+            self.entry_id,
+            acts_ready,
+            len(acts) if acts else 0,
+        )
+        self.activities_ready = acts_ready
 
         if acts_ready:
             if self._replace_activities(acts):
@@ -526,6 +700,7 @@ class SofabatonHub:
 
     async def async_restore_persistent_cache(self, payload: dict[str, Any]) -> None:
         await self.hass.async_add_executor_job(self._proxy.import_cache_state, payload)
+        await self._async_sync_authoritative_identity(self._proxy.get_banner_info())
 
         devs, devs_ready = await self.hass.async_add_executor_job(self._proxy.get_devices)
         self.devices_ready = devs_ready
@@ -2308,39 +2483,6 @@ class SofabatonHub:
             new_options = entry.options.copy()
             new_options[key] = value
             self.hass.config_entries.async_update_entry(entry, options=new_options)
-
-    async def async_set_hub_version(self, version: str) -> None:
-        """Set hub version override and persist to config entry metadata."""
-
-        if version not in HVER_BY_HUB_VERSION:
-            raise HomeAssistantError("hub_version must be one of: X1, X1S, X2")
-
-        entry = self.hass.config_entries.async_get_entry(self.entry_id)
-        if entry is None:
-            raise HomeAssistantError("Config entry not found")
-
-        data = dict(entry.data)
-        options = dict(entry.options)
-        mdns_txt_raw = data.get(CONF_MDNS_TXT, {})
-        mdns_txt = dict(mdns_txt_raw) if isinstance(mdns_txt_raw, dict) else {}
-        mdns_txt["HVER"] = HVER_BY_HUB_VERSION[version]
-
-        data[CONF_MDNS_TXT] = mdns_txt
-        data[CONF_MDNS_VERSION] = version
-        options[CONF_MDNS_VERSION] = version
-
-        self.version = version
-        self.mdns_txt = mdns_txt
-        self._proxy.hub_version = version
-        self._proxy.mdns_txt["HVER"] = mdns_txt["HVER"]
-
-        self.hass.config_entries.async_update_entry(
-            entry,
-            data=data,
-            options=options,
-            title=format_hub_entry_title(version, data.get("host"), data.get(CONF_MAC)),
-        )
-        async_dispatcher_send(self.hass, signal_hub(self.entry_id))
 
     async def async_set_proxy_enabled(self, enable: bool) -> None:
         self._log.debug("[%s] Setting proxy enabled=%s", self.entry_id, enable)

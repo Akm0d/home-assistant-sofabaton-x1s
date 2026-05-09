@@ -170,7 +170,8 @@ def _build_control_panel_hub_payload(
     persistent_cache_enabled: bool,
 ) -> dict[str, Any]:
     entry = hass.config_entries.async_get_entry(hub.entry_id)
-    version = get_hub_model(entry) if entry is not None else getattr(hub, "version", "")
+    banner_model = str(getattr(hub, "banner_model", "") or "").strip()
+    version = banner_model or (get_hub_model(entry) if entry is not None else getattr(hub, "version", ""))
     can_run_hub_actions = bool(getattr(hub, "hub_connected", False)) and not bool(
         getattr(hub, "client_connected", False)
     )
@@ -180,6 +181,7 @@ def _build_control_panel_hub_payload(
         "entry_id": hub.entry_id,
         "name": hub.name,
         "version": version,
+        "firmware_version": getattr(hub, "hub_firmware_version", None),
         "ip_address": getattr(hub, "host", ""),
         "device_count": len(devices),
         "activity_count": len(activities),
@@ -474,27 +476,6 @@ async def _ws_delete_command_device(hass: HomeAssistant, connection, msg: dict[s
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): f"{DOMAIN}/hub/set_version",
-        vol.Required("entity_id"): cv.entity_id,
-        vol.Required("version"): str,
-    }
-)
-@websocket_api.async_response
-async def _ws_set_hub_version(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
-    hub = await _async_resolve_hub_from_data(hass, {"entity_id": msg["entity_id"]})
-    if hub is None:
-        connection.send_error(msg["id"], "not_found", "Could not resolve Sofabaton hub")
-        return
-    try:
-        await hub.async_set_hub_version(msg["version"])
-    except HomeAssistantError as err:
-        connection.send_error(msg["id"], "invalid_format", str(err))
-        return
-    connection.send_result(msg["id"], {"ok": True})
-
-
-@websocket_api.websocket_command(
-    {
         vol.Required("type"): f"{DOMAIN}/control_panel/state",
     }
 )
@@ -781,7 +762,6 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, _ws_list_command_devices)
     websocket_api.async_register_command(hass, _ws_create_command_device)
     websocket_api.async_register_command(hass, _ws_delete_command_device)
-    websocket_api.async_register_command(hass, _ws_set_hub_version)
     websocket_api.async_register_command(hass, _ws_get_control_panel_state)
     websocket_api.async_register_command(hass, _ws_control_panel_set_setting)
     websocket_api.async_register_command(hass, _ws_control_panel_run_action)
@@ -983,7 +963,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         roku_server_enabled=roku_server_enabled,
         version=version,
     )
-    await hub.async_start()
 
     cache_store = await _async_get_persistent_cache_store(hass)
     hass.data[DOMAIN]["config"][CONF_PERSISTENT_CACHE_ENABLED] = cache_store.enabled
@@ -991,6 +970,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cache_payload = await cache_store.async_get_hub_cache(entry.entry_id)
         if cache_payload:
             await hub.async_restore_persistent_cache(cache_payload)
+
+    await hub.async_start()
 
     if not hass.services.has_service(DOMAIN, "fetch_device_commands"):
         hass.services.async_register(DOMAIN, "fetch_device_commands", _async_handle_fetch_device_commands)

@@ -10,9 +10,9 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import DOMAIN, CONF_MAC, CONF_NAME
+from .const import DOMAIN, CONF_MAC
 from .const import signal_wifi_device
-from .hub import SofabatonHub, get_hub_model
+from .hub import SofabatonHub, get_hub_display_name, get_hub_model
 
 
 async def async_setup_entry(
@@ -38,13 +38,16 @@ class SofabatonProxySwitch(SwitchEntity):
         self._hub = hub
         self._entry = entry
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_proxy"
-        self._attr_name = f"{entry.data[CONF_NAME]} Proxy enabled"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} Proxy enabled"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -68,13 +71,16 @@ class SofabatonHexLoggingSwitch(SwitchEntity):
         self._hub = hub
         self._entry = entry
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_hex_logging"
-        self._attr_name = f"{entry.data[CONF_NAME]} Hex logging"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} Hex logging"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -98,13 +104,16 @@ class SofabatonWifiDeviceSwitch(SwitchEntity):
         self._hub = hub
         self._entry = entry
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_wifi_device"
-        self._attr_name = f"{entry.data[CONF_NAME]} Wifi Device"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} Wifi Device"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 

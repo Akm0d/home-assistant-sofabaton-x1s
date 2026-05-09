@@ -14,7 +14,6 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     CONF_MAC,
-    CONF_NAME,
     signal_activity,
     signal_buttons,
     signal_devices,
@@ -25,7 +24,7 @@ from .const import (
     signal_ip_commands,
     signal_wifi_device,
 )
-from .hub import SofabatonHub, get_hub_model
+from .hub import SofabatonHub, get_hub_display_name, get_hub_model
 
 
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities):
@@ -46,14 +45,17 @@ class SofabatonIndexSensor(SensorEntity):
     def __init__(self, hub: SofabatonHub, entry: ConfigEntry) -> None:
         self._hub = hub
         self._entry = entry
-        self._attr_name = f"{entry.data[CONF_NAME]} index"
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_index"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} index"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -160,14 +162,17 @@ class SofabatonActivitySensor(SensorEntity):
     def __init__(self, hub: SofabatonHub, entry: ConfigEntry) -> None:
         self._hub = hub
         self._entry = entry
-        self._attr_name = f"{entry.data[CONF_NAME]} activity"
         self._attr_unique_id = f"{entry.data[CONF_MAC]}_activity"
+
+    @property
+    def name(self) -> str | None:
+        return f"{get_hub_display_name(self._hub, self._entry)} activity"
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -223,7 +228,7 @@ class SofabatonRecordedKeypressSensor(SensorEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 
@@ -373,7 +378,7 @@ class SofabatonIpCommandsSensor(SensorEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.data[CONF_MAC])},
-            name=self._entry.data[CONF_NAME],
+            name=get_hub_display_name(self._hub, self._entry),
             model=get_hub_model(self._entry),
         )
 

@@ -112,44 +112,34 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_manual(user_input)
 
     # ------------------------------------------------------------------
-    # step manual: user types IP + port + name
+    # step manual: user types IP address only
     # ------------------------------------------------------------------
     async def async_step_manual(self, user_input: Dict[str, Any] | None = None):
         if user_input is not None:
             # build a hub-like dict
-            name = user_input["name"]
             host = user_input["host"]
-            version = user_input[CONF_MDNS_VERSION]
             port = DEFAULT_PROXY_UDP_PORT
             mac = generate_static_mac(host, port)
-            props = {"MAC": mac, "NAME": name}
-            if version in HVER_BY_HUB_VERSION:
-                props["HVER"] = HVER_BY_HUB_VERSION[version]
+            props = {"MAC": mac}
 
             self._chosen_hub = {
-                "name": name,
+                "name": host,
                 "host": host,
                 "port": port,
                 "props": props,
                 "mac": mac,
-                "version": version,
+                "version": DEFAULT_HUB_VERSION,
             }
             return await self.async_step_ports()
 
-        versions = [HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2]
         schema = vol.Schema({
-            vol.Required("name"): str,
             vol.Required("host"): str,
-            vol.Required(
-                CONF_MDNS_VERSION,
-                default=DEFAULT_HUB_VERSION,
-            ): vol.In(versions),
         })
         return self.async_show_form(
             step_id="manual",
             data_schema=schema,
             description_placeholders={
-                "help": "Enter the IP address of your Sofabaton hub. The default port 8102 is used automatically."
+                "help": "Enter the IP address of your Sofabaton hub. The integration will learn the real name and model automatically after it connects."
             },
         )
 
@@ -316,9 +306,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             new_data = {
                 **existing_entry.data,
                 CONF_HOST: host,
-                CONF_PORT: discovery_info.port,
-                CONF_MDNS_TXT: props,
-                CONF_MDNS_VERSION: version,
             }
             self.hass.config_entries.async_update_entry(
                 existing_entry,
