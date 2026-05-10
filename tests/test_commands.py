@@ -29,6 +29,7 @@ from custom_components.sofabaton_x1s.lib.commands import (
     iter_command_records,
     parse_button_burst_frame,
     parse_command_burst_frame,
+    parse_ir_command_dump_frame,
 )
 from custom_components.sofabaton_x1s.lib.frame_handlers import FrameContext
 from custom_components.sofabaton_x1s.lib import opcode_handlers
@@ -126,6 +127,13 @@ def _build_x1_page_frame(
 ) -> bytes:
     prefix = bytes([SYNC0, SYNC1, opcode >> 8, opcode & 0xFF])
     payload = b"\x01\x00" + bytes([frame_no, dev_id, command_id, format_marker, 0x00, 0x00]) + data
+    frame_wo_checksum = prefix + payload
+    checksum = sum(frame_wo_checksum) & 0xFF
+    return frame_wo_checksum + bytes([checksum])
+
+
+def _build_ir_dump_frame(opcode: int, payload: bytes) -> bytes:
+    prefix = bytes([SYNC0, SYNC1, opcode >> 8, opcode & 0xFF])
     frame_wo_checksum = prefix + payload
     checksum = sum(frame_wo_checksum) & 0xFF
     return frame_wo_checksum + bytes([checksum])
@@ -1301,6 +1309,31 @@ def test_parse_command_burst_frame_recognizes_x1s_input_refresh_layout() -> None
     assert parsed.device_id == 0x0C
     assert parsed.first_command_id == 0x05
     assert parsed.format_marker == 0x1C
+
+
+def test_parse_ir_command_dump_frame_extracts_page_metadata() -> None:
+    page_one_payload = bytes.fromhex(
+        "01 00 01 3a 00 02 0b 01 0d 00 00 00 00 17 18 00 50 00 6f 00 77 00 65 00 72 00 20 00 6f 00 66 00 66"
+    ) + (b"\x00" * 40)
+    page_two_payload = bytes.fromhex("01 00 02 3a 00 00 02 7f 00 00 02 00")
+
+    parsed_page_one = parse_ir_command_dump_frame(0xFA0D, _build_ir_dump_frame(0xFA0D, page_one_payload))
+    parsed_page_two = parse_ir_command_dump_frame(0x910D, _build_ir_dump_frame(0x910D, page_two_payload))
+
+    assert parsed_page_one is not None
+    assert parsed_page_one.command_id == 1
+    assert parsed_page_one.page_no == 1
+    assert parsed_page_one.device_id == 0x0B
+    assert parsed_page_one.total_commands == 0x3A
+    assert parsed_page_one.total_pages == 2
+    assert parsed_page_one.format_marker == 0x0D
+    assert parsed_page_one.label == "Power off"
+
+    assert parsed_page_two is not None
+    assert parsed_page_two.command_id == 1
+    assert parsed_page_two.page_no == 2
+    assert parsed_page_two.device_id is None
+    assert parsed_page_two.label is None
 
 
 @pytest.mark.parametrize(

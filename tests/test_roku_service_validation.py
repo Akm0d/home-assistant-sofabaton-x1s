@@ -117,6 +117,16 @@ class _FakeHub:
         self.calls.append(payload)
         return payload
 
+    async def async_dump_ir_commands(self, *, device_id: int, wait_timeout: float = 10.0):
+        payload = {
+            "device_id": device_id,
+            "wait_timeout": wait_timeout,
+            "commands": [],
+            "complete": False,
+        }
+        self.calls.append(payload)
+        return payload
+
     async def async_request_favorites_order(self, activity_id: int):
         self.calls.append({"activity_id": activity_id, "kind": "request_favorites_order"})
         return self.favorite_order_result
@@ -468,6 +478,45 @@ def test_delete_device_accepts_valid_input(monkeypatch) -> None:
     )
 
     assert result == {"device_id": 4}
+    assert hub.calls[-1] == result
+
+
+def test_dump_ir_commands_validates_device_id(monkeypatch) -> None:
+    hub = _FakeHub()
+
+    async def _resolve(hass, call):
+        return hub
+
+    monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
+
+    with pytest.raises(ValueError, match="device_id must be between 1 and 255"):
+        asyncio.run(
+            integration._async_handle_dump_ir_commands(
+                _FakeCall({"device_id": 0})
+            )
+        )
+
+
+def test_dump_ir_commands_returns_action_payload(monkeypatch) -> None:
+    hub = _FakeHub()
+
+    async def _resolve(hass, call):
+        return hub
+
+    monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
+
+    result = asyncio.run(
+        integration._async_handle_dump_ir_commands(
+            _FakeCall({"device_id": 11})
+        )
+    )
+
+    assert result == {
+        "device_id": 11,
+        "wait_timeout": 10.0,
+        "commands": [],
+        "complete": False,
+    }
     assert hub.calls[-1] == result
 
 

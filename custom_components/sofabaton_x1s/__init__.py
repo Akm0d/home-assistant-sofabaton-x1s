@@ -975,6 +975,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if not hass.services.has_service(DOMAIN, "fetch_device_commands"):
         hass.services.async_register(DOMAIN, "fetch_device_commands", _async_handle_fetch_device_commands)
+    if not hass.services.has_service(DOMAIN, "dump_ir_commands"):
+        hass.services.async_register(
+            DOMAIN,
+            "dump_ir_commands",
+            _async_handle_dump_ir_commands,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
     if not hass.services.has_service(DOMAIN, "create_wifi_device"):
         hass.services.async_register(DOMAIN, "create_wifi_device", _async_handle_create_wifi_device)
     if not hass.services.has_service(DOMAIN, "device_to_activity"):
@@ -1036,6 +1043,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hub = hass.data[DOMAIN].pop(entry.entry_id, None)
         if not _get_hubs(hass.data[DOMAIN]):
             hass.services.async_remove(DOMAIN, "fetch_device_commands")
+            hass.services.async_remove(DOMAIN, "dump_ir_commands")
             hass.services.async_remove(DOMAIN, "create_wifi_device")
             hass.services.async_remove(DOMAIN, "device_to_activity")
             hass.services.async_remove(DOMAIN, "delete_device")
@@ -1069,6 +1077,24 @@ async def _async_handle_fetch_device_commands(call: ServiceCall):
 
     ent_id = call.data["ent_id"]
     await hub.async_fetch_device_commands(ent_id)
+
+
+async def _async_handle_dump_ir_commands(call: ServiceCall):
+    hass = call.hass
+    hub = await _async_resolve_hub_from_call(hass, call)
+    if hub is None:
+        raise ValueError("Could not resolve Sofabaton hub from service call")
+
+    _raise_if_sync_in_progress(hub, "_async_handle_dump_ir_commands")
+
+    device_id = int(call.data["device_id"])
+    if device_id < 1 or device_id > 255:
+        raise ValueError("device_id must be between 1 and 255")
+
+    result = await hub.async_dump_ir_commands(device_id=device_id)
+    if result is None:
+        raise ValueError(f"Hub did not respond to IR dump request for device {device_id}")
+    return result
 
 
 async def _async_handle_create_wifi_device(call: ServiceCall):

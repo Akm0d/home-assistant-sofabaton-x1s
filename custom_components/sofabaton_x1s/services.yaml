@@ -17,6 +17,26 @@ fetch_device_commands:
           max: 255
           mode: box
 
+dump_ir_commands:
+  name: Dump raw IR commands
+  description: Requests 0x020C [device_id, ff] and returns the parsed raw IR command pages for the selected device.
+  fields:
+    device:
+      name: Sofabaton hub
+      required: true
+      selector:
+        device:
+          integration: sofabaton_x1s
+    device_id:
+      name: Device id
+      description: Hub device id to dump via 0x020C [device_id, ff].
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+
 create_wifi_device:
   name: Create Wifi Device
   description: Creates a Wifi device on the selected hub.

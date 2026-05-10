@@ -1,4 +1,5 @@
 """Tests for x1_proxy helpers."""
+import threading
 import sys
 import types
 
@@ -1369,6 +1370,80 @@ def test_x1s_input_refresh_frame_updates_command_cache() -> None:
     )
 
     assert proxy.state.commands[0x0A][0x03] == "TEST 1"
+
+
+def test_ir_dump_family_frames_collect_structured_pages() -> None:
+    proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
+    handler = DeviceButtonFamilyHandler()
+
+    proxy._burst.start("ir_dump:11", now=0.0)
+    proxy._ir_dump_pending[0x0B] = {
+        "event": threading.Event(),
+        "device_id": 0x0B,
+        "total_commands": None,
+        "commands": {},
+        "burst_finished": False,
+    }
+
+    page_one_payload = bytes.fromhex(
+        "01 00 01 3a 00 02 0b 01 0d 00 00 00 00 17 18 00 50 00 6f 00 77 00 65 00 72 00 20 00 6f 00 66 00 66"
+    ) + (b"\x00" * 40)
+    page_two_payload = bytes.fromhex("01 00 02 3a 00 00 02 7f 00 00 02 00")
+
+    page_one_raw = bytes.fromhex("a5 5a fa 0d") + page_one_payload
+    page_one_raw += bytes([sum(page_one_raw) & 0xFF])
+    page_two_raw = bytes.fromhex("a5 5a 91 0d") + page_two_payload
+    page_two_raw += bytes([sum(page_two_raw) & 0xFF])
+
+    for opcode, payload, raw in (
+        (0xFA0D, page_one_payload, page_one_raw),
+        (0x910D, page_two_payload, page_two_raw),
+    ):
+        handler.handle(
+            FrameContext(
+                proxy=proxy,
+                opcode=opcode,
+                direction="H->A",
+                payload=payload,
+                raw=raw,
+                name=f"OP_{opcode:04X}",
+            )
+        )
+
+    proxy._on_ir_dump_burst_end("ir_dump:11")
+    result = proxy._build_ir_dump_result(proxy._ir_dump_pending[0x0B])
+
+    assert result["device_id"] == 0x0B
+    assert result["total_commands"] == 0x3A
+    assert result["received_command_count"] == 1
+    assert result["complete"] is False
+    assert result["commands"] == [
+        {
+            "command_id": 1,
+            "device_id": 0x0B,
+            "label": "Power off",
+            "format_marker": 0x0D,
+            "expected_page_count": 2,
+            "page_count": 2,
+            "complete": True,
+            "pages": [
+                {
+                    "page_no": 1,
+                    "opcode": 0xFA0D,
+                    "opcode_hex": "0xFA0D",
+                    "payload_hex": page_one_payload.hex(" "),
+                    "frame_hex": page_one_raw.hex(" "),
+                },
+                {
+                    "page_no": 2,
+                    "opcode": 0x910D,
+                    "opcode_hex": "0x910D",
+                    "payload_hex": page_two_payload.hex(" "),
+                    "frame_hex": page_two_raw.hex(" "),
+                },
+            ],
+        }
+    ]
 
 
 def test_create_wifi_device_uses_custom_app_commands(monkeypatch) -> None:
