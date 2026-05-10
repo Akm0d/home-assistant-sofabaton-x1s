@@ -114,6 +114,25 @@ class CommandBurstFrame:
         return self.role == "final"
 
 
+@dataclass(slots=True, frozen=True)
+class IrCommandDumpFrame:
+    """Structured metadata extracted from raw IR command blob pages."""
+
+    opcode: int
+    family: int
+    command_id: int
+    page_no: int
+    device_id: int | None
+    total_commands: int | None
+    total_pages: int | None
+    format_marker: int | None
+    label: str | None
+
+    @property
+    def is_page_one(self) -> bool:
+        return self.page_no == 1
+
+
 @dataclass(slots=True)
 class _ButtonBurst:
     variant: str | None = None
@@ -433,6 +452,72 @@ def parse_command_burst_frame(
         data_start=3,
         first_command_id=payload[4] if len(payload) > 4 else None,
         format_marker=payload[5] if len(payload) > 5 else None,
+    )
+
+
+def _looks_like_ir_dump_opcode(opcode: int) -> bool:
+    return opcode_family(opcode) in (0x0D, 0x0E) and ((opcode >> 8) & 0xFF) in (0x91, 0xA1, 0xFA)
+
+
+def _looks_reasonable_ir_dump_label(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or len(stripped) > 40:
+        return False
+    if sum(ch.isalnum() for ch in stripped) == 0:
+        return False
+    return all(ch.isprintable() and ch not in "\r\n\t" for ch in stripped)
+
+
+def _extract_ir_dump_label(payload: bytes) -> str | None:
+    if len(payload) < 12:
+        return None
+
+    window_end = min(len(payload), 112)
+    for offset in range(9, min(window_end, 25)):
+        candidate = _decode_label(payload[offset:window_end]).strip()
+        if _looks_reasonable_ir_dump_label(candidate):
+            return candidate
+    return None
+
+
+def parse_ir_command_dump_frame(opcode: int, raw_frame: bytes) -> IrCommandDumpFrame | None:
+    """Parse a raw IR blob page from the 0x020C backup/restore family."""
+
+    if len(raw_frame) < 7 or not _looks_like_ir_dump_opcode(opcode):
+        return None
+
+    payload = raw_frame[4:-1]
+    if len(payload) < 4:
+        return None
+
+    command_id = payload[0]
+    page_no = payload[2]
+    if command_id == 0 or page_no not in (1, 2):
+        return None
+
+    device_id: int | None = None
+    total_commands: int | None = None
+    total_pages: int | None = None
+    format_marker: int | None = None
+    label: str | None = None
+
+    if page_no == 1 and len(payload) >= 9 and payload[7] == command_id:
+        device_id = payload[6]
+        total_commands = payload[3] if payload[3] else None
+        total_pages = payload[5] if payload[5] else None
+        format_marker = payload[8]
+        label = _extract_ir_dump_label(payload)
+
+    return IrCommandDumpFrame(
+        opcode=opcode,
+        family=opcode_family(opcode),
+        command_id=command_id,
+        page_no=page_no,
+        device_id=device_id,
+        total_commands=total_commands,
+        total_pages=total_pages,
+        format_marker=format_marker,
+        label=label,
     )
 
 
@@ -927,7 +1012,9 @@ __all__ = [
     "CommandBurstFrame",
     "DeviceButtonAssembler",
     "DeviceCommandAssembler",
+    "IrCommandDumpFrame",
     "iter_command_records",
+    "parse_ir_command_dump_frame",
     "parse_button_burst_frame",
     "parse_command_burst_frame",
 ]

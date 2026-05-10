@@ -20,6 +20,7 @@ from .commands import (
     DeviceCommandAssembler,
     parse_button_burst_frame,
     parse_command_burst_frame,
+    parse_ir_command_dump_frame,
 )
 from .macros import MacroAssembler, parse_macro_burst_frame
 
@@ -342,6 +343,8 @@ class X1Proxy:
         # Track pending command fetches per device, so multiple targeted
         # lookups for the same device (different commands) can be queued.
         self._pending_command_requests: dict[int, set[int]] = {}
+        self._ir_dump_lock = threading.Lock()
+        self._ir_dump_pending: dict[int, dict[str, Any]] = {}
         self._commands_complete: set[int] = set()
         self._pending_macro_requests: set[int] = set()
         self._macros_complete: set[int] = set()
@@ -417,6 +420,7 @@ class X1Proxy:
 
         self._burst.on_burst_end("buttons", self._on_buttons_burst_end)
         self._burst.on_burst_end("commands", self._on_commands_burst_end)
+        self._burst.on_burst_end("ir_dump", self._on_ir_dump_burst_end)
         self._burst.on_burst_end("macros", self._on_macros_burst_end)
         self._burst.on_burst_end("activity_map", self._on_activity_map_burst_end)
         self._burst.on_burst_end("activities", self._on_activities_burst_end)
@@ -779,6 +783,61 @@ class X1Proxy:
         self.enqueue_cmd(OP_REQ_COMMANDS, bytes([ent_lo, 0xFF]), expects_burst=True, burst_kind=f"commands:{ent_lo}")
         return True
 
+    def request_ir_command_dump(
+        self,
+        device_id: int,
+        *,
+        timeout: float = 10.0,
+    ) -> dict[str, Any] | None:
+        """Request the raw 0x020C [dev, ff] IR blob dump for a device."""
+
+        if not self.can_issue_commands():
+            self._log.info("[CMD] request_ir_command_dump ignored: proxy client is connected")
+            return None
+
+        dev_lo = device_id & 0xFF
+        event: threading.Event
+        should_send = False
+
+        with self._ir_dump_lock:
+            pending = self._ir_dump_pending.get(dev_lo)
+            if pending is not None and not pending["event"].is_set():
+                event = pending["event"]
+            else:
+                event = threading.Event()
+                self._ir_dump_pending[dev_lo] = {
+                    "event": event,
+                    "device_id": dev_lo,
+                    "total_commands": None,
+                    "commands": {},
+                    "burst_finished": False,
+                }
+                should_send = True
+
+        if should_send:
+            ok = self.enqueue_cmd(
+                0x020C,
+                bytes([dev_lo, 0xFF]),
+                expects_burst=True,
+                burst_kind=f"ir_dump:{dev_lo}",
+            )
+            if not ok:
+                with self._ir_dump_lock:
+                    active = self._ir_dump_pending.get(dev_lo)
+                    if active is not None and active["event"] is event:
+                        self._ir_dump_pending.pop(dev_lo, None)
+                return None
+
+        event.wait(timeout)
+
+        with self._ir_dump_lock:
+            pending = self._ir_dump_pending.pop(dev_lo, None)
+
+        if pending is None:
+            return None
+
+        return self._build_ir_dump_result(pending)
+
     def request_activity_mapping(self, act_id: int) -> bool:
         if not self.can_issue_commands():
             self._log.info("[CMD] request_activity_mapping ignored: proxy client is connected"); return False
@@ -870,6 +929,96 @@ class X1Proxy:
         if self.can_issue_commands():
             self.enqueue_cmd(OP_REQ_DEVICES, expects_burst=True, burst_kind="devices")
         return ({}, False)
+
+    def _record_ir_dump_frame(self, parsed, raw_frame: bytes) -> None:
+        pending: dict[str, Any] | None = None
+        pending_dev_id: int | None = parsed.device_id
+
+        with self._ir_dump_lock:
+            if pending_dev_id is not None:
+                pending = self._ir_dump_pending.get(pending_dev_id & 0xFF)
+
+            if pending is None:
+                burst_kind = str(self._burst.kind or "")
+                if burst_kind.startswith("ir_dump:"):
+                    try:
+                        pending_dev_id = int(burst_kind.split(":", 1)[1]) & 0xFF
+                    except ValueError:
+                        pending_dev_id = None
+                    if pending_dev_id is not None:
+                        pending = self._ir_dump_pending.get(pending_dev_id)
+
+            if pending is None:
+                return
+
+            if parsed.total_commands and pending.get("total_commands") is None:
+                pending["total_commands"] = parsed.total_commands
+
+            commands = pending.setdefault("commands", {})
+            command_entry = commands.setdefault(
+                parsed.command_id,
+                {
+                    "command_id": parsed.command_id,
+                    "device_id": pending_dev_id,
+                    "label": None,
+                    "format_marker": None,
+                    "expected_page_count": None,
+                    "pages": {},
+                },
+            )
+
+            if pending_dev_id is not None:
+                command_entry["device_id"] = pending_dev_id
+            if parsed.label:
+                command_entry["label"] = parsed.label
+            if parsed.format_marker is not None:
+                command_entry["format_marker"] = parsed.format_marker
+            if parsed.total_pages is not None:
+                command_entry["expected_page_count"] = parsed.total_pages
+
+            command_entry["pages"][parsed.page_no] = {
+                "page_no": parsed.page_no,
+                "opcode": parsed.opcode,
+                "opcode_hex": f"0x{parsed.opcode:04X}",
+                "payload_hex": raw_frame[4:-1].hex(" "),
+                "frame_hex": raw_frame.hex(" "),
+            }
+
+    def _build_ir_dump_result(self, pending: dict[str, Any]) -> dict[str, Any]:
+        commands_out: list[dict[str, Any]] = []
+        total_commands = pending.get("total_commands")
+
+        for command_id in sorted(pending.get("commands", {})):
+            record = pending["commands"][command_id]
+            page_items = [record["pages"][page_no] for page_no in sorted(record.get("pages", {}))]
+            expected_page_count = record.get("expected_page_count") or max((page["page_no"] for page in page_items), default=0)
+            complete = bool(expected_page_count) and len(page_items) >= expected_page_count
+
+            commands_out.append(
+                {
+                    "command_id": command_id,
+                    "device_id": record.get("device_id"),
+                    "label": record.get("label"),
+                    "format_marker": record.get("format_marker"),
+                    "expected_page_count": expected_page_count,
+                    "page_count": len(page_items),
+                    "complete": complete,
+                    "pages": page_items,
+                }
+            )
+
+        overall_complete = bool(pending.get("burst_finished"))
+        if total_commands is not None:
+            overall_complete = overall_complete and len(commands_out) >= int(total_commands)
+        overall_complete = overall_complete and all(command["complete"] for command in commands_out)
+
+        return {
+            "device_id": pending.get("device_id"),
+            "total_commands": total_commands,
+            "received_command_count": len(commands_out),
+            "complete": overall_complete,
+            "commands": commands_out,
+        }
 
     def get_buttons_for_entity(self, ent_id: int, *, fetch_if_missing: bool = True) -> tuple[list[int], bool]:
         ent_lo = ent_id & 0xFF
@@ -4597,6 +4746,23 @@ class X1Proxy:
                 self._pending_command_requests.pop(ent_lo, None)
         else:
             self._pending_command_requests.clear()
+
+    def _on_ir_dump_burst_end(self, key: str) -> None:
+        parts = key.split(":")
+        if len(parts) < 2 or parts[0] != "ir_dump":
+            return
+
+        try:
+            dev_lo = int(parts[1]) & 0xFF
+        except ValueError:
+            return
+
+        with self._ir_dump_lock:
+            pending = self._ir_dump_pending.get(dev_lo)
+            if pending is None:
+                return
+            pending["burst_finished"] = True
+            pending["event"].set()
 
     def _on_macros_burst_end(self, key: str) -> None:
         parts = key.split(":")

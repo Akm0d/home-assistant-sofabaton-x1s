@@ -8,7 +8,7 @@ import unicodedata
 from typing import TYPE_CHECKING
 
 from ..const import HUB_VERSION_X1
-from .commands import parse_button_burst_frame, parse_command_burst_frame
+from .commands import parse_button_burst_frame, parse_command_burst_frame, parse_ir_command_dump_frame
 from .frame_handlers import BaseFrameHandler, FrameContext, register_handler
 from .macros import MacroAssembler, decode_macro_records, parse_macro_burst_frame
 from .protocol_const import (
@@ -1335,6 +1335,15 @@ class DeviceButtonFamilyHandler(BaseFrameHandler):
 
     def handle(self, frame: FrameContext) -> None:
         opcode = frame.opcode
+        burst_kind = str(frame.proxy._burst.kind or "")
+
+        if frame.proxy._burst.active and burst_kind.startswith("ir_dump:"):
+            parsed_ir_dump = parse_ir_command_dump_frame(opcode, frame.raw)
+            if parsed_ir_dump is not None:
+                frame.proxy._record_ir_dump_frame(parsed_ir_dump, frame.raw)
+                frame.proxy._burst.last_ts = time.monotonic() + frame.proxy._burst.response_grace
+                return
+
         parsed = parse_command_burst_frame(
             opcode,
             frame.raw,

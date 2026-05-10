@@ -986,6 +986,22 @@ class SofabatonHub:
 
         await self._async_wait_for_command_fetch_complete(ent_id, timeout=wait_timeout)
 
+    async def async_dump_ir_commands(
+        self,
+        device_id: int,
+        *,
+        wait_timeout: float = 10.0,
+    ) -> dict[str, Any] | None:
+        """Dump raw IR command blob pages for a device via 0x020C [dev, ff]."""
+
+        return await self.hass.async_add_executor_job(
+            partial(
+                self._proxy.request_ir_command_dump,
+                device_id,
+                timeout=wait_timeout,
+            )
+        )
+
     async def async_create_wifi_device(
         self,
         device_name: str = "Home Assistant",
