@@ -3,55 +3,50 @@
 This integration acts as a proxy between your Sofabaton hub(s) and the official app. The network path is split in two segments so you can size firewall rules and container interfaces correctly.
 
 ```mermaid
-graph LR
-    subgraph VLAN_HUB [Hub network / VLAN]
-      Hub[Sofabaton Hub]
+%%{init: { 'theme': 'default', 'sequence': { 'messageMargin': 10, 'boxMargin': 5, 'noteMargin': 5, 'mirrorActors': false }}}%%
+sequenceDiagram
+    autonumber
+    participant Hub as Sofabaton Hub
+    participant HA as Home Assistant (Proxy)
+    participant App as Sofabaton App
+
+    rect rgb(230, 245, 255)
+        Note over Hub, HA: Discovery
+        Hub->>HA: UDP 5353 (mDNS: _x1hub._udp.local <br/> _sofabaton_hub._udp.local)
     end
 
-    subgraph VLAN_HA [Home Assistant host]
-      HA[Home Assistant<br>Sofabaton X1 proxy]
+    rect rgb(240, 255, 240)
+        Note over Hub, HA: Connect
+        HA->>Hub: UDP 8102 (CALL_ME)
+        Hub->>HA: TCP 8200..8231 (Connect back to Proxy)
     end
 
-    subgraph VLAN_APP [App network / VLAN]
-      App[Sofabaton App]
+    rect rgb(255, 245, 230)
+        Note over Hub, HA: HTTP Callback (Wifi Commands)
+        Hub-->>HA: TCP 8060
     end
 
-    %% Hub <-> Proxy (Segment 1)
-    Hub -->|UDP 5353<br>mDNS _x1hub._udp.local.<br>_sofabaton_hub._udp.local.| HA
-    HA -->|UDP 8102<br>CALL_ME| Hub
-    Hub -->|TCP base .. base+31<br>connect back to proxy| HA
-    Hub -->|TCP 8060<br>HTTP callbacks| HA
+    rect rgb(230, 245, 255)
+        Note over HA, App: Discovery
+        HA->>App: UDP 5353 (mDNS: _x1hub._udp.local)
+    end
 
-    %% App discovery via mDNS
-    HA -->|UDP 5353<br>mDNS _x1hub._udp.local.| App
+    rect rgb(255, 245, 230)
+        Note over App, HA: Broadcast Discovery
+        App-->>HA: UDP 8102 (NOTIFY_ME)
+        HA-->>App: UDP 8100 (NOTIFY)
+    end
 
-    %% iOS specific UDP broadcast discovery
-    App -->|UDP 8102<br>broadcast iOS discovery| HA
-    HA -->|UDP 8100<br>broadcast reply to app| App
-
-    %% App connect and control
-    App -->|UDP 8102<br>CALL_ME| HA
-    HA -->|TCP 8100 .. 8110<br>connect back to app| App
-
-    %% linkStyle indexes are 0-based in order of the edges above
-    %% 0: Hub->HA mDNS
-    %% 1: HA->Hub CALL_ME
-    %% 2: Hub->HA TCP
-    %% 3: HA->App mDNS
-    %% 4: App->HA iOS broadcast
-    %% 5: HA->App iOS reply
-    %% 6: App->HA CALL_ME
-    %% 7: HA->App TCP 8100-8110
-
-    linkStyle 4 stroke:#0000ff,stroke-width:2px;
-    linkStyle 5 stroke:#ff0000,stroke-width:2px;
-    linkStyle 6 stroke:#ff0000,stroke-width:2px;
+    rect rgb(240, 255, 240)
+        Note over App, HA: Connect
+        App->>HA: UDP 8102 (CALL_ME)
+        HA->>App: TCP 8100..8110 (Connect back to App)
+    end
 ```
 
 ```markdown
-RED ARROWS : You need these for your Sofabaton iOS app
-BLUE ARROW : You need this for your Sofabaton Android app
-OTHER ARROWS : Needed for everybody
+Broadcast Discovery is optional for Android clients.
+HTTP callbacks / Wifi Commands are optional.
 ```
 
 ## Segment 1 – Hub ↔ Integration
@@ -68,7 +63,7 @@ The integration discovers the physical hub and then keeps a bidirectional sessio
 ### Connect flow
 
 1. **CALL_ME over UDP**: Home Assistant sends a short "call me" packet to the hub's advertised UDP port (usually `8102`).
-2. **TCP connect-back**: The hub opens a TCP session back to Home Assistant on the proxy's listen port. The integration tries up to 32 sequential TCP ports starting from the configured base port, so multiple hubs can coexist without clashes.
+2. **TCP connect-back**: The hub opens a TCP session back to Home Assistant on the proxy's listen port. The integration tries up to 32 sequential TCP ports starting from the configured base port (8200 by default), so multiple hubs can coexist without clashes.
 
 ### Optional / Wifi Commands
 
@@ -169,11 +164,15 @@ When the app is connected, command-sending entities in Home Assistant intentiona
 | Hub network   | HA host       | UDP      | 5353                 | mDNS `_x1hub._udp.local.` hub advert.         | Hub discovery by integration for X1(S)|
 | Hub network   | HA host       | UDP      | 5353                 | mDNS `_sofabaton_hub._udp.local.` hub advert. | Hub discovery by integration for X2   |
 | HA host       | Hub network   | UDP      | 8102                 | `CALL_ME` from proxy to hub                   | Hub connect flow                      |
-| Hub network   | HA host       | TCP      | base .. base+31      | Hub connects back to proxy                    | Hub control and status                |
-| Hub network   | HA host       | TCP      | 8060                 | Hub makes HTTP requests back to integration   | Wifi Commands feature                 |
+| Hub network   | HA host       | TCP      | 8200-8231*           | Hub connects back to proxy                    | Hub control and status                |
+| Hub network   | HA host       | TCP      | 8060**               | Hub makes HTTP requests back to integration   | Wifi Commands feature                 |
 | HA host       | App network   | UDP      | 5353                 | mDNS `_x1hub._udp.local.` to app              | Sofabaton Android app (blue arrow)    |
 | App network   | HA host       | UDP      | 8102                 | iOS broadcast discovery to proxy              | Sofabaton iOS app (red arrow)         |
 | HA host       | App network   | UDP      | 8100                 | iOS broadcast reply from proxy                | Sofabaton iOS app (red arrow)         |
-| App network   | HA host       | UDP      | 8102                 | `CALL_ME` from app to proxy                   | iOS and Android app                   |
+| App network   | HA host       | UDP      | 8102***              | `CALL_ME` from app to proxy                   | iOS and Android app                   |
 | HA host       | App network   | TCP      | 8100–8110            | Proxy connects back to app                    | iOS and Android app                   |
+
+* Ports can be changed in the integration's configuration.
+** Ports can be changed in the integration's configuration but doing so breaks X1 compatibility.
+*** Ports can be changed in the integration's configuration but doing so breaks iOS compatibility.
 ```
