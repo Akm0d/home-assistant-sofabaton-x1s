@@ -21,6 +21,11 @@ sequenceDiagram
         Hub->>HA: TCP [base .. base+31] (Connect back to Proxy)
     end
 
+    rect rgb(255, 245, 230)
+        Note over Hub, HA: HTTP Callback (Wifi Commands)
+        Hub-->>HA: TCP 8060
+    end
+
     rect rgb(230, 245, 255)
         Note over HA, App: Discovery
         HA->>App: UDP 5353 (mDNS: _x1hub._udp.local)
@@ -41,6 +46,7 @@ sequenceDiagram
 
 ```markdown
 Broadcast Discovery is optional for Android clients.
+HTTP callbacks / Wifi Commands are optional.
 ```
 
 ## Segment 1 – Hub ↔ Integration
