@@ -249,13 +249,13 @@ def test_x1_continuation_macroburst() -> None:
     r1_chunk1 = record1[:223]
     r1_chunk2 = record1[223:]
 
-    # total_frames=4: the assembler counts 4 stored fragments before declaring done
-    # (proper frame 1 + continuation + proper frame 2 + proper frame 3 = 4 slots).
+    # total_frames counts record-start fragments. Continuation payload extends the
+    # current fragment body but does not consume a new fragment index.
     frames = [
-        build_macro_frame(0xFA, 1, 4, activity_id, header_y=0x02, body=r1_chunk1),
+        build_macro_frame(0xFA, 1, 3, activity_id, header_y=0x02, body=r1_chunk1),
         build_macro_frame(0x3F, 1, 0x23, 0x00, header_x=0x02, header_y=0x00, body=r1_chunk2),
-        build_macro_frame(0x78, 2, 4, activity_id, body=record2),
-        build_macro_frame(0x3C, 3, 4, activity_id, body=record3),
+        build_macro_frame(0x78, 2, 3, activity_id, body=record2),
+        build_macro_frame(0x3C, 3, 3, activity_id, body=record3),
     ]
 
     opcode = int.from_bytes(frames[0][2:4], "big")
@@ -274,6 +274,45 @@ def test_x1_continuation_macroburst() -> None:
     assert "PS5 Start" in labels
     assert "PS5 Off" in labels
     assert "PS5 Other" in labels
+
+
+def test_x1s_continuation_fragment_does_not_complete_macro_burst_early() -> None:
+    assembler = MacroAssembler()
+
+    frames = [
+        bytes.fromhex(
+            "a5 5a 50 13 01 00 01 04 00 01 65 0d 01 04 05 00 00 00 00 00 4c 00 ff 00 74 00 65 00 73 00 74 00 20 00 6d 00 61 00 63 00 72 00 6f 00 20 00 31 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 09 7c"
+        ),
+        bytes.fromhex(
+            "a5 5a 50 13 02 00 01 04 00 01 65 0e 01 04 10 00 00 00 00 03 28 00 ff 00 74 00 65 00 73 00 74 00 20 00 6d 00 61 00 63 00 72 00 6f 00 20 00 32 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 63"
+        ),
+        bytes.fromhex(
+            "a5 5a fa 13 03 00 01 04 00 02 65 c6 14 01 c6 00 00 00 00 00 00 01 ff 03 c5 00 00 00 00 00 00 0a ff 04 c6 00 00 00 00 00 00 01 ff 01 c5 00 00 00 00 00 00 00 ff 04 c5 00 00 00 00 00 00 00 ff 03 c6 00 00 00 00 00 00 01 ff 02 c6 00 00 00 00 00 00 00 ff 02 c5 00 00 00 00 00 00 00 ff 08 c6 00 00 00 00 00 00 00 ff 08 c5 00 00 00 00 00 00 00 ff 09 c6 00 00 00 00 00 00 00 ff 09 c5 00 00 00 00 00 00 00 ff 0a c6 00 00 00 00 00 00 00 ff 0a c5 00 00 00 00 00 00 01 ff 0b c6 00 00 00 00 00 00 01 ff 0c c6 00 00 00 00 00 00 00 ff 0d c6 00 00 00 00 00 00 00 ff 0b c5 00 00 00 00 00 00 00 ff 0c c5 00 00 00 00 00 00 00 ff 0d c5 00 00 00 00 00 00 00 ff 00 50 00 4f 00 57 00 45 00 52 00 5f 00 4f 00 4e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 d9"
+        ),
+        bytes.fromhex(
+            "a5 5a 17 13 03 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 35 35 00 00 00 00 00 98"
+        ),
+        bytes.fromhex(
+            "a5 5a aa 13 04 00 01 04 00 01 65 c7 0a 01 c7 00 00 00 00 00 00 01 ff 03 c7 00 00 00 00 00 00 01 ff 04 c7 00 00 00 00 00 00 01 ff 02 c7 00 00 00 00 00 00 00 ff 08 c7 00 00 00 00 00 00 00 ff 09 c7 00 00 00 00 00 00 00 ff 0a c7 00 00 00 00 00 00 00 ff 0b c7 00 00 00 00 00 00 01 ff 0c c7 00 00 00 00 00 00 00 ff 0d c7 00 00 00 00 00 00 00 ff 00 50 00 4f 00 57 00 45 00 52 00 5f 00 4f 00 46 00 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 0d d8"
+        ),
+    ]
+
+    completed: list[tuple[int, bytes, list[int]]] = []
+    for idx, frame in enumerate(frames, start=1):
+        opcode = int.from_bytes(frame[2:4], "big")
+        frag_payload = frame[4:-1]
+        current = assembler.feed(opcode, frag_payload, frame)
+        if idx < 5:
+            assert current == []
+        completed.extend(current)
+
+    assert len(completed) == 1
+    act, blob, boundaries = completed[0]
+    assert act == 0x65
+    assert decode_macro_records(blob, act, boundaries) == [
+        (0x65, 0x0D, "test macro 1"),
+        (0x65, 0x0E, "test macro 2"),
+    ]
 
 
 def test_macrobursts_for_multiple_activities_interleaved() -> None:

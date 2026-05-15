@@ -137,12 +137,18 @@ class MacroAssembler:
         self._last_activity_id = activity_id
 
         if frame_no is None:
-            frame_no = max(burst.frames) + 1 if burst.frames else 1
+            if not burst.frames:
+                frame_no = 1
+            else:
+                frame_no = max(burst.frames)
+                burst.frames[frame_no] += body
+                body = b""
 
-        while frame_no in burst.frames:
+        while frame_no in burst.frames and body:
             frame_no += 1
 
-        burst.frames[frame_no] = body
+        if body:
+            burst.frames[frame_no] = body
         if is_record_start:
             burst.record_start_frames.add(frame_no)
         if total_frames is not None and burst.total_frames is None:
