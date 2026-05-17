@@ -21,9 +21,6 @@
   Output is a hex string with spaces, ready to paste into the Sofabaton HA
   integration's raw-IR injection.
 
-  TODO when more captures are available:
-    - Verify the 6-byte header (0x0320) is truly fixed and not length-encoded.
-    - Verify format is protocol-agnostic (currently confirmed against Denon).
 -->
 
 <exportformats:exportformat xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

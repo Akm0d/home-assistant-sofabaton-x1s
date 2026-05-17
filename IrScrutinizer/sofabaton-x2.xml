@@ -27,7 +27,7 @@
 <exportformats:exportformat xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                             xmlns:exportformats="http://www.harctoolbox.org/exportformats"
                             xsi:schemaLocation="http://www.harctoolbox.org/exportformats http://www.harctoolbox.org/schemas/exportformats.xsd"
-                            name="Sofabaton X2" extension="sbx2" multiSignal="true" simpleSequence="false">
+                            name="Sofabaton X2" extension="sbx2" multiSignal="false" simpleSequence="false">
 
     <exportformats:documentation>
         <div>

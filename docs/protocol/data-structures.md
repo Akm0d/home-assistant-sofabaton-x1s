@@ -35,9 +35,21 @@ Observed stable fields:
 - `payload[0]` = 1-based row index
 - `payload[3]` = total device rows in the burst
 - `payload[6:8]` = device id
+- `payload[10]` = observed device-class / device-type code
 - some captures also repeat the row index / total near `payload[9:11]`
 - X1S/X2 text regions are commonly UTF-16BE
 - X1 text regions are commonly UTF-8 or ASCII-compatible
+
+Observed device-class codes:
+
+| Code | Normalized class | Notes |
+|------|------------------|-------|
+| `0x03` | `bluetooth` | Bluetooth device rows |
+| `0x0A` | `wifi_roku` | Roku / WiFi rows |
+| `0x0D` | `ir` | Learned or catalog IR devices |
+| `0x1A` | `wifi_hue` | Hue / WiFi rows |
+| `0x1C` | `wifi_ip` | Virtual IP / HTTP rows |
+| `0x20` | `wifi_mqtt` | MQTT-style rows |
 
 The exact meaning of several surrounding control bytes is still incomplete, but
 the rows behave as fixed-position records rather than short TLV structures.
@@ -353,6 +365,103 @@ Observed text encoding for the name fields in this family:
 
 ---
 
+## IR command dump pages (`REQ_BLOB`, families `0x0D` / `0x0E`)
+
+`REQ_BLOB` (`0x020C`) is reused for two distinct flows:
+- WiFi/input-config label refresh for one `(device, slot)` pair
+- multi-page command/blob dump retrieval for one command or a full device
+  snapshot
+
+This section covers the blob-dump variant.
+
+### Request shapes
+
+Observed request payloads:
+- `[dev_lo, cmd_lo]` = dump one command/blob record
+- `[dev_lo, 0xFF]` = dump all command/blob records for the device
+
+### Common page fields
+
+Observed dump pages in families `0x0D` and `0x0E` share:
+
+```
+payload[0] = response index
+payload[2] = page number
+```
+
+Observed behavior:
+- `response index` identifies one record within the snapshot returned by the
+  request
+- `page number` is 1-based within that record
+- later pages do not repeat the actual command id, so consumers must map the
+  response index from continuation pages back to the page-1 metadata for the
+  same record
+
+### Page-1 metadata layout
+
+Observed stable fields on page 1:
+
+```
+payload[0]    = response index
+payload[2]    = page number (= 1)
+payload[3]    = total commands in the device snapshot
+payload[5]    = total pages for this one command/blob record
+payload[6]    = device id
+payload[7]    = command id
+payload[8]    = format marker / device-class-like marker
+payload[13:15] = 2-byte label-side metadata field
+payload[15:]  = fixed-width label slot followed by the first blob slice
+```
+
+Observed label encodings:
+- X1 page 1 uses a compact ASCII/Latin-1 label slot
+- X1S/X2 page 1 uses a wider UTF-16BE label slot
+
+Observed page-1 blob starts:
+- X1: first blob byte at offset `43`
+- X1S/X2: first blob byte typically at offset `73`
+
+Observed X1S/X2 page-1 blob prefixes at the blob start include:
+- `01 20 00 10`
+- `01 30 00 10`
+- `03 20 00 00`
+- `01 00 00 00`
+
+These prefixes are part of the dumped blob body, not separate transport
+metadata.
+
+### Continuation pages
+
+Observed continuation/final dump pages use:
+
+```
+payload[0] = response index
+payload[1] = 0x00
+payload[2] = page number (2..N)
+payload[3:] = continuation blob slice
+```
+
+Observed behavior:
+- continuation pages do not carry label text
+- continuation pages do not repeat total-command or total-page metadata
+- the page payload after byte `2` should be concatenated directly onto the
+  page-1 blob bytes for the same response index
+
+### Assembly guidance
+
+Observed assembly rules:
+- `payload[3]` on page 1 is the device snapshot's total command count, not this
+  record's page count
+- `payload[5]` on page 1 is the expected page count for this one record
+- the assembled blob for a command is the concatenation of:
+  - page 1 blob bytes starting at the family-specific page-1 blob start
+  - each later page's `payload[3:]` in page-number order
+- a full-device snapshot is complete only when all observed response indexes
+  have been matched to page-1 metadata and each record has received its full
+  page count
+
+---
+
 ## Favorite ordering response (family `0x63`)
 
 Observed payload shape:
@@ -363,6 +472,51 @@ Observed payload shape:
 
 Each trailing pair assigns one hub-internal favorite identifier to one display
 slot.
+
+---
+
+## IR blob save pages (family `0x0E`, `A->H`)
+
+Observed app-originated blob-save uploads use family `0x0E` pages whose payload
+shape mirrors the dump flow but carries a save-specific trailing checksum.
+
+### Page-1 save layout
+
+Observed page-1 save payload:
+
+```
+payload[0:15] = 01 00 01 01 00 total_pages dev_lo 00 0D 00 00 00 00 00 00
+payload[15:]  = fixed-width label slot followed by the first blob slice
+```
+
+Observed label slots:
+- X1: bytes `15..42` hold a 28-byte ASCII/Latin-1 command label
+- X1S/X2: bytes `15..72` hold a 58-byte UTF-16BE command label
+
+### Continuation save pages
+
+Observed continuation/final save pages use:
+
+```
+payload[0:3] = 01 00 page_no
+payload[3:]  = continuation blob slice
+```
+
+### Save-specific trailing checksum
+
+Before paging, the saved blob body carries one additional trailing byte that is
+distinct from the replay-tail checksum used by family `0x0F` playback:
+
+```
+persist_tail = (sum8(page_one_prefix) + sum8(label_slot) + sum8(blob_body) - 2) & 0xFF
+```
+
+Observed behavior:
+- the persisted bytes are `blob_body + persist_tail`
+- `total_pages` counts the page-1 payload and all continuation pages needed to
+  carry that persisted byte stream
+- page acknowledgments are observed through `0x0103`, with `payload[0] == 0x00`
+  for accept and `payload[0] == 0x0C` for reject
 
 ---
 

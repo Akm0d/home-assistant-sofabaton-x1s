@@ -22,6 +22,7 @@ This document describes observed wire behavior. Implementation notes belong in
 | `0x003A` | `REQ_ACTIVITIES` | none observed | All | Request activity catalog |
 | `0x023C` | `REQ_BUTTONS` | `[act_lo, 0xFF]` | All | Request activity keymap and favorite rows |
 | `0x025C` | `REQ_COMMANDS` | `[dev_lo, 0xFF]` or `[dev_lo, cmd_lo]` | All | Request full command list or one command label |
+| `0x020C` | `REQ_BLOB` | `[dev_lo, cmd_lo]` or `[dev_lo, 0xFF]` | X1, X1S observed | Request raw command/blob dump pages for one command or a full device snapshot |
 | `0x023F` | `REQ_ACTIVATE` | `[entity_lo, key_code]` | All | Activate an activity or send a device command |
 | `0x016C` | `REQ_ACTIVITY_MAP` | `[act_lo]` | All observed | Request activity membership roster |
 | `0x024D` | `REQ_MACRO_LABELS` | `[act_lo, 0xFF]` or `[act_lo, macro_id]` | All observed | Request activity macro labels or one macro payload |
@@ -72,7 +73,7 @@ Observed semantics:
 | `0x4677` | `FINALIZE_DEVICE` | variable | Complete WiFi/IP device creation |
 | `0x6501` | `SAVE_COMMIT` | variable | Commit save transaction |
 | `0x0C02` | `REQ_IPCMD_SYNC` | none observed | Request synced IP-command metadata rows |
-| `0x020C` | `REQ_INPUT_CONFIG_LABEL` | `[dev_lo, slot_lo]` | Refresh one WiFi/input-config label after input configuration changes |
+| `0x020C` | `REQ_INPUT_CONFIG_LABEL` | `[dev_lo, slot_lo]` | Reuse of `REQ_BLOB`; in this flow it refreshes one WiFi/input-config label after input configuration changes |
 
 ### Activity assignment
 
@@ -304,6 +305,33 @@ Representative examples:
 Observed text encoding:
 - command/button names in the `0x0Dxx` sync rows are UTF-16LE
 
+### IR command dump pages (`REQ_BLOB`, families `0x0D` and `0x0E`)
+
+Observed `REQ_BLOB` replies are paged command/blob dump records rather than
+normal `REQ_COMMANDS` rows.
+
+Observed page roles:
+- page 1 carries per-command metadata such as device id, actual command id,
+  format marker, total pages, and the visible label
+- later pages carry only the continuation blob slice for that same response
+  index
+
+Observed semantics:
+- `payload[0]` = response index within the dump snapshot
+- `payload[2]` = page number
+- on page 1, `payload[3]` is observed as total command count for the device
+- on page 1, `payload[5]` is observed as total page count for this command blob
+- on page 1, `payload[6]` = device id and `payload[7]` = command id
+- on later pages, the command id is not repeated and must be recovered by
+  matching the response index to the page-1 metadata for that record
+
+Observed page families:
+- family `0x0D` appears in both WiFi/input refresh and `REQ_BLOB` dump traffic
+- family `0x0E` also appears in `REQ_BLOB` dump traffic and in app-originated
+  blob-save uploads
+- the high byte varies with payload size, so full opcodes should be treated as
+  layout examples rather than stable semantic identifiers
+
 ### Acknowledgments and informational frames
 
 | Opcode   | Name | Direction | Notes |
@@ -351,7 +379,8 @@ Observed `INFO_BANNER` (`0x112F`) semantics:
 | `0x5D` | Command pages and single-command labels | variable high byte; examples include `0xD95D`, `0xD55D`, `0x4D5D` |
 | `0x6D` | Activity membership roster | `0x7B6D`, `0xD56D` |
 | `0x47` | Activity input candidates | `0xFA47`, `0xC947` |
-| `0x0D` | IP-command sync and input-refresh labels | variable high byte; examples include `0x0DD3`, `0x0DAC`, `0xCD0D` |
+| `0x0D` | IP-command sync, input-refresh labels, and blob-dump pages | variable high byte; examples include `0x0DD3`, `0x0DAC`, `0xCD0D` |
+| `0x0E` | Blob-dump pages and blob-save uploads | variable high byte |
 | `0x63` | Favorite ordering | variable high byte |
 
 ---
