@@ -2186,11 +2186,42 @@ var SofabatonBlobsTab = class extends i4 {
   _blobInputPlaceholder() {
     return this._supportsDescriptors() ? "Paste blob hex here, or enter a descriptor such as P:Sony12 R:40000 D:1 F:18 MUL:2" : "Paste blob hex here.";
   }
-  _saveSubtitleText() {
-    return this._supportsDescriptors() ? "Add a new command to an existing IR device by saving a canonical blob body or descriptor string onto the hub." : "Add a new command to an existing IR device by saving a canonical blob body onto the hub.";
+  /**
+   * Subtitle templates per drawer. Two-line layout: descriptive copy on top,
+   * an IR-only warning (with icon) below. The "descriptive protocol string"
+   * sentence is X2-only since descriptor parsing is unsupported on X1/X1S.
+   */
+  _renderSubtitleBlock(args) {
+    const descriptorSentence = args.descriptor && this._supportsDescriptors() ? " Blobs may be raw hex or a descriptive protocol string." : "";
+    return b2`
+      <div class="blob-section-subtitle">
+        <span>${args.lead}${descriptorSentence}</span>
+        <span class="subtitle-warning">
+          <ha-icon icon="mdi:alert-outline"></ha-icon>
+          <span>${args.warning}</span>
+        </span>
+      </div>
+    `;
   }
-  _testSubtitleText() {
-    return this._supportsDescriptors() ? "Play a raw blob body or a descriptive protocol string starting with P: without saving it on the hub." : "Play a raw blob body without saving it on the hub.";
+  _fetchSubtitle() {
+    return this._renderSubtitleBlock({
+      lead: "Retrieve and view a Blob from the hub. Ensure that the cache for your devices and their commands is up to date.",
+      warning: "Only Blobs from IR devices can be Tested and Saved."
+    });
+  }
+  _testSubtitle() {
+    return this._renderSubtitleBlock({
+      lead: "Play a Blob on the hub without saving it.",
+      descriptor: true,
+      warning: "Only Blobs from IR devices can be Tested."
+    });
+  }
+  _saveSubtitle() {
+    return this._renderSubtitleBlock({
+      lead: "Add a new command to an existing IR device by saving a Blob to the hub.",
+      descriptor: true,
+      warning: "Only Blobs from IR devices can be Saved."
+    });
   }
   _buttonState(args) {
     if (args.busy) return "busy";
@@ -2292,7 +2323,7 @@ var SofabatonBlobsTab = class extends i4 {
         ${isOpen ? b2`
         <div class="acc-body" id="acc-body-fetch">
           <div class="blob-section-content">
-          <div class="blob-section-subtitle">Retrieve a normalized blob from a cached hub device command.</div>
+          ${this._fetchSubtitle()}
           ${fetchBlocked === "cache_disabled" ? this._renderStatus(
       "warning",
       "mdi:database-off-outline",
@@ -2413,7 +2444,7 @@ var SofabatonBlobsTab = class extends i4 {
         ${isOpen ? b2`
         <div class="acc-body" id="acc-body-test">
           <div class="blob-section-content">
-          <div class="blob-section-subtitle">${this._testSubtitleText()}</div>
+          ${this._testSubtitle()}
           ${this._renderBlobTextarea({
       value: this._testBlobInput,
       disabled: busy || proxyConnected,
@@ -2466,7 +2497,7 @@ var SofabatonBlobsTab = class extends i4 {
         ${isOpen ? b2`
         <div class="acc-body" id="acc-body-save">
           <div class="blob-section-content">
-          <div class="blob-section-subtitle">${this._saveSubtitleText()}</div>
+          ${this._saveSubtitle()}
           ${irDeviceOptions.length === 0 && !proxyConnected ? this._renderStatus(
       "warning",
       "mdi:refresh-circle",
@@ -2878,7 +2909,19 @@ SofabatonBlobsTab.styles = i`
       max-width: 340px;
       font-size: 13px;
     }
-    .blob-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: -16px; }
+    .blob-panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      margin: -16px;
+      /* Container query target — control-grid collapses to single column
+         based on this element's width, not the viewport's. Lets a narrow
+         card on a wide dashboard collapse without dragging single-column
+         layout across wide cards. */
+      container-type: inline-size;
+      container-name: blob-panel;
+    }
     .accordion-section { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--divider-color); }
     .accordion-section:first-child { border-top: none; }
     .accordion-section.open { flex: 1; }
@@ -2893,7 +2936,26 @@ SofabatonBlobsTab.styles = i`
     .accordion-section.open .chevron { transform: rotate(180deg); }
     .acc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 12px; display: grid; gap: 6px; align-content: start; }
     .blob-section-content { display: flex; flex-direction: column; gap: 14px; padding-top: 0; min-width: 0; }
-    .blob-section-subtitle { font-size: 13px; line-height: 1.5; color: var(--secondary-text-color); }
+    .blob-section-subtitle {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--secondary-text-color);
+    }
+    .subtitle-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: color-mix(in srgb, var(--warning-color, #f59e0b) 70%, var(--primary-text-color));
+      font-weight: 600;
+    }
+    .subtitle-warning ha-icon {
+      --mdc-icon-size: 16px;
+      color: var(--warning-color, #f59e0b);
+      flex: 0 0 auto;
+    }
     .section-status {
       min-width: 0;
       display: flex;
@@ -3253,7 +3315,7 @@ SofabatonBlobsTab.styles = i`
     @media (max-width: 760px) {
       .chevron { display: none; }
     }
-    @media (max-width: 980px) {
+    @container blob-panel (max-width: 420px) {
       .control-grid {
         grid-template-columns: 1fr;
       }
