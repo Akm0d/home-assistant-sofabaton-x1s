@@ -10,7 +10,11 @@ from typing import TYPE_CHECKING
 from ..const import HUB_VERSION_X1
 from .commands import parse_button_burst_frame, parse_command_burst_frame, parse_ir_command_dump_frame
 from .frame_handlers import BaseFrameHandler, FrameContext, register_handler
-from .macros import MacroAssembler, decode_macro_records, parse_macro_burst_frame
+from .macros import (
+    MacroAssembler,
+    parse_macro_burst_frame,
+    parse_macro_records_from_burst,
+)
 from .protocol_const import (
     BUTTONNAME_BY_CODE,
     ButtonName,
@@ -188,11 +192,6 @@ class MacroHandler(BaseFrameHandler):
         activity_hint = proxy._macro_assembler._last_activity_id
         burst_key = "macros" if activity_hint is None else f"macros:{activity_hint & 0xFF}"
 
-        if len(frame.payload) >= 8 and frame.payload[2] == 0x01 and frame.payload[5] in (0x01, 0x02):
-            req_activity_id = frame.payload[6] & 0xFF
-            req_button_id = frame.payload[7] & 0xFF
-            proxy.cache_macro_payload(req_activity_id, req_button_id, frame.payload)
-
         if proxy._burst.active and proxy._burst.kind and proxy._burst.kind.startswith("macros"):
             proxy._burst.last_ts = now + proxy._burst.response_grace
             if proxy._burst.kind == "macros":
@@ -206,8 +205,25 @@ class MacroHandler(BaseFrameHandler):
         for activity_id, assembled, boundaries in completed:
             act_lo = activity_id & 0xFF
             macros: list[dict[str, int | str]] = []
-            for act, command_id, label in decode_macro_records(assembled, activity_id, boundaries):
-                macros.append({"command_id": command_id, "label": label})
+            # Production REQ_MACROS uses the assembled fixed-width parser via
+            # `parse_macro_records_from_burst`. The legacy
+            # `decode_macro_records` remains importable for tests and
+            # external callers.
+            for record in parse_macro_records_from_burst(
+                assembled,
+                activity_id=activity_id,
+                record_boundaries=boundaries,
+                hub_version=proxy.hub_version,
+            ):
+                # Surface every assembled record (including POWER_*) for
+                # read-modify-write callers like add_device_to_activity.
+                proxy.cache_macro_record(record)
+
+                # Suppress auto-generated POWER_* macros from the activity
+                # UI list.
+                if not record.label or record.label.upper().startswith("POWER_"):
+                    continue
+                macros.append({"command_id": record.key_id, "label": record.label})
 
             proxy.state.replace_activity_macros(act_lo, macros)
             proxy._macros_complete.add(act_lo)
@@ -947,10 +963,28 @@ class ActivityMapHandler(BaseFrameHandler):
         if act_lo is None:
             return
 
+        # REQ_ACTIVITY_MAP response frames use the same wire format as
+        # REQ_DEVICES. Each frame here is a complete 1-page device row burst
+        # whose body starts at raw[7] (= payload[3]). Layout:
+        #
+        #   body[3]      sign      (= payload[6])
+        #   body[4]      deviceID  (= payload[7])  ← we use this
+        #   body[5]      icon
+        #   body[6]      sort
+        #   body[7]      codeType
+        #   body[8]      type
+        #   body[9..24]  codeId (16 bytes)
+        #   body[25..28] hide / input / tongdao / powerState
+        #   body[29..88] name (60B UTF-16BE on X1S/X2, 30B ASCII on X1)
+        #   body[89..148] brand
+        #   body[149..208] ip/extras
+        #
+        # We only need the device id to record activity membership.
+        # If a future feature wants the richer DeviceBean data, the
+        # full schema is right here for the picking.
         row_idx = payload[0]
         total_rows = payload[3]
-        dev_id = int.from_bytes(payload[6:8], "big")
-        dev_lo = dev_id & 0xFF
+        dev_lo = payload[7]
         if dev_lo == 0:
             return
 
