@@ -110,7 +110,7 @@ OP_SAVE_COMMIT = 0x6501
 # Other ACK / event opcode-lo families observed in the dispatcher:
 #   0x15  batch-resume cursor: `cursor = BE(payload[1..4]) - 1`, re-emit
 #   0x3E  bare progression ack (no status byte; just "advance")
-#   0x42  PING2 ack family (status byte at payload offset 1)
+#   0x42  device power-state / idle-behavior reply family (status byte at payload offset 1)
 #   0x45  one-shot status return (status byte at payload offset 1)
 #   0x57  one-shot status return (status byte at payload offset 2)
 #   0x60  ACK_READY family — posts "activity_update" event globally
@@ -179,9 +179,10 @@ OP_ACTIVITY_MAP_PAGE = 0x7B6D
 
 # noise we're not using (kept for reference)
 OP_REQ_VERSION = 0x0058  # yields WIFI_FW (0x0359) then INFO_BANNER (0x112F)
-OP_PING2 = 0x0140
+OP_REQ_IDLE_BEHAVIOR = 0x0140  # payload: [dev_lo]; query device idle/power behavior
 OP_REQ_ACTIVITY_INPUTS = 0x0148  # payload: [0x01] request activity input candidates
-OP_PING2_ACK = 0x0242  # H→A keepalive response observed on X1S/X2
+OP_SET_IDLE_BEHAVIOR = 0x0241  # payload: [dev_lo, mode]; update device idle/power behavior
+OP_IDLE_BEHAVIOR = 0x0242  # H→A payload: [dev_lo, mode] current device idle/power behavior
 OP_ACTIVITY_DEVICE_CONFIRM = 0x024F  # payload: [dev_lo, include_flag]
 OP_REQ_MACRO_LABELS = 0x024D  # payload: [act_lo, 0xFF]
 OP_REQ_MACROS = OP_REQ_MACRO_LABELS  # backward-compat alias
@@ -199,6 +200,10 @@ OP_BANNER = 0x1D02  # representative family-0x02 banner reply with hub ident/nam
 OP_WIFI_FW = 0x0359  # WiFi firmware ver (Vx.y.z)
 OP_INFO_BANNER = 0x112F  # vendor tag, batch date, remote fw byte, etc.
 
+
+# Backward-compatible aliases retained for older call sites and docs.
+OP_PING2 = OP_REQ_IDLE_BEHAVIOR
+OP_PING2_ACK = OP_IDLE_BEHAVIOR
 
 OPNAMES: Dict[int, str] = {
     OP_CALL_ME: "CALL_ME",
@@ -275,7 +280,7 @@ OPNAMES: Dict[int, str] = {
     OP_MACROS_B2: "MACROS_B2",
     OP_ACTIVITY_DEVICE_CONFIRM: "ACTIVITY_DEVICE_CONFIRM",
     OP_REQ_ACTIVITY_INPUTS: "REQ_ACTIVITY_INPUTS",
-    OP_PING2_ACK: "PING2_ACK",
+    OP_IDLE_BEHAVIOR: "IDLE_BEHAVIOR",
     OP_REQ_MACRO_LABELS: "REQ_MACRO_LABELS",
     OP_ACTIVITY_INPUTS_PAGE_A: "ACTIVITY_INPUTS_PAGE_A",
     OP_ACTIVITY_INPUTS_PAGE_B: "ACTIVITY_INPUTS_PAGE_B",
@@ -284,7 +289,8 @@ OPNAMES: Dict[int, str] = {
     OP_ACTIVITY_CONFIRM: "ACTIVITY_CONFIRM",
     OP_ACTIVITY_MAP_PAGE_X1S: "ACTIVITY_MAP_PAGE_X1S",
     OP_REQ_VERSION: "REQ_VERSION",
-    OP_PING2: "PING2",
+    OP_REQ_IDLE_BEHAVIOR: "REQ_IDLE_BEHAVIOR",
+    OP_SET_IDLE_BEHAVIOR: "SET_IDLE_BEHAVIOR",
 }
 
 
@@ -508,6 +514,9 @@ __all__ = [
     "OP_CALL_ME",
     "OP_ACTIVITY_MAP_PAGE",
     "OP_REQ_VERSION",
+    "OP_REQ_IDLE_BEHAVIOR",
+    "OP_SET_IDLE_BEHAVIOR",
+    "OP_IDLE_BEHAVIOR",
     "OP_PING2",
     "OP_PING2_ACK",
     "OP_ACTIVITY_DEVICE_CONFIRM",

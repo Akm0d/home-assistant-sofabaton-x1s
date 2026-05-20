@@ -2667,8 +2667,8 @@ def test_build_macro_save_payload_always_emits_c5_row_for_new_device(monkeypatch
     """Phase 3.5 regression: POWER_ON saves always include a (new_dev, 0xC5)
     row, even when input_index is 0.
 
-    The official app's MacroBean writer iterates the activity's device list
-    and emits a C5 row for every device with a non-null inputKeyBean
+    The official app's macro writer iterates the activity's device list
+    and emits a C5 row for every device with a non-null input-key reference
     (always the case for newly-added devices, even when no HDMI input is
     selected). Skipping it produced a row-count mismatch that made the
     macro display corrupted in the app.
@@ -4119,6 +4119,27 @@ def test_query_device_input_index_returns_none_when_not_found(monkeypatch) -> No
     assert proxy.query_device_input_index(0x05, 99) is None
 
 
+def test_fetch_device_input_entries_returns_x1_rows(monkeypatch) -> None:
+    proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
+
+    header = b"\x00" * 11
+    payload = header + _make_activity_inputs_entry(5, 5) + _make_activity_inputs_entry(8, 8)
+
+    monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, data: None)
+
+    def _fake_burst(timeout=5.0):
+        proxy._activity_inputs_payloads.clear()
+        proxy._activity_inputs_payloads.append(payload)
+        return True
+
+    monkeypatch.setattr(proxy, "wait_for_activity_inputs_burst", _fake_burst)
+
+    assert proxy.fetch_device_input_entries(0x05) == [
+        {"command_id": 5, "input_index": 1},
+        {"command_id": 8, "input_index": 2},
+    ]
+
+
 def test_query_device_input_index_x1s_returns_embedded_ordinal(monkeypatch) -> None:
     """On X1S, the ordinal is read from chunk[7] rather than computed by list position."""
     proxy = X1Proxy(
@@ -4213,6 +4234,36 @@ def test_query_device_input_index_x1s_returns_none_when_not_found(monkeypatch) -
     monkeypatch.setattr(proxy, "wait_for_activity_inputs_burst", _fake_burst)
 
     assert proxy.query_device_input_index(0x09, 99) is None
+
+
+def test_fetch_device_input_entries_returns_x1s_rows(monkeypatch) -> None:
+    proxy = X1Proxy(
+        "127.0.0.1",
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1S,
+    )
+
+    payload = (
+        _make_x1s_input_page1_header(device_id=0x09, num_inputs=2)
+        + _make_x1s_input_entry(3, 1, "HDMI 1")
+        + _make_x1s_input_entry(4, 2, "HDMI 2")
+    )
+
+    monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, data: None)
+
+    def _fake_burst(timeout=5.0):
+        proxy._activity_inputs_payloads.clear()
+        proxy._activity_inputs_payloads.append(payload)
+        return True
+
+    monkeypatch.setattr(proxy, "wait_for_activity_inputs_burst", _fake_burst)
+
+    assert proxy.fetch_device_input_entries(0x09) == [
+        {"command_id": 3, "input_index": 1},
+        {"command_id": 4, "input_index": 2},
+    ]
 
 
 # ---------------------------------------------------------------------------

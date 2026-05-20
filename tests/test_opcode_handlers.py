@@ -42,8 +42,11 @@ from custom_components.sofabaton_x1s.lib.opcode_handlers import (
     AckReadyHandler,
     CatalogActivityHandler,
     CatalogDeviceHandler,
+    IdleBehaviorHandler,
     KeymapHandler,
     MacroHandler,
+    RequestIdleBehaviorHandler,
+    SetIdleBehaviorHandler,
     X1CatalogActivityHandler,
     X1CatalogDeviceHandler,
     X2RemoteListRowHandler,
@@ -63,9 +66,12 @@ from custom_components.sofabaton_x1s.lib.protocol_const import (
     OP_KEYMAP_TBL_G,
     OP_CATALOG_ROW_ACTIVITY,
     OP_ACK_READY,
+    OP_IDLE_BEHAVIOR,
     OP_REQ_ACTIVITIES,
     OP_REQ_BUTTONS,
     OP_REQ_COMMANDS,
+    OP_REQ_IDLE_BEHAVIOR,
+    OP_SET_IDLE_BEHAVIOR,
     OP_MACROS_A1,
     OP_MACROS_B1,
     OP_MARKER,
@@ -1371,6 +1377,94 @@ def test_x1_catalog_device_handler_keeps_mdns_hub_version() -> None:
     handler.handle(frame)
 
     assert proxy.hub_version == HUB_VERSION_X1S
+
+
+def test_idle_behavior_reply_updates_device_cache() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = IdleBehaviorHandler()
+    proxy.state.devices[0x0C] = {
+        "name": "TV",
+        "device_class": "ir",
+        "device_class_code": 0x0D,
+    }
+
+    frame = _build_payload_context(proxy, OP_IDLE_BEHAVIOR, bytes([0x0C, 0x03]), "IDLE_BEHAVIOR")
+    handler.handle(frame)
+
+    assert proxy.state.devices[0x0C]["idle_behavior"] == 3
+    assert proxy.state.devices[0x0C]["power_mode"] == 3
+    assert proxy.state.devices[0x0C]["power_model"] == 3
+
+
+def test_set_idle_behavior_handler_updates_cache_from_app_command() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = SetIdleBehaviorHandler()
+    proxy.state.devices[0x0C] = {"name": "TV"}
+
+    frame = _build_payload_context(
+        proxy,
+        OP_SET_IDLE_BEHAVIOR,
+        bytes([0x0C, 0x02]),
+        "SET_IDLE_BEHAVIOR",
+    )
+    handler.handle(frame)
+
+    assert proxy.state.devices[0x0C]["idle_behavior"] == 2
+
+
+def test_request_idle_behavior_handler_is_non_mutating() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = RequestIdleBehaviorHandler()
+
+    frame = _build_payload_context(
+        proxy,
+        OP_REQ_IDLE_BEHAVIOR,
+        bytes([0x0C]),
+        "REQ_IDLE_BEHAVIOR",
+    )
+    handler.handle(frame)
+
+    assert proxy.state.devices == {}
+
+
+def test_device_snapshot_commit_preserves_cached_idle_behavior() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    proxy.state.devices[0x0C] = {
+        "name": "TV",
+        "brand": "Sony",
+        "idle_behavior": 3,
+        "power_mode": 3,
+        "power_model": 3,
+    }
+    proxy.record_idle_behavior_value(0x0C, 3)
+    proxy._begin_device_request()
+
+    accepted = proxy.ingest_device_row(
+        row_idx=1,
+        expected_rows=1,
+        dev_id=0x0C,
+        device={
+            "brand": "Sony",
+            "name": "TV",
+            "device_class": "ir",
+            "device_class_code": 0x0D,
+        },
+    )
+    assert accepted is True
+
+    proxy._on_devices_burst_end("devices")
+
+    assert proxy.state.devices[0x0C]["idle_behavior"] == 3
+    assert proxy.state.devices[0x0C]["power_mode"] == 3
+    assert proxy.state.devices[0x0C]["power_model"] == 3
 
 
 def test_keymap_handler_parses_x2_followup_d73d_page_buttons() -> None:

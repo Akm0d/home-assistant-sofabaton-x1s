@@ -80,8 +80,10 @@ from .protocol_const import (
     OP_MACROS_B2,
     OP_MARKER,
     OP_PING2,
+    OP_SET_IDLE_BEHAVIOR,
     OP_REQ_ACTIVITIES,
     OP_REQ_ACTIVATE,
+    OP_REQ_IDLE_BEHAVIOR,
     OP_REQ_ACTIVITY_MAP,
     OP_REQ_BANNER,
     OP_DELETE_DEVICE,
@@ -94,6 +96,7 @@ from .protocol_const import (
     OP_REQ_IPCMD_SYNC,
     OP_REQ_DEVICES,
     OP_REQ_MACRO_LABELS,
+    OP_IDLE_BEHAVIOR,
     OP_ACTIVITY_DEVICE_CONFIRM,
     OP_REQ_ACTIVITY_INPUTS,
     OP_REQ_VERSION,
@@ -460,6 +463,9 @@ class X1Proxy:
         self._banner_info_lock = threading.Lock()
         self._banner_info_event = threading.Event()
         self._banner_info: dict[str, Any] = {}
+        self._idle_behavior_lock = threading.Lock()
+        self._idle_behavior_events: dict[int, threading.Event] = {}
+        self._idle_behavior_values: dict[int, int] = {}
 
         self.transport = TransportBridge(
             real_hub_ip,
@@ -740,6 +746,76 @@ class X1Proxy:
     def request_banner_info(self) -> bool:
         return self.enqueue_cmd(OP_REQ_BANNER)
 
+    def request_idle_behavior(self, device_id: int) -> bool:
+        """Request the current idle/power behavior for one device."""
+
+        return self.enqueue_cmd(OP_REQ_IDLE_BEHAVIOR, bytes([device_id & 0xFF]))
+
+    def set_idle_behavior(self, device_id: int, mode: int) -> bool:
+        """Set the idle/power behavior for one device."""
+
+        dev_lo = device_id & 0xFF
+        normalized_mode = int(mode) & 0xFF
+        ok = self.enqueue_cmd(
+            OP_SET_IDLE_BEHAVIOR,
+            bytes([dev_lo, normalized_mode]),
+        )
+        if ok:
+            self.record_idle_behavior_value(dev_lo, normalized_mode, source="local_set")
+        return ok
+
+    def get_idle_behavior(
+        self,
+        device_id: int,
+        *,
+        fetch_if_missing: bool = True,
+    ) -> tuple[int | None, bool]:
+        """Return cached idle behavior, optionally querying the hub if missing."""
+
+        dev_lo = device_id & 0xFF
+        cached = self.state.devices.get(dev_lo, {}).get("idle_behavior")
+        if isinstance(cached, int):
+            return (cached & 0xFF, True)
+
+        with self._idle_behavior_lock:
+            value = self._idle_behavior_values.get(dev_lo)
+
+        if value is not None:
+            return (value, True)
+
+        if fetch_if_missing and self.can_issue_commands():
+            self.request_idle_behavior(dev_lo)
+
+        return (None, False)
+
+    def fetch_idle_behavior(
+        self,
+        device_id: int,
+        *,
+        force_refresh: bool = True,
+        timeout: float = 2.0,
+    ) -> tuple[int | None, bool]:
+        """Fetch one device's idle behavior, using cached data when allowed."""
+
+        dev_lo = device_id & 0xFF
+        cached, ready = self.get_idle_behavior(dev_lo, fetch_if_missing=False)
+        if ready and not force_refresh:
+            return (cached, True)
+
+        if not self.can_issue_commands():
+            return (cached, ready)
+
+        with self._idle_behavior_lock:
+            event = self._idle_behavior_events.setdefault(dev_lo, threading.Event())
+            event.clear()
+
+        if not self.request_idle_behavior(dev_lo):
+            return (cached, ready)
+
+        event.wait(timeout)
+        refreshed, refreshed_ready = self.get_idle_behavior(dev_lo, fetch_if_missing=False)
+        return (refreshed, refreshed_ready)
+
     def fetch_banner_info(
         self,
         *,
@@ -805,6 +881,40 @@ class X1Proxy:
 
         self._banner_info_event.set()
         return parsed
+
+    def record_idle_behavior_value(
+        self,
+        device_id: int,
+        mode: int,
+        *,
+        source: str = "hub_reply",
+    ) -> int:
+        """Cache one device's idle/power behavior and wake any waiter."""
+
+        dev_lo = device_id & 0xFF
+        normalized_mode = int(mode) & 0xFF
+
+        with self._idle_behavior_lock:
+            self._idle_behavior_values[dev_lo] = normalized_mode
+            event = self._idle_behavior_events.get(dev_lo)
+
+        existing = dict(self.state.devices.get(dev_lo, {}))
+        existing["idle_behavior"] = normalized_mode
+        existing["power_mode"] = normalized_mode
+        existing["power_model"] = normalized_mode
+        self.state.devices[dev_lo] = normalize_device_entry(existing)
+
+        self._log.info(
+            "[IDLE] %s dev=0x%02X mode=%d",
+            source,
+            dev_lo,
+            normalized_mode,
+        )
+
+        if event is not None:
+            event.set()
+
+        return normalized_mode
 
     # High-level helpers
     def request_devices(self) -> bool:    return self.enqueue_cmd(OP_REQ_DEVICES, expects_burst=True, burst_kind="devices")
@@ -2194,7 +2304,7 @@ class X1Proxy:
         committed: dict[int, dict[str, Any]] = {}
         for _row_idx, row in ordered_rows:
             dev_id = int(row["id"]) & 0xFF
-            committed[dev_id] = normalize_device_entry(
+            merged = normalize_device_entry(
                 {
                     "brand": row.get("brand"),
                     "name": row.get("name"),
@@ -2202,6 +2312,15 @@ class X1Proxy:
                     "device_class_code": row.get("device_class_code"),
                 }
             )
+            prior = self.state.devices.get(dev_id, {})
+            cached_mode = self._idle_behavior_values.get(dev_id)
+            if cached_mode is None and isinstance(prior.get("idle_behavior"), int):
+                cached_mode = int(prior["idle_behavior"]) & 0xFF
+            if cached_mode is not None:
+                merged["idle_behavior"] = cached_mode
+                merged["power_mode"] = cached_mode
+                merged["power_model"] = cached_mode
+            committed[dev_id] = merged
         self.state.devices = committed
 
     def _on_devices_burst_end(self, key: str) -> None:
@@ -2774,6 +2893,19 @@ class X1Proxy:
                 return None
             self._macro_payload_event.wait(min(remaining, 0.2))
 
+    def get_cached_macro_records(self, activity_id: int) -> list[MacroRecord]:
+        """Return cached assembled macro records for ``activity_id`` without consuming them."""
+
+        act_lo = activity_id & 0xFF
+        with self._macro_payload_lock:
+            records = [
+                record
+                for (cached_act_id, _button_id), record in self._macro_payload_events.items()
+                if (cached_act_id & 0xFF) == act_lo
+            ]
+        records.sort(key=lambda record: record.key_id & 0xFF)
+        return records
+
     def notify_activity_inputs_frame(self, payload: bytes = b"") -> None:
         with self._activity_inputs_lock:
             self._activity_inputs_payloads.append(bytes(payload))
@@ -2955,6 +3087,58 @@ class X1Proxy:
             device_id & 0xFF,
         )
         return None
+
+    def fetch_device_input_entries(
+        self,
+        device_id: int,
+        *,
+        timeout: float = 5.0,
+    ) -> list[dict[str, int]] | None:
+        """Return fresh input ordering rows for ``device_id``.
+
+        Each returned row has ``command_id`` and 1-based ``input_index``.
+        Returns ``None`` when the hub does not answer before ``timeout``.
+        """
+
+        with self._activity_inputs_lock:
+            self._activity_inputs_payloads.clear()
+            self._activity_inputs_seen = 0
+            self._activity_inputs_last_ts = 0.0
+            self._activity_inputs_event.clear()
+
+        self._send_cmd_frame(OP_REQ_ACTIVITY_INPUTS, bytes([device_id & 0xFF]))
+        if not self.wait_for_activity_inputs_burst(timeout=timeout):
+            self._log.warning(
+                "[INPUT_QUERY] timeout waiting for full inputs list dev=0x%02X",
+                device_id & 0xFF,
+            )
+            return None
+
+        with self._activity_inputs_lock:
+            payloads = list(self._activity_inputs_payloads)
+
+        looks_like_x1s = self._payloads_look_like_x1s_activity_inputs(payloads)
+        use_x1s_parser = self.hub_version in (HUB_VERSION_X1S, HUB_VERSION_X2) or looks_like_x1s
+
+        if use_x1s_parser:
+            return [
+                {
+                    "command_id": command_id & 0xFF,
+                    "input_index": input_index & 0xFF,
+                }
+                for command_id, input_index in self._parse_activity_inputs_x1s(payloads)
+            ]
+
+        return [
+            {
+                "command_id": command_id & 0xFF,
+                "input_index": input_index & 0xFF,
+            }
+            for input_index, (command_id, _raw_command_ref) in enumerate(
+                self._parse_activity_inputs_payloads(payloads),
+                start=1,
+            )
+        ]
 
     def _build_macro_record_entry(
         self,

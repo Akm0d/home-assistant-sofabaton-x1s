@@ -322,10 +322,10 @@ class MacroAssembler:
 
 
 #: Size in bytes of one key entry inside a macro region.
-MACRO_KEY_BEAN_SIZE = 10
+MACRO_KEY_ENTRY_SIZE = 10
 
-#: Byte offset within a region where MacroKeyBean entries begin.
-MACRO_KEY_BEAN_START = 2
+#: Byte offset within a region where per-key macro entries begin.
+MACRO_KEY_ENTRY_START = 2
 
 #: Length of the trailing label slot for X1 hubs (ASCII).
 MACRO_LABEL_LEN_X1 = 30
@@ -448,7 +448,7 @@ def _encode_macro_schema_label(label: str, *, label_len: int, encoding: str) -> 
 
 
 def _parse_macro_key_entry(bean: bytes) -> MacroKeyEntry:
-    """Parse one 10-byte MacroKeyBean payload."""
+    """Parse one 10-byte macro key-entry payload."""
 
     return MacroKeyEntry(
         device_id=bean[0],
@@ -460,7 +460,7 @@ def _parse_macro_key_entry(bean: bytes) -> MacroKeyEntry:
 
 
 def _serialize_macro_key_entry(entry: MacroKeyEntry) -> bytes:
-    """Serialize one MacroKeyBean using canonical layout."""
+    """Serialize one macro key entry using canonical layout."""
 
     if entry.is_delay_only:
         return b"\xFF" * 9 + bytes([entry.delay & 0xFF])
@@ -505,13 +505,13 @@ def parse_macro_record_from_region(
 
     # The label slot is read from the end of the region, skipping the final
     # 1-byte terminator. The slot we want is ``region[-(label_len+1):-1]``.
-    if len(region) < MACRO_KEY_BEAN_START + label_len + 1:
+    if len(region) < MACRO_KEY_ENTRY_START + label_len + 1:
         return None
 
     key_id = region[0]
     count = region[1]
 
-    sequence_end = MACRO_KEY_BEAN_START + count * MACRO_KEY_BEAN_SIZE
+    sequence_end = MACRO_KEY_ENTRY_START + count * MACRO_KEY_ENTRY_SIZE
     label_start = len(region) - (label_len + 1)
     label_end = len(region) - 1  # skip the trailing terminator byte
 
@@ -519,14 +519,14 @@ def parse_macro_record_from_region(
     # the trailing label slot, clamp to what fits between the header and
     # the label.
     if sequence_end > label_start:
-        usable_bytes = max(0, label_start - MACRO_KEY_BEAN_START)
-        count = usable_bytes // MACRO_KEY_BEAN_SIZE
+        usable_bytes = max(0, label_start - MACRO_KEY_ENTRY_START)
+        count = usable_bytes // MACRO_KEY_ENTRY_SIZE
 
     entries: list[MacroKeyEntry] = []
     for i in range(count):
-        bean_start = MACRO_KEY_BEAN_START + i * MACRO_KEY_BEAN_SIZE
-        bean = region[bean_start : bean_start + MACRO_KEY_BEAN_SIZE]
-        if len(bean) < MACRO_KEY_BEAN_SIZE:
+        bean_start = MACRO_KEY_ENTRY_START + i * MACRO_KEY_ENTRY_SIZE
+        bean = region[bean_start : bean_start + MACRO_KEY_ENTRY_SIZE]
+        if len(bean) < MACRO_KEY_ENTRY_SIZE:
             break
         entries.append(
             MacroKeyEntry(
@@ -652,8 +652,8 @@ def parse_macro_records_from_burst(
 
 
 __all__ = [
-    "MACRO_KEY_BEAN_SIZE",
-    "MACRO_KEY_BEAN_START",
+    "MACRO_KEY_ENTRY_SIZE",
+    "MACRO_KEY_ENTRY_START",
     "MACRO_LABEL_LEN_X1",
     "MACRO_LABEL_LEN_X1S_X2",
     "MacroAssembler",

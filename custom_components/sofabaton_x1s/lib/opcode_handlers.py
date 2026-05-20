@@ -36,6 +36,7 @@ from .protocol_const import (
     OP_DEVBTN_PAGE_ALT6,
     OP_DEVBTN_SINGLE,
     OP_DEVBTN_TAIL,
+    OP_IDLE_BEHAVIOR,
     OP_MACROS_A1,
     OP_MACROS_A2,
     OP_MACROS_B1,
@@ -72,7 +73,9 @@ from .protocol_const import (
     OP_REQ_ACTIVITY_MAP,
     OP_REQ_BUTTONS,
     OP_REQ_COMMANDS,
+    OP_REQ_IDLE_BEHAVIOR,
     OP_REQ_ACTIVITIES,
+    OP_SET_IDLE_BEHAVIOR,
     OP_X2_REMOTE_LIST_ROW,
     OP_ACTIVITY_MAP_PAGE,
     OP_ACTIVITY_MAP_PAGE_X1S,
@@ -996,7 +999,7 @@ class ActivityMapHandler(BaseFrameHandler):
         #   body[149..208] ip/extras
         #
         # We only need the device id to record activity membership.
-        # If a future feature wants the richer DeviceBean data, the
+        # If a future feature wants the richer full device-record data, the
         # full schema is right here for the picking.
         row_idx = payload[0]
         total_rows = payload[3]
@@ -1149,6 +1152,53 @@ class RequestCommandsHandler(BaseFrameHandler):
         payload = frame.payload
         dev_id = payload[0] if payload else 0
         proxy._log.info("[DEVCTL] A→H requesting commands dev=0x%02X (%d)", dev_id, dev_id)
+
+
+@register_handler(opcodes=(OP_REQ_IDLE_BEHAVIOR,), directions=("A→H",))
+class RequestIdleBehaviorHandler(BaseFrameHandler):
+    """Log app requests for a device's idle/power behavior."""
+
+    def handle(self, frame: FrameContext) -> None:
+        proxy: X1Proxy = frame.proxy
+        payload = frame.payload
+        dev_id = payload[0] if payload else 0
+        proxy._log.info(
+            "[IDLE] A→H requesting idle behavior dev=0x%02X (%d)",
+            dev_id,
+            dev_id,
+        )
+
+
+@register_handler(opcodes=(OP_SET_IDLE_BEHAVIOR,), directions=("A→H",))
+class SetIdleBehaviorHandler(BaseFrameHandler):
+    """Track app-initiated idle/power behavior changes."""
+
+    def handle(self, frame: FrameContext) -> None:
+        proxy: X1Proxy = frame.proxy
+        payload = frame.payload
+        if len(payload) < 2:
+            proxy._log.info("[IDLE] A→H set idle behavior payload too short (%dB)", len(payload))
+            return
+
+        dev_id = payload[0]
+        mode = payload[1]
+        proxy.record_idle_behavior_value(dev_id, mode, source="app_set")
+
+
+@register_handler(opcodes=(OP_IDLE_BEHAVIOR,), directions=("H→A",))
+class IdleBehaviorHandler(BaseFrameHandler):
+    """Capture current device idle/power behavior replies from the hub."""
+
+    def handle(self, frame: FrameContext) -> None:
+        proxy: X1Proxy = frame.proxy
+        payload = frame.payload
+        if len(payload) < 2:
+            proxy._log.info("[IDLE] H→A idle behavior payload too short (%dB)", len(payload))
+            return
+
+        dev_id = payload[0]
+        mode = payload[1]
+        proxy.record_idle_behavior_value(dev_id, mode, source="hub_reply")
 
 
 class DeviceButtonSingleHandler(BaseFrameHandler):

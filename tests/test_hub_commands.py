@@ -7,6 +7,7 @@ import custom_components.sofabaton_x1s.hub as hub_module
 from custom_components.sofabaton_x1s.hub import SofabatonHub, get_hub_model
 from custom_components.sofabaton_x1s.const import HUB_VERSION_X1S
 from custom_components.sofabaton_x1s.lib.commands import build_descriptive_ir_blob_body
+from custom_components.sofabaton_x1s.lib.macros import MacroKeyEntry, MacroRecord
 
 
 class FakeHass:
@@ -171,6 +172,237 @@ def test_async_fetch_blob_normalizes_tail_and_descriptor(monkeypatch):
                 "command_checksum": replay_tail,
             }
         ],
+    }
+
+    loop.close()
+
+
+def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    hass = FakeHass(loop)
+
+    hub = SofabatonHub(
+        hass,
+        "entry-id",
+        "hub-name",
+        "127.0.0.1",
+        1234,
+        {},
+        9999,
+        10000,
+        True,
+        False,
+    )
+
+    async def _refresh_devices_snapshot(timeout_seconds: float = 15.0):
+        return {
+            11: {
+                "name": "TV",
+                "brand": "Sony",
+                "device_class": "IR",
+                "device_class_code": 0x10,
+            }
+        }
+
+    async def _wait_ready(*args, **kwargs):
+        return None
+
+    blob_body = build_descriptive_ir_blob_body("P:Sony12 R:40000 D:1 F:18 MUL:2")
+    replay_tail = (sum(blob_body) + 2) & 0xFF
+
+    async def _fetch_blob(*, device_id: int, command_id: int | None = None, wait_timeout: float = 10.0):
+        return {
+            "device_id": device_id,
+            "requested_command_id": command_id,
+            "total_commands": 1,
+            "received_command_count": 1,
+            "complete": True,
+            "commands": [
+                {
+                    "command_label": "Input",
+                    "device_id": device_id,
+                    "command_id": 18,
+                    "device_class": "IR",
+                    "blob_kind": "descriptive",
+                    "command_blob": blob_body.hex(" "),
+                    "parsed_blob": "P:Sony12 R:40000 D:1 F:18 MUL:2",
+                    "replay_tail_checksum": replay_tail,
+                    "command_checksum": replay_tail,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(hub, "_async_refresh_devices_snapshot", _refresh_devices_snapshot)
+    monkeypatch.setattr(hub, "_reset_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(hub, "_async_wait_for_command_fetch_complete", _wait_ready)
+    monkeypatch.setattr(hub, "_async_wait_for_buttons_ready", _wait_ready)
+    monkeypatch.setattr(hub, "_async_wait_for_macros_ready", _wait_ready)
+    monkeypatch.setattr(hub, "async_fetch_blob", _fetch_blob)
+
+    hub._proxy.state.devices[11] = {
+        "name": "TV",
+        "brand": "Sony",
+        "device_class": "IR",
+        "device_class_code": 0x10,
+    }
+    hub._proxy.state.commands[11] = {18: "Input"}
+    hub._proxy.state.buttons[11] = {0x58}
+    hub._proxy.state.button_details[11] = {0x58: {"device_id": 11, "command_id": 18}}
+    hub._proxy.state.activity_macros[11] = [{"command_id": 33, "label": "Power On"}]
+    hub._proxy.state.activity_favorite_slots[11] = [
+        {"button_id": 18, "device_id": 11, "command_id": 18, "source": "keymap"}
+    ]
+    hub._proxy._macros_complete.add(11)
+
+    monkeypatch.setattr(hub._proxy, "clear_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_commands_for_entity",
+        lambda ent_id, fetch_if_missing=True: ({18: "Input"}, True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_buttons_for_entity",
+        lambda ent_id, fetch_if_missing=True: ([0x58], True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_macros_for_activity",
+        lambda ent_id, fetch_if_missing=True: ([{"command_id": 33, "label": "Power On"}], True),
+    )
+    monkeypatch.setattr(hub._proxy, "fetch_idle_behavior", lambda *args, **kwargs: 3)
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_cached_macro_records",
+        lambda ent_id: [
+            MacroRecord(
+                activity_id=ent_id,
+                key_id=0x21,
+                label="Power On",
+                raw_label_slot=b"\x00\x21",
+                key_sequence=(
+                    MacroKeyEntry(
+                        device_id=11,
+                        key_id=18,
+                        fid=0,
+                        duration=1,
+                        delay=2,
+                    ),
+                ),
+            ),
+            MacroRecord(
+                activity_id=ent_id,
+                key_id=0xC6,
+                label="POWER_ON",
+                raw_label_slot=b"\x00\xc6",
+                key_sequence=(
+                    MacroKeyEntry(
+                        device_id=11,
+                        key_id=1,
+                        fid=0,
+                        duration=0,
+                        delay=0xFF,
+                    ),
+                ),
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "fetch_device_input_entries",
+        lambda *args, **kwargs: [{"command_id": 18, "input_index": 1}],
+    )
+
+    result = loop.run_until_complete(hub.async_backup_device(device_id=11))
+
+    assert result is not None
+    assert result["kind"] == "device_backup"
+    assert result["complete"] is True
+    assert result["device"] == {
+        "device_id": 11,
+        "name": "TV",
+        "brand": "Sony",
+        "device_class": "IR",
+        "device_class_code": 0x10,
+        "idle_behavior": 3,
+        "power_mode": 3,
+        "power_model": 3,
+    }
+    assert result["commands"] == [
+        {
+            "command_id": 18,
+            "name": "Input",
+            "blob_kind": "descriptive",
+            "command_blob": blob_body.hex(" "),
+            "parsed_blob": "P:Sony12 R:40000 D:1 F:18 MUL:2",
+            "replay_tail_checksum": replay_tail,
+            "command_checksum": replay_tail,
+        }
+    ]
+    assert result["inputs"] == [
+        {"command_id": 18, "input_index": 1, "name": "Input"}
+    ]
+    assert result["button_bindings"] == [
+        {
+            "button_id": 0x58,
+            "button_name": None,
+            "device_id": 11,
+            "command_id": 18,
+            "command_name": "Input",
+            "long_press_device_id": None,
+            "long_press_command_id": None,
+        }
+    ]
+    assert result["favorite_slots"] == [
+        {
+            "button_id": 18,
+            "device_id": 11,
+            "command_id": 18,
+            "name": "Input",
+            "source": "keymap",
+        }
+    ]
+    assert result["macros"] == [
+        {
+            "button_id": 0x21,
+            "name": "Power On",
+            "is_power_macro": False,
+            "raw_label_slot": "00 21",
+            "steps": [
+                {
+                    "device_id": 11,
+                    "command_id": 18,
+                    "fid": 0,
+                    "duration": 1,
+                    "delay": 2,
+                }
+            ],
+        },
+        {
+            "button_id": 0xC6,
+            "name": "POWER_ON",
+            "is_power_macro": True,
+            "raw_label_slot": "00 c6",
+            "steps": [
+                {
+                    "device_id": 11,
+                    "command_id": 1,
+                    "fid": 0,
+                    "duration": 0,
+                    "delay": 0xFF,
+                }
+            ],
+        },
+    ]
+    assert result["completeness"] == {
+        "device": True,
+        "commands": True,
+        "buttons": True,
+        "macros": True,
+        "idle_behavior": True,
+        "inputs": True,
+        "blobs": True,
     }
 
     loop.close()

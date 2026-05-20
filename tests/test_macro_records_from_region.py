@@ -16,8 +16,8 @@ from custom_components.sofabaton_x1s.const import (
     HUB_VERSION_X2,
 )
 from custom_components.sofabaton_x1s.lib.macros import (
-    MACRO_KEY_BEAN_SIZE,
-    MACRO_KEY_BEAN_START,
+    MACRO_KEY_ENTRY_SIZE,
+    MACRO_KEY_ENTRY_START,
     MACRO_LABEL_LEN_X1,
     MACRO_LABEL_LEN_X1S_X2,
     MACRO_WRITE_PAGE_BODY_CHUNK,
@@ -35,7 +35,7 @@ from custom_components.sofabaton_x1s.lib.macros import (
 # ---------------------------------------------------------------------------
 
 
-def _key_bean(
+def _key_entry(
     *,
     device_id: int = 0x05,
     key_id: int = 0xC6,
@@ -50,7 +50,7 @@ def _key_bean(
     )
 
 
-def _delay_only_bean(delay_ms: int) -> bytes:
+def _delay_only_entry(delay_ms: int) -> bytes:
     """A delay-only entry uses ``key_id=0xFF``."""
 
     return bytes([0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, delay_ms])
@@ -66,19 +66,19 @@ def _x1_region(
     *,
     key_id: int,
     label: str,
-    key_beans: list[bytes],
+    key_entries: list[bytes],
 ) -> bytes:
     """Build a macro region matching the X1 ASCII schema."""
 
-    if len(key_beans) > 255:
+    if len(key_entries) > 255:
         raise ValueError("max 255 key entries (1-byte count)")
     if len(label.encode("ascii")) > MACRO_LABEL_LEN_X1:
         raise ValueError(f"label too long for {MACRO_LABEL_LEN_X1}-byte ASCII slot")
 
     label_bytes = label.encode("ascii").ljust(MACRO_LABEL_LEN_X1, b"\x00")
     return (
-        bytes([key_id, len(key_beans)])
-        + b"".join(key_beans)
+        bytes([key_id, len(key_entries)])
+        + b"".join(key_entries)
         + label_bytes
         + bytes([_MACRO_REGION_TERMINATOR])
     )
@@ -88,11 +88,11 @@ def _x1s_x2_region(
     *,
     key_id: int,
     label: str,
-    key_beans: list[bytes],
+    key_entries: list[bytes],
 ) -> bytes:
     """Build a macro region matching the X1S/X2 UTF-16BE schema."""
 
-    if len(key_beans) > 255:
+    if len(key_entries) > 255:
         raise ValueError("max 255 key entries (1-byte count)")
     encoded = label.encode("utf-16-be")
     if len(encoded) > MACRO_LABEL_LEN_X1S_X2:
@@ -102,8 +102,8 @@ def _x1s_x2_region(
 
     label_bytes = encoded.ljust(MACRO_LABEL_LEN_X1S_X2, b"\x00")
     return (
-        bytes([key_id, len(key_beans)])
-        + b"".join(key_beans)
+        bytes([key_id, len(key_entries)])
+        + b"".join(key_entries)
         + label_bytes
         + bytes([_MACRO_REGION_TERMINATOR])
     )
@@ -118,10 +118,10 @@ def test_x1_parses_key_id_label_and_inner_sequence() -> None:
     region = _x1_region(
         key_id=0xC6,
         label="WATCH_TV",
-        key_beans=[
-            _key_bean(device_id=0x03, key_id=0xC6, duration=0, delay=200),
-            _delay_only_bean(delay_ms=150),
-            _key_bean(device_id=0x05, key_id=0xAE, duration=0, delay=50),
+        key_entries=[
+            _key_entry(device_id=0x03, key_id=0xC6, duration=0, delay=200),
+            _delay_only_entry(delay_ms=150),
+            _key_entry(device_id=0x05, key_id=0xAE, duration=0, delay=50),
         ],
     )
 
@@ -149,7 +149,7 @@ def test_x1_parses_key_id_label_and_inner_sequence() -> None:
 
 
 def test_x1_empty_sequence_still_yields_label() -> None:
-    region = _x1_region(key_id=0xC7, label="PowerOff", key_beans=[])
+    region = _x1_region(key_id=0xC7, label="PowerOff", key_entries=[])
 
     record = parse_macro_record_from_region(
         region, activity_id=0x65, hub_version=HUB_VERSION_X1
@@ -162,7 +162,7 @@ def test_x1_empty_sequence_still_yields_label() -> None:
 
 
 def test_x1_label_trailing_nulls_and_whitespace_stripped() -> None:
-    region = _x1_region(key_id=0xAE, label="  hello world  ", key_beans=[])
+    region = _x1_region(key_id=0xAE, label="  hello world  ", key_entries=[])
 
     record = parse_macro_record_from_region(
         region, activity_id=0x65, hub_version=HUB_VERSION_X1
@@ -182,9 +182,9 @@ def test_x1s_x2_parses_utf16be_label_and_sequence(hub_version: str) -> None:
     region = _x1s_x2_region(
         key_id=0xC6,
         label="Watch a movie",
-        key_beans=[
-            _key_bean(device_id=0x03, key_id=0xC6, duration=0, delay=250),
-            _key_bean(device_id=0x05, key_id=0xAE, duration=0, delay=100),
+        key_entries=[
+            _key_entry(device_id=0x03, key_id=0xC6, duration=0, delay=250),
+            _key_entry(device_id=0x05, key_id=0xAE, duration=0, delay=100),
         ],
     )
 
@@ -199,7 +199,7 @@ def test_x1s_x2_parses_utf16be_label_and_sequence(hub_version: str) -> None:
 
 
 def test_x1s_x2_utf16be_label_with_non_ascii_codepoints() -> None:
-    region = _x1s_x2_region(key_id=0xC6, label="évoquer", key_beans=[])
+    region = _x1s_x2_region(key_id=0xC6, label="évoquer", key_entries=[])
 
     record = parse_macro_record_from_region(
         region, activity_id=0x65, hub_version=HUB_VERSION_X1S
@@ -212,7 +212,7 @@ def test_x1s_x2_utf16be_label_with_non_ascii_codepoints() -> None:
 def test_x1s_x2_utf16be_label_with_0xff_in_codepoint() -> None:
     # U+00FF encodes to 0x00 0xFF in UTF-16BE. The schema parser reads the
     # full slot, so this byte should be preserved in the decoded label.
-    region = _x1s_x2_region(key_id=0xC6, label="AÿB", key_beans=[])
+    region = _x1s_x2_region(key_id=0xC6, label="AÿB", key_entries=[])
 
     record = parse_macro_record_from_region(
         region, activity_id=0x65, hub_version=HUB_VERSION_X1S
@@ -235,7 +235,7 @@ def test_too_short_region_returns_none() -> None:
 
 
 def test_unknown_hub_version_raises() -> None:
-    region = _x1_region(key_id=0xC6, label="x", key_beans=[])
+    region = _x1_region(key_id=0xC6, label="x", key_entries=[])
     with pytest.raises(ValueError, match="unknown hub_version"):
         parse_macro_record_from_region(
             region, activity_id=0x65, hub_version="unknown"
@@ -250,7 +250,7 @@ def test_count_clamped_when_it_would_overlap_label_slot() -> None:
         _x1_region(
             key_id=0xC6,
             label="real label",
-            key_beans=[_key_bean(device_id=0x03, key_id=0xC6)],
+            key_entries=[_key_entry(device_id=0x03, key_id=0xC6)],
         )
     )
     # Lie: claim 50 beans in the header even though only 1 fits.
@@ -276,10 +276,10 @@ def test_count_clamped_when_it_would_overlap_label_slot() -> None:
 
 def test_parse_macro_records_from_burst_walks_boundaries() -> None:
     r1 = _x1_region(
-        key_id=0xC6, label="WATCH_TV", key_beans=[_key_bean()]
+        key_id=0xC6, label="WATCH_TV", key_entries=[_key_entry()]
     )
     r2 = _x1_region(
-        key_id=0xC7, label="POWER_OFF", key_beans=[_delay_only_bean(100)]
+        key_id=0xC7, label="POWER_OFF", key_entries=[_delay_only_entry(100)]
     )
     payload = r1 + r2
     boundaries = [0, len(r1)]
@@ -299,7 +299,7 @@ def test_parse_macro_records_from_burst_walks_boundaries() -> None:
 
 
 def test_parse_macro_records_from_burst_skips_out_of_range_boundary() -> None:
-    region = _x1_region(key_id=0xC6, label="x", key_beans=[])
+    region = _x1_region(key_id=0xC6, label="x", key_entries=[])
     boundaries = [0, len(region) + 100]  # second boundary past EOF
 
     records = parse_macro_records_from_burst(
@@ -315,8 +315,8 @@ def test_parse_macro_records_from_burst_skips_out_of_range_boundary() -> None:
 
 def test_macro_key_entry_fid_round_trips_through_6_byte_be() -> None:
     fid = 0x0102030405
-    bean = _key_bean(fid=fid)
-    region = _x1_region(key_id=0xC6, label="x", key_beans=[bean])
+    entry = _key_entry(fid=fid)
+    region = _x1_region(key_id=0xC6, label="x", key_entries=[entry])
 
     record = parse_macro_record_from_region(
         region, activity_id=0x65, hub_version=HUB_VERSION_X1
@@ -404,10 +404,10 @@ def test_label_slot_bytes_round_trip_through_parse_build_parse() -> None:
     label_slot[: len(encoded_label)] = encoded_label
     label_slot[-6:] = bytes.fromhex("37 37 00 00 35 35")
 
-    key_beans = [_key_bean(device_id=0x01, key_id=0xC6, fid=0, duration=0, delay=0xFF)]
+    key_entries = [_key_entry(device_id=0x01, key_id=0xC6, fid=0, duration=0, delay=0xFF)]
     region = (
-        bytes([0xC6, len(key_beans)])
-        + b"".join(key_beans)
+        bytes([0xC6, len(key_entries)])
+        + b"".join(key_entries)
         + bytes(label_slot)
         + bytes([_MACRO_REGION_TERMINATOR])
     )
@@ -504,10 +504,10 @@ def test_label_decoder_rebases_on_power_marker_prefix() -> None:
     encoded_label = "POWER_ON".encode("utf-16-be")
     label_slot = (prefix + encoded_label).ljust(MACRO_LABEL_LEN_X1S_X2, b"\x00")
 
-    key_beans = [_key_bean(device_id=0x01, key_id=0xC6, fid=0, duration=0, delay=0xFF)]
+    key_entries = [_key_entry(device_id=0x01, key_id=0xC6, fid=0, duration=0, delay=0xFF)]
     region = (
-        bytes([0xC6, len(key_beans)])
-        + b"".join(key_beans)
+        bytes([0xC6, len(key_entries)])
+        + b"".join(key_entries)
         + label_slot
         + bytes([_MACRO_REGION_TERMINATOR])
     )

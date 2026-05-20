@@ -44,7 +44,7 @@ from .const import (
 from .diagnostics import async_disable_hex_logging_capture, async_enable_hex_logging_capture
 from .logging_utils import get_hub_logger
 from .cache_store import PersistentCacheStore
-from .lib.protocol_const import ButtonName, DEVICE_CLASS_IR
+from .lib.protocol_const import BUTTONNAME_BY_CODE, ButtonName, DEVICE_CLASS_IR
 from .lib.commands import descriptive_play_blob_text, looks_like_descriptive_play_blob, split_play_blob_tail
 from .lib.x1_proxy import X1Proxy
 from .command_config import (
@@ -1153,6 +1153,264 @@ class SofabatonHub:
             "commands": commands_out,
         }
 
+    async def async_backup_device(
+        self,
+        device_id: int,
+        *,
+        wait_timeout: float = 10.0,
+    ) -> dict[str, Any] | None:
+        """Fetch a fresh, restore-oriented device backup payload from the hub."""
+
+        dev_lo = device_id & 0xFF
+        device_snapshot = await self._async_refresh_devices_snapshot(
+            timeout_seconds=max(wait_timeout, 5.0)
+        )
+        device_meta = dict(device_snapshot.get(dev_lo) or {})
+        if not device_meta:
+            device_meta = dict(self._proxy.state.devices.get(dev_lo) or {})
+        if not device_meta:
+            return None
+
+        self._reset_entity_cache(
+            dev_lo,
+            clear_buttons=True,
+            clear_favorites=True,
+            clear_macros=True,
+        )
+        await self.hass.async_add_executor_job(
+            self._proxy.clear_entity_cache,
+            dev_lo,
+            True,
+            True,
+            True,
+        )
+
+        self._commands_in_flight.add(dev_lo)
+        try:
+            await self.hass.async_add_executor_job(
+                partial(self._proxy.get_commands_for_entity, dev_lo, fetch_if_missing=True)
+            )
+            await self._async_wait_for_command_fetch_complete(dev_lo, timeout=wait_timeout)
+        finally:
+            self._commands_in_flight.discard(dev_lo)
+
+        _buttons, buttons_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_buttons_for_entity, dev_lo, fetch_if_missing=True)
+        )
+        if not buttons_ready:
+            await self._async_wait_for_buttons_ready(dev_lo)
+
+        _macros, macros_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_macros_for_activity, dev_lo, fetch_if_missing=True)
+        )
+        if not macros_ready:
+            await self._async_wait_for_macros_ready(dev_lo, timeout=wait_timeout)
+
+        command_labels, commands_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_commands_for_entity, dev_lo, fetch_if_missing=False)
+        )
+        button_codes, final_buttons_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_buttons_for_entity, dev_lo, fetch_if_missing=False)
+        )
+        macros, final_macros_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_macros_for_activity, dev_lo, fetch_if_missing=False)
+        )
+
+        blob_result = await self.async_fetch_blob(
+            device_id=dev_lo,
+            wait_timeout=max(wait_timeout, 15.0),
+        )
+        idle_behavior = await self.hass.async_add_executor_job(
+            partial(
+                self._proxy.fetch_idle_behavior,
+                dev_lo,
+                force_refresh=True,
+                timeout=wait_timeout,
+            )
+        )
+        input_entries = await self.hass.async_add_executor_job(
+            partial(
+                self._proxy.fetch_device_input_entries,
+                dev_lo,
+                timeout=wait_timeout,
+            )
+        )
+
+        label_map = {
+            int(command_id) & 0xFF: str(label)
+            for command_id, label in dict(command_labels).items()
+        }
+        blob_by_command: dict[int, dict[str, Any]] = {}
+        blobs_complete = False
+        if isinstance(blob_result, dict):
+            blobs_complete = bool(blob_result.get("complete"))
+            for command in blob_result.get("commands", []):
+                if not isinstance(command, dict):
+                    continue
+                command_id = int(command.get("command_id", 0)) & 0xFF
+                if command_id:
+                    blob_by_command[command_id] = dict(command)
+
+        all_command_ids = sorted(set(label_map) | set(blob_by_command))
+        command_rows: list[dict[str, Any]] = []
+        for command_id in all_command_ids:
+            blob_command = blob_by_command.get(command_id, {})
+
+            command_rows.append(
+                {
+                    "command_id": command_id,
+                    "name": label_map.get(command_id) or blob_command.get("command_label"),
+                    "blob_kind": blob_command.get("blob_kind"),
+                    "command_blob": blob_command.get("command_blob"),
+                    "parsed_blob": blob_command.get("parsed_blob"),
+                    "replay_tail_checksum": blob_command.get("replay_tail_checksum"),
+                    "command_checksum": blob_command.get("command_checksum"),
+                }
+            )
+
+        input_rows: list[dict[str, Any]] = []
+        if input_entries:
+            for entry in input_entries:
+                command_id = int(entry.get("command_id", 0)) & 0xFF
+                input_index = int(entry.get("input_index", 0)) & 0xFF
+                if command_id == 0 or input_index == 0:
+                    continue
+                input_rows.append(
+                    {
+                        "command_id": command_id,
+                        "input_index": input_index,
+                        "name": label_map.get(command_id),
+                    }
+                )
+
+        button_details = self._proxy.state.button_details.get(dev_lo, {})
+        button_rows: list[dict[str, Any]] = []
+        for button_id in sorted(set(button_codes) | set(button_details)):
+            details = button_details.get(button_id, {})
+            command_id = int(details.get("command_id", 0)) & 0xFF
+            button_rows.append(
+                {
+                    "button_id": button_id & 0xFF,
+                    "button_name": BUTTONNAME_BY_CODE.get(button_id & 0xFF),
+                    "device_id": int(details.get("device_id", dev_lo)) & 0xFF,
+                    "command_id": command_id,
+                    "command_name": label_map.get(command_id),
+                    "long_press_device_id": (
+                        int(details["long_press_device_id"]) & 0xFF
+                        if details.get("long_press_device_id") is not None
+                        else None
+                    ),
+                    "long_press_command_id": (
+                        int(details["long_press_command_id"]) & 0xFF
+                        if details.get("long_press_command_id") is not None
+                        else None
+                    ),
+                }
+            )
+
+        macro_rows: list[dict[str, Any]] = []
+        macro_records = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_cached_macro_records, dev_lo)
+        )
+        for record in macro_records:
+            macro_rows.append(
+                {
+                    "button_id": record.key_id & 0xFF,
+                    "name": record.label,
+                    "is_power_macro": str(record.label or "").upper().startswith("POWER_"),
+                    "raw_label_slot": record.raw_label_slot.hex(" ") if record.raw_label_slot else None,
+                    "steps": [
+                        {
+                            "device_id": entry.device_id & 0xFF,
+                            "command_id": entry.key_id & 0xFF,
+                            "fid": entry.fid & 0xFF,
+                            "duration": entry.duration & 0xFF,
+                            "delay": entry.delay & 0xFF,
+                        }
+                        for entry in record.key_sequence
+                    ],
+                }
+            )
+
+        if not macro_rows:
+            for macro in macros:
+                if not isinstance(macro, dict):
+                    continue
+                macro_rows.append(
+                    {
+                        "button_id": int(macro.get("command_id", 0)) & 0xFF,
+                        "name": str(macro.get("label") or ""),
+                        "is_power_macro": str(macro.get("label") or "").upper().startswith("POWER_"),
+                        "raw_label_slot": None,
+                        "steps": [],
+                    }
+                )
+
+        favorite_rows: list[dict[str, Any]] = []
+        for slot in self._proxy.state.get_activity_favorite_slots(dev_lo):
+            if not isinstance(slot, dict):
+                continue
+            command_id = int(slot.get("command_id", 0)) & 0xFF
+            favorite_rows.append(
+                {
+                    "button_id": int(slot.get("button_id", 0)) & 0xFF,
+                    "device_id": int(slot.get("device_id", 0)) & 0xFF,
+                    "command_id": command_id,
+                    "name": label_map.get(command_id),
+                    "source": str(slot.get("source", "cache")),
+                }
+            )
+
+        complete = all(
+            [
+                bool(device_meta),
+                commands_ready,
+                final_buttons_ready,
+                final_macros_ready,
+                idle_behavior is not None,
+                input_entries is not None,
+                blobs_complete,
+            ]
+        )
+
+        return {
+            "kind": "device_backup",
+            "schema_version": 1,
+            "complete": complete,
+            "completeness": {
+                "device": bool(device_meta),
+                "commands": bool(commands_ready),
+                "buttons": bool(final_buttons_ready),
+                "macros": bool(final_macros_ready),
+                "idle_behavior": idle_behavior is not None,
+                "inputs": input_entries is not None,
+                "blobs": bool(blobs_complete),
+            },
+            "hub": {
+                "entry_id": self.entry_id,
+                "name": self.name,
+                "version": self.version,
+            },
+            "device": {
+                "device_id": dev_lo,
+                "name": device_meta.get("name"),
+                "brand": device_meta.get("brand"),
+                "device_class": device_meta.get("device_class"),
+                "device_class_code": device_meta.get("device_class_code"),
+                "idle_behavior": idle_behavior,
+                "power_mode": idle_behavior,
+                "power_model": idle_behavior,
+            },
+            "commands": command_rows,
+            "inputs": input_rows,
+            "button_bindings": button_rows,
+            "favorite_slots": favorite_rows,
+            "macros": macro_rows,
+            "raw": {
+                "blob_fetch": blob_result,
+            },
+        }
+
     async def async_play_ir_blob(
         self,
         blob: bytes,
@@ -1584,6 +1842,25 @@ class SofabatonHub:
                 waiters.remove(future)
                 if not waiters:
                     self._button_waiters.pop(ent_id, None)
+
+    async def _async_wait_for_macros_ready(
+        self,
+        ent_id: int,
+        *,
+        timeout: float = 5.0,
+    ) -> None:
+        deadline = monotonic() + timeout
+        ent_lo = ent_id & 0xFF
+        while monotonic() < deadline:
+            if ent_lo in self._proxy._macros_complete:
+                return
+            await asyncio.sleep(0.05)
+
+        self._log.debug(
+            "[%s] timed out waiting for macros for 0x%02X",
+            self.entry_id,
+            ent_lo,
+        )
 
     async def _async_wait_for_command_fetch_complete(
         self,
