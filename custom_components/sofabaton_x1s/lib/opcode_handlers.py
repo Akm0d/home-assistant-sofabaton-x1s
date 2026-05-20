@@ -666,6 +666,11 @@ class CatalogDeviceHandler(BaseFrameHandler):
         brand_bytes_raw = raw[96 : 96 + 60]
         brand_label = brand_bytes_raw.decode("utf-16be", errors="ignore").strip("\x00")
 
+        # Keep the raw record body so the schema parser (parse_device_record)
+        # can rebuild a faithful DeviceConfig on demand (e.g. for backup), with
+        # no live parsed-dict cached in RAM.
+        record_body = bytes(payload[3:]) if len(payload) > 3 else b""
+
         if dev_id is not None:
             accepted = proxy.ingest_device_row(
                 row_idx=row_idx,
@@ -676,6 +681,7 @@ class CatalogDeviceHandler(BaseFrameHandler):
                     "name": device_label,
                     "device_class": device_class,
                     "device_class_code": device_class_code,
+                    "raw_body": record_body,
                 },
             )
             if not accepted:
@@ -719,6 +725,8 @@ class X1CatalogDeviceHandler(BaseFrameHandler):
         brand_bytes = payload[62:]
         brand_label = brand_bytes.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
 
+        record_body = bytes(payload[3:]) if len(payload) > 3 else b""
+
         if dev_id is not None:
             accepted = proxy.ingest_device_row(
                 row_idx=row_idx,
@@ -729,6 +737,7 @@ class X1CatalogDeviceHandler(BaseFrameHandler):
                     "name": device_label,
                     "device_class": device_class,
                     "device_class_code": device_class_code,
+                    "raw_body": record_body,
                 },
             )
             if not accepted:
@@ -1066,7 +1075,15 @@ class KeymapHandler(BaseFrameHandler):
         burst_act_lo = self._burst_activity(proxy)
         parsed = parse_button_burst_frame(frame.opcode, raw, hub_version=proxy.hub_version)
         if parsed is not None:
-            activity_id_decimal = parsed.activity_id if parsed.activity_id is not None else burst_act_lo
+            # Header frames carry the burst's activity id at payload[7].
+            # Continuation pages do not; the activity id is held by the active
+            # burst (keyed by header). Prefer burst_act_lo for non-header
+            # frames so a stray byte pattern in a row cannot redirect the
+            # burst to a different activity.
+            if parsed.is_header:
+                activity_id_decimal = parsed.activity_id if parsed.activity_id is not None else burst_act_lo
+            else:
+                activity_id_decimal = burst_act_lo if burst_act_lo is not None else parsed.activity_id
             if activity_id_decimal is None:
                 return
 

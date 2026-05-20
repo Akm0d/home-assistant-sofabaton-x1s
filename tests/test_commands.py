@@ -628,7 +628,9 @@ def test_parse_button_burst_frame_detects_x1s_final_and_marker_variants() -> Non
     assert parsed_final is not None
     assert parsed_final.hub_line == "x1s_x2"
     assert parsed_final.role == "page"
-    assert parsed_final.activity_id == 0x65
+    # Continuation pages do not re-state the activity id; the burst's activity
+    # is established by the page-1 header and held by the assembler.
+    assert parsed_final.activity_id is None
     assert parsed_final.data_start == 3
     assert parsed_final.has_row_data is True
 
@@ -654,7 +656,9 @@ def test_parse_button_burst_frame_accepts_unenumerated_x2_continuation_variant()
     assert parsed is not None
     assert parsed.hub_line == "x1s_x2"
     assert parsed.role == "page"
-    assert parsed.activity_id == 0x66
+    # Continuation pages do not re-state the activity id; the burst's activity
+    # is established by the page-1 header and held by the assembler.
+    assert parsed.activity_id is None
     assert parsed.data_start == 3
     assert parsed.has_row_data is True
 
@@ -675,6 +679,30 @@ def test_parse_button_burst_frame_treats_short_x1_tail_fragment_as_continuation(
     assert parsed.activity_id is None
     assert parsed.total_frames is None
     assert parsed.total_rows is None
+    assert parsed.data_start == 3
+    assert parsed.has_row_data is True
+
+
+def test_parse_button_burst_frame_does_not_infer_activity_from_continuation_row_bytes() -> None:
+    """Real X1S capture: page-2 inner record bytes must not be mistaken for
+    a fresh activity id. The burst's activity is established by the header
+    (act=0x02 here); the heuristic scan of page-2 bytes used to return 0x17
+    -- a fid byte from inside a legitimate keymap record -- and would route
+    the page to a phantom activity, leaving the real burst incomplete.
+    """
+
+    page = bytes.fromhex(
+        "a5 5a 1e 3d 01 00 02 03 00 00 00 00 00 00 00 00 "
+        "02 c3 02 00 00 00 00 17 18 02 00 00 00 00 00 00 00 00 58"
+    )
+    opcode = int.from_bytes(page[2:4], "big")
+
+    parsed = parse_button_burst_frame(opcode, page, hub_version=HUB_VERSION_X1S)
+
+    assert parsed is not None
+    assert parsed.role == "page"
+    assert parsed.frame_no == 2
+    assert parsed.activity_id is None
     assert parsed.data_start == 3
     assert parsed.has_row_data is True
 

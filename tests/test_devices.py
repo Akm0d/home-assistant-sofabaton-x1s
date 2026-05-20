@@ -296,6 +296,75 @@ def test_build_parse_round_trip_x1s_with_extras() -> None:
     assert rebuilt == payload
 
 
+def test_real_x1_capture_input_and_power_configuration_signals() -> None:
+    """Lock in the empirical finding that tail[10] / tail[11] are the
+    "inputs configured" and "power configured" signals on real X1 wire data.
+
+    Captures: the same Denon AVR record at three configuration stages,
+    differing only in tail[10..12]. See docs/protocol/apk-refactor-log.md
+    Phase 5 for the diff analysis.
+    """
+
+    # Fixed-tail suffix shared by all three frames (28 trailing bytes:
+    # tail[2..29] + 1 checksum byte). Only tail[10..12] differ; we
+    # interpolate them with format placeholders below.
+    _PREFIX = (
+        "a5 5a 7b 0b 07 00 01 0c 00 01 00 02 13 07 0d 07"
+        " dc 5d 28 95 c1 92 4f 4c 9d 35 00 ed 33 45 7d 0e"
+        " 00 00 00 00 44 65 6e 6f 6e 20 61 76 72 20 74 73"  # body bytes 29.. name "Denon avr tst"
+        " 74 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        " 00 00 44 65 6e 6f 6e 00 00 00 00 00 00 00 00 00"  # brand "Denon"
+        " 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        " 00 00 00 00 00 00 fc 00 00 fc"  # tail[0..9]: no IP, no poll, then 0xFC
+    )
+    _SUFFIX = (
+        " 00 fc 01 fc 01 00 00 00 00 00"  # tail[13..22]
+        " 00 00 00 00 00 00 00"           # tail[23..29]
+        " 8c"                              # body[119] (internal body checksum, same across all 3 frames)
+    )
+
+    def _frame(in_mode: int, pwr_mode: int, pwr_style: int, checksum: int) -> bytes:
+        modes = f" {in_mode:02x} {pwr_mode:02x} {pwr_style:02x}"  # tail[10..12]
+        return bytes.fromhex(_PREFIX + modes + _SUFFIX + f" {checksum:02x}")
+
+    none_raw = _frame(0x00, 0x00, 0x02, 0xBC)
+    input_only_raw = _frame(0x01, 0x00, 0x02, 0xBD)
+    full_raw = _frame(0x01, 0x01, 0x03, 0xBF)
+
+    def _config(raw: bytes) -> DeviceConfig:
+        body = raw[4:-1][3:]
+        return parse_device_record(body, hub_version=HUB_VERSION_X1)
+
+    none = _config(none_raw)
+    input_only = _config(input_only_raw)
+    full = _config(full_raw)
+
+    # Inputs unconfigured -> tail[10] == 0; configured -> non-zero.
+    assert none.input_mode == 0 and none.is_input_configured is False
+    assert input_only.input_mode == 1 and input_only.is_input_configured is True
+    assert full.input_mode == 1 and full.is_input_configured is True
+
+    # Power unconfigured -> tail[11] == 0; configured -> non-zero.
+    assert none.power_mode == 0 and none.is_power_configured is False
+    assert input_only.power_mode == 0 and input_only.is_power_configured is False
+    assert full.power_mode == 1 and full.is_power_configured is True
+
+    # tail[12] (power_style) tracks power configuration: 2 unconfigured, 3 configured.
+    assert none.power_style == 2
+    assert input_only.power_style == 2
+    assert full.power_style == 3
+
+    # Every other field is identical across the three frames -- only the
+    # three configuration bytes change.
+    for fld in (
+        "name", "brand", "device_id", "icon", "sort", "code_type",
+        "device_type", "code_id", "hide", "input_flag", "channel",
+        "power_state", "ip_address", "poll_time", "share_mode",
+        "tail_marker",
+    ):
+        assert getattr(none, fld) == getattr(input_only, fld) == getattr(full, fld), fld
+
+
 def test_parser_rejects_body_with_wrong_length() -> None:
     short_body = b"\x01" * (DEVICE_BODY_LEN_X1 - 1)
     with pytest.raises(ValueError):

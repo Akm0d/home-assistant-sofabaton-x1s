@@ -460,6 +460,15 @@ class X1Proxy:
         self._activity_inputs_last_ts = 0.0
         self._activity_inputs_event = threading.Event()
         self._activity_inputs_payloads: list[bytes] = []
+        # Set while REQ_ACTIVITY_INPUTS is awaiting a reply. Lets the
+        # STATUS_ACK handler distinguish a hub rejection of *our* inputs
+        # request from unrelated 0x0103 acks.
+        self._activity_inputs_pending = False
+        # Set by the STATUS_ACK handler when the hub answers our inputs
+        # request with a non-zero status (e.g. 0x07 "not configured").
+        # Lets the wait exit immediately and the fetch return an empty list
+        # rather than spinning out the full timeout.
+        self._activity_inputs_rejected = False
         self._banner_info_lock = threading.Lock()
         self._banner_info_event = threading.Event()
         self._banner_info: dict[str, Any] = {}
@@ -1774,9 +1783,21 @@ class X1Proxy:
         return ({}, False)
 
     def export_cache_state(self) -> dict[str, Any]:
+        # ``raw_body`` is the original device record bytes kept in memory for
+        # on-demand schema parsing (e.g. by the backup flow). It is excluded
+        # from exports because:
+        #   1) it is not JSON-serializable (bytes), and the export feeds both
+        #      the persistent cache and the control-panel WS payload;
+        #   2) it would not survive a JSON round-trip anyway, and is
+        #      re-populated on the next catalog refresh after a restart.
+        def _device_for_export(v: dict[str, Any]) -> dict[str, Any]:
+            entry = dict(v)
+            entry.pop("raw_body", None)
+            return entry
+
         return {
             "banner_info": self.get_banner_info(),
-            "devices": {str(k): dict(v) for k, v in self.state.devices.items()},
+            "devices": {str(k): _device_for_export(v) for k, v in self.state.devices.items()},
             "buttons": {str(k): sorted(v) for k, v in self.state.buttons.items()},
             "commands": {
                 str(k): {str(cmd_id): label for cmd_id, label in commands.items()}
@@ -2312,6 +2333,9 @@ class X1Proxy:
                     "device_class_code": row.get("device_class_code"),
                 }
             )
+            raw_body = row.get("raw_body")
+            if isinstance(raw_body, (bytes, bytearray)) and raw_body:
+                merged["raw_body"] = bytes(raw_body)
             prior = self.state.devices.get(dev_id, {})
             cached_mode = self._idle_behavior_values.get(dev_id)
             if cached_mode is None and isinstance(prior.get("idle_behavior"), int):
@@ -2773,6 +2797,16 @@ class X1Proxy:
             else:
                 detail = f"status=0x{status:02X}"
             self._log.info("[ACK] %s (0x%04X) payload=%s %s", name, opcode, payload.hex(" "), detail)
+            # If we are waiting on REQ_ACTIVITY_INPUTS and no inputs frame has
+            # arrived yet, a non-zero STATUS_ACK is the hub's rejection of
+            # that request (commonly status=0x07 for "device not configured
+            # for power/inputs yet"). Trip the event so the wait can exit
+            # early instead of timing out after the full window.
+            if status is not None and status != 0x00:
+                with self._activity_inputs_lock:
+                    if self._activity_inputs_pending and self._activity_inputs_seen == 0:
+                        self._activity_inputs_rejected = True
+                        self._activity_inputs_event.set()
             return
         self._log.info("[ACK] %s (0x%04X) payload=%s", name, opcode, payload.hex(" "))
 
@@ -2920,12 +2954,23 @@ class X1Proxy:
         idle_window: float = 0.35,
         min_frames: int = 1,
     ) -> bool:
-        """Wait until at least one 0x47 frame arrives and the burst goes idle."""
+        """Wait until at least one 0x47 frame arrives and the burst goes idle.
+
+        Also returns early (``False``) when the STATUS_ACK handler has
+        flagged a hub rejection of the in-flight inputs request; callers
+        can read :attr:`_activity_inputs_rejected` to distinguish that
+        case from a true timeout.
+        """
 
         deadline = time.monotonic() + timeout
         while True:
             now = time.monotonic()
             with self._activity_inputs_lock:
+                if self._activity_inputs_rejected:
+                    self._activity_inputs_seen = 0
+                    self._activity_inputs_last_ts = 0.0
+                    self._activity_inputs_event.clear()
+                    return False
                 seen = self._activity_inputs_seen
                 last_ts = self._activity_inputs_last_ts
                 if seen >= min_frames and last_ts > 0 and (now - last_ts) >= idle_window:
@@ -3097,7 +3142,13 @@ class X1Proxy:
         """Return fresh input ordering rows for ``device_id``.
 
         Each returned row has ``command_id`` and 1-based ``input_index``.
-        Returns ``None`` when the hub does not answer before ``timeout``.
+
+        Returns ``None`` only when the hub does not answer at all before
+        ``timeout``. When the hub *does* answer but with a non-zero
+        STATUS_ACK (e.g. ``0x07`` for a device that has not been
+        configured for power/inputs), an empty list is returned --
+        semantically "this device has no input entries", which is what a
+        faithful backup needs.
         """
 
         with self._activity_inputs_lock:
@@ -3105,9 +3156,25 @@ class X1Proxy:
             self._activity_inputs_seen = 0
             self._activity_inputs_last_ts = 0.0
             self._activity_inputs_event.clear()
+            self._activity_inputs_rejected = False
+            self._activity_inputs_pending = True
 
-        self._send_cmd_frame(OP_REQ_ACTIVITY_INPUTS, bytes([device_id & 0xFF]))
-        if not self.wait_for_activity_inputs_burst(timeout=timeout):
+        try:
+            self._send_cmd_frame(OP_REQ_ACTIVITY_INPUTS, bytes([device_id & 0xFF]))
+            burst_ok = self.wait_for_activity_inputs_burst(timeout=timeout)
+        finally:
+            with self._activity_inputs_lock:
+                self._activity_inputs_pending = False
+                rejected = self._activity_inputs_rejected
+
+        if not burst_ok:
+            if rejected:
+                self._log.info(
+                    "[INPUT_QUERY] hub returned non-success status for dev=0x%02X; "
+                    "treating as no inputs configured",
+                    device_id & 0xFF,
+                )
+                return []
             self._log.warning(
                 "[INPUT_QUERY] timeout waiting for full inputs list dev=0x%02X",
                 device_id & 0xFF,

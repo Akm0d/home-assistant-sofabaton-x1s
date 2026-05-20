@@ -926,12 +926,14 @@ def test_x1_device_row_updates_state_and_burst() -> None:
 
     handler.handle(frame)
 
+    expected_raw_body = bytes(frame.payload[3:])
     assert proxy._device_pending_rows[0x09] == {
         "id": 0x01,
         "brand": "Streaming Stick 4K",
         "name": "Roku",
         "device_class": "wifi_roku",
         "device_class_code": 0x0A,
+        "raw_body": expected_raw_body,
     }
     assert proxy._burst.kind == "devices"
 
@@ -968,6 +970,7 @@ def test_catalog_device_handler_decodes_shared_device_class_code() -> None:
         "name": "Philips hue",
         "device_class": "wifi_hue",
         "device_class_code": 0x1A,
+        "raw_body": bytes(payload[3:]),
     }
 
 

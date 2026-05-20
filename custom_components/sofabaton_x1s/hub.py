@@ -46,6 +46,7 @@ from .logging_utils import get_hub_logger
 from .cache_store import PersistentCacheStore
 from .lib.protocol_const import BUTTONNAME_BY_CODE, ButtonName, DEVICE_CLASS_IR
 from .lib.commands import descriptive_play_blob_text, looks_like_descriptive_play_blob, split_play_blob_tail
+from .lib.devices import DeviceConfig, parse_device_record
 from .lib.x1_proxy import X1Proxy
 from .command_config import (
     COMMAND_BRAND_PREFIX,
@@ -1159,7 +1160,15 @@ class SofabatonHub:
         *,
         wait_timeout: float = 10.0,
     ) -> dict[str, Any] | None:
-        """Fetch a fresh, restore-oriented device backup payload from the hub."""
+        """Fetch a restore-oriented device backup payload from the hub.
+
+        The output captures only what the hub stores: the device schema
+        (parsed via :func:`parse_device_record` from the cached raw record
+        body), the command label table, the button keymap, favorites,
+        macros, and per-command IR blobs. Runtime state (current power /
+        idle mode) is deliberately not included -- it is not part of what a
+        restore needs to recreate.
+        """
 
         dev_lo = device_id & 0xFF
         device_snapshot = await self._async_refresh_devices_snapshot(
@@ -1170,6 +1179,24 @@ class SofabatonHub:
             device_meta = dict(self._proxy.state.devices.get(dev_lo) or {})
         if not device_meta:
             return None
+
+        # Parse the device's stored schema up-front so we can short-circuit
+        # requests the hub will either refuse (REQ_ACTIVITY_INPUTS on an
+        # un-configured-inputs device) or answer with internal/synthetic
+        # content (REQ_MACROS on an un-configured-power device, where the
+        # hub fabricates a startup/shutdown placeholder we should not try
+        # to restore).
+        device_config: DeviceConfig | None = None
+        raw_body = device_meta.get("raw_body")
+        if isinstance(raw_body, (bytes, bytearray)) and raw_body:
+            try:
+                device_config = parse_device_record(bytes(raw_body), hub_version=self.version)
+            except ValueError:
+                device_config = None
+        # When we don't have the row (legacy cache, or parse mismatch), fall
+        # back to the previous behaviour of asking the hub for everything.
+        skip_macros = device_config is not None and not device_config.is_power_configured
+        skip_inputs = device_config is not None and not device_config.is_input_configured
 
         self._reset_entity_cache(
             dev_lo,
@@ -1200,11 +1227,14 @@ class SofabatonHub:
         if not buttons_ready:
             await self._async_wait_for_buttons_ready(dev_lo)
 
-        _macros, macros_ready = await self.hass.async_add_executor_job(
-            partial(self._proxy.get_macros_for_activity, dev_lo, fetch_if_missing=True)
-        )
-        if not macros_ready:
-            await self._async_wait_for_macros_ready(dev_lo, timeout=wait_timeout)
+        if skip_macros:
+            final_macros_ready = True
+        else:
+            _macros, macros_ready = await self.hass.async_add_executor_job(
+                partial(self._proxy.get_macros_for_activity, dev_lo, fetch_if_missing=True)
+            )
+            if not macros_ready:
+                await self._async_wait_for_macros_ready(dev_lo, timeout=wait_timeout)
 
         command_labels, commands_ready = await self.hass.async_add_executor_job(
             partial(self._proxy.get_commands_for_entity, dev_lo, fetch_if_missing=False)
@@ -1212,29 +1242,25 @@ class SofabatonHub:
         button_codes, final_buttons_ready = await self.hass.async_add_executor_job(
             partial(self._proxy.get_buttons_for_entity, dev_lo, fetch_if_missing=False)
         )
-        macros, final_macros_ready = await self.hass.async_add_executor_job(
-            partial(self._proxy.get_macros_for_activity, dev_lo, fetch_if_missing=False)
-        )
+        if not skip_macros:
+            _macros2, final_macros_ready = await self.hass.async_add_executor_job(
+                partial(self._proxy.get_macros_for_activity, dev_lo, fetch_if_missing=False)
+            )
 
         blob_result = await self.async_fetch_blob(
             device_id=dev_lo,
             wait_timeout=max(wait_timeout, 15.0),
         )
-        idle_behavior = await self.hass.async_add_executor_job(
-            partial(
-                self._proxy.fetch_idle_behavior,
-                dev_lo,
-                force_refresh=True,
-                timeout=wait_timeout,
+        if skip_inputs:
+            input_entries: list[dict[str, int]] | None = []
+        else:
+            input_entries = await self.hass.async_add_executor_job(
+                partial(
+                    self._proxy.fetch_device_input_entries,
+                    dev_lo,
+                    timeout=wait_timeout,
+                )
             )
-        )
-        input_entries = await self.hass.async_add_executor_job(
-            partial(
-                self._proxy.fetch_device_input_entries,
-                dev_lo,
-                timeout=wait_timeout,
-            )
-        )
 
         label_map = {
             int(command_id) & 0xFF: str(label)
@@ -1255,16 +1281,11 @@ class SofabatonHub:
         command_rows: list[dict[str, Any]] = []
         for command_id in all_command_ids:
             blob_command = blob_by_command.get(command_id, {})
-
             command_rows.append(
                 {
                     "command_id": command_id,
                     "name": label_map.get(command_id) or blob_command.get("command_label"),
-                    "blob_kind": blob_command.get("blob_kind"),
-                    "command_blob": blob_command.get("command_blob"),
-                    "parsed_blob": blob_command.get("parsed_blob"),
-                    "replay_tail_checksum": blob_command.get("replay_tail_checksum"),
-                    "command_checksum": blob_command.get("command_checksum"),
+                    "blob_hex": blob_command.get("command_blob"),
                 }
             )
 
@@ -1318,7 +1339,6 @@ class SofabatonHub:
                     "button_id": record.key_id & 0xFF,
                     "name": record.label,
                     "is_power_macro": str(record.label or "").upper().startswith("POWER_"),
-                    "raw_label_slot": record.raw_label_slot.hex(" ") if record.raw_label_slot else None,
                     "steps": [
                         {
                             "device_id": entry.device_id & 0xFF,
@@ -1331,20 +1351,6 @@ class SofabatonHub:
                     ],
                 }
             )
-
-        if not macro_rows:
-            for macro in macros:
-                if not isinstance(macro, dict):
-                    continue
-                macro_rows.append(
-                    {
-                        "button_id": int(macro.get("command_id", 0)) & 0xFF,
-                        "name": str(macro.get("label") or ""),
-                        "is_power_macro": str(macro.get("label") or "").upper().startswith("POWER_"),
-                        "raw_label_slot": None,
-                        "steps": [],
-                    }
-                )
 
         favorite_rows: list[dict[str, Any]] = []
         for slot in self._proxy.state.get_activity_favorite_slots(dev_lo):
@@ -1361,13 +1367,14 @@ class SofabatonHub:
                 }
             )
 
+        device_block = self._build_device_block(dev_lo, device_meta, device_config)
+
         complete = all(
             [
-                bool(device_meta),
+                bool(device_block),
                 commands_ready,
                 final_buttons_ready,
                 final_macros_ready,
-                idle_behavior is not None,
                 input_entries is not None,
                 blobs_complete,
             ]
@@ -1375,14 +1382,14 @@ class SofabatonHub:
 
         return {
             "kind": "device_backup",
-            "schema_version": 1,
+            "schema_version": 2,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
             "complete": complete,
             "completeness": {
-                "device": bool(device_meta),
+                "device": bool(device_block),
                 "commands": bool(commands_ready),
                 "buttons": bool(final_buttons_ready),
                 "macros": bool(final_macros_ready),
-                "idle_behavior": idle_behavior is not None,
                 "inputs": input_entries is not None,
                 "blobs": bool(blobs_complete),
             },
@@ -1391,25 +1398,73 @@ class SofabatonHub:
                 "name": self.name,
                 "version": self.version,
             },
-            "device": {
-                "device_id": dev_lo,
-                "name": device_meta.get("name"),
-                "brand": device_meta.get("brand"),
-                "device_class": device_meta.get("device_class"),
-                "device_class_code": device_meta.get("device_class_code"),
-                "idle_behavior": idle_behavior,
-                "power_mode": idle_behavior,
-                "power_model": idle_behavior,
-            },
+            "device": device_block,
             "commands": command_rows,
             "inputs": input_rows,
             "button_bindings": button_rows,
             "favorite_slots": favorite_rows,
             "macros": macro_rows,
-            "raw": {
-                "blob_fetch": blob_result,
-            },
         }
+
+    def _build_device_block(
+        self,
+        device_id: int,
+        device_meta: dict[str, Any],
+        config: DeviceConfig | None,
+    ) -> dict[str, Any]:
+        """Build the ``device`` block of a backup payload.
+
+        ``config`` is the device's parsed schema (from
+        :func:`parse_device_record` on the cached raw record body). When
+        ``None`` -- e.g. on a hub seen before raw-body capture was
+        introduced -- the block falls back to the minimal four-field
+        shape (name / brand / device_class / device_class_code).
+        """
+
+        base: dict[str, Any] = {
+            "device_id": device_id,
+            "name": device_meta.get("name"),
+            "brand": device_meta.get("brand"),
+            "device_class": device_meta.get("device_class"),
+            "device_class_code": device_meta.get("device_class_code"),
+        }
+
+        if config is None:
+            return base
+
+        base.update(
+            {
+                "icon": config.icon,
+                "sort": config.sort,
+                "code_type": config.code_type,
+                "device_type": config.device_type,
+                "code_id_hex": config.code_id.hex(" "),
+                "hide": config.hide,
+                "input_flag": config.input_flag,
+                "channel": config.channel,
+                "power_state": config.power_state,
+                "ip_address": config.ip_address,
+                "poll_time": config.poll_time,
+                "input_mode": config.input_mode,
+                "inputs_configured": config.is_input_configured,
+                "power_mode": config.power_mode,
+                "power_style": config.power_style,
+                "power_configured": config.is_power_configured,
+                "share_mode": config.share_mode,
+                "tail_marker": config.tail_marker,
+                "extras": (
+                    {"a": config.extra_a, "b": config.extra_b, "c": config.extra_c}
+                    if config.extras_present
+                    else None
+                ),
+            }
+        )
+        # Schema-decoded name/brand are authoritative when present.
+        if config.name:
+            base["name"] = config.name
+        if config.brand:
+            base["brand"] = config.brand
+        return base
 
     async def async_play_ir_blob(
         self,

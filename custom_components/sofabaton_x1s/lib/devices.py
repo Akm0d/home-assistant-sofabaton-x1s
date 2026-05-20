@@ -114,18 +114,41 @@ class DeviceConfig:
     #: emit the marker with a 2-byte big-endian value.
     poll_time: int = -1
 
-    #: Input switching mode (raw value from real captures: ``0`` or
-    #: ``2``).
+    #: Input-switching configuration. The value identifies which of the
+    #: input styles the device uses:
+    #:
+    #: - ``0`` **needs configuration** -- the user has not picked an
+    #:   input style yet. The remote shows "Not configured" in its
+    #:   device list and the hub rejects REQ_ACTIVITY_INPUTS with a
+    #:   non-success STATUS_ACK.
+    #: - ``1`` direct / discrete inputs (each input is its own command)
+    #: - ``2`` no input switching needed -- the device has no inputs to
+    #:   switch (e.g. a soundbar with a fixed input). This is a real
+    #:   configured state, not unconfigured.
+    #: - ``3`` not yet observed; the remaining configuration choice in
+    #:   the app is between menu-based and next-input styles, one of
+    #:   which is this value.
+    #:
+    #: Devices can arrive from the IRDB with a non-zero ``input_mode``
+    #: baked into the create payload, so this is **not** purely user-set;
+    #: it reflects what the IRDB entry says about the device's input
+    #: behaviour by default. See :attr:`is_input_configured`.
     input_mode: int = 0
 
-    #: Power-button delivery mode: ``0`` discrete, ``1`` toggle,
-    #: ``2`` separate on/off. Empirically the integration leaves this
-    #: at ``0`` for IP devices and writes the user-chosen mode here
-    #: for IR/RF devices.
+    #: Power configuration value. ``0`` means **power has not been
+    #: configured** on this device (the user has not picked a power
+    #: style). A non-zero value indicates power is configured; the
+    #: specific value distinguishes between toggle / discrete /
+    #: separate-on-off styles, but the encoding here is not fully
+    #: decoded yet (real captures show ``0`` unconfigured, ``1``
+    #: configured). See :attr:`is_power_configured`.
     power_mode: int = 0
 
-    #: Power-handling style flag (raw value from real captures: ``0``
-    #: or ``2``).
+    #: Companion byte to :attr:`power_mode`. Observed values vary per
+    #: device (IRDB metadata, not a fixed sentinel): real captures show
+    #: ``1`` and ``2`` on freshly-created devices before any user
+    #: configuration, and ``3`` once power is configured on the device
+    #: that started at ``2``. The exact meaning is not fully decoded.
     power_style: int = 2
 
     #: Shared-state flag controlling whether the device's commands are
@@ -144,6 +167,30 @@ class DeviceConfig:
     extra_b: int = 0
     extra_c: int = 0
     extras_present: bool = False
+
+    @property
+    def is_input_configured(self) -> bool:
+        """``True`` when the device has been configured for inputs.
+
+        Empirically: tail byte 10 (``input_mode``) is ``0`` on devices
+        the user has not yet configured for inputs, and non-zero (with
+        the value indicating which input style was chosen) once they
+        have. When ``False``, REQ_ACTIVITY_INPUTS is rejected by the
+        hub with a non-success STATUS_ACK.
+        """
+
+        return self.input_mode != 0
+
+    @property
+    def is_power_configured(self) -> bool:
+        """``True`` when the device has been configured for power.
+
+        Empirically: tail byte 11 (``power_mode``) is ``0`` on devices
+        the user has not yet configured for power, and non-zero once
+        they have (the specific value encodes the chosen power style).
+        """
+
+        return self.power_mode != 0
 
 
 # ---------------------------------------------------------------------------

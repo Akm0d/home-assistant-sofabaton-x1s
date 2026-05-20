@@ -148,6 +148,30 @@ def test_try_finish_devices_burst_ends_burst_once_snapshot_is_complete() -> None
     }
 
 
+def test_export_cache_state_omits_raw_body_bytes() -> None:
+    """``raw_body`` is in-memory only; exports feed JSON-only sinks
+    (persistent cache, control-panel WS payload) where bytes break
+    serialization. Backup still reads ``raw_body`` directly from
+    ``state.devices``, not from the export.
+    """
+
+    import json
+
+    proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
+    proxy.state.devices[0x07] = {
+        "brand": "Sony",
+        "name": "TV",
+        "device_class": "IR",
+        "device_class_code": 0x10,
+        "raw_body": b"\x00\x01\x02\x03",
+    }
+
+    exported = proxy.export_cache_state()
+
+    assert "raw_body" not in exported["devices"]["7"]
+    json.dumps(exported)  # would raise TypeError if any bytes leak through
+
+
 def test_ghost_device_row_is_ignored_without_request_in_flight() -> None:
     proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
 
@@ -4117,6 +4141,31 @@ def test_query_device_input_index_returns_none_when_not_found(monkeypatch) -> No
     monkeypatch.setattr(proxy, "wait_for_activity_inputs_burst", _fake_burst)
 
     assert proxy.query_device_input_index(0x05, 99) is None
+
+
+def test_fetch_device_input_entries_returns_empty_on_status_ack_rejection(monkeypatch) -> None:
+    """When the hub answers REQ_ACTIVITY_INPUTS with a non-zero STATUS_ACK
+    (e.g. ``0x07`` for an unconfigured device), the fetch exits early with
+    an empty list -- not ``None`` (which would mean "no answer at all") --
+    so backups can faithfully record "this device has no inputs".
+    """
+
+    proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
+
+    sent: list[tuple[int, bytes]] = []
+
+    def _fake_send(opcode, data):
+        sent.append((opcode, bytes(data)))
+        # Simulate the hub's STATUS_ACK 0x07 arriving while we're in-flight.
+        proxy.notify_roku_ack(0x0103, b"\x07")
+
+    monkeypatch.setattr(proxy, "_send_cmd_frame", _fake_send)
+
+    result = proxy.fetch_device_input_entries(0x02, timeout=2.0)
+
+    assert result == []
+    assert sent and sent[0][0] == 0x0148  # OP_REQ_ACTIVITY_INPUTS
+    assert proxy._activity_inputs_pending is False
 
 
 def test_fetch_device_input_entries_returns_x1_rows(monkeypatch) -> None:

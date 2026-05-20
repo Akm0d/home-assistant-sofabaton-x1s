@@ -7,6 +7,7 @@ import custom_components.sofabaton_x1s.hub as hub_module
 from custom_components.sofabaton_x1s.hub import SofabatonHub, get_hub_model
 from custom_components.sofabaton_x1s.const import HUB_VERSION_X1S
 from custom_components.sofabaton_x1s.lib.commands import build_descriptive_ir_blob_body
+from custom_components.sofabaton_x1s.lib.devices import DeviceConfig, build_device_create_payload
 from custom_components.sofabaton_x1s.lib.macros import MacroKeyEntry, MacroRecord
 
 
@@ -195,6 +196,34 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         False,
     )
 
+    # Fully configured device: input_mode=1 (direct inputs), power_mode=1
+    # (power configured), power_style=3 (companion to power_mode). The
+    # backup flow uses these to decide whether to actually call
+    # REQ_ACTIVITY_INPUTS and REQ_MACROS -- on an unconfigured device it
+    # short-circuits those (see Phase 7 in apk-refactor-log.md).
+    device_config = DeviceConfig(
+        name="TV",
+        brand="Sony",
+        device_id=11,
+        icon=1,
+        sort=0,
+        code_type=0x10,
+        device_type=0x10,
+        hide=0,
+        input_flag=0,
+        channel=0,
+        power_state=0,
+        ip_address=None,
+        poll_time=-1,
+        input_mode=1,
+        power_mode=1,
+        power_style=3,
+        share_mode=0,
+        tail_marker=0,
+    )
+    device_payload = build_device_create_payload(device_config, hub_version="X1")
+    device_raw_body = device_payload[3:]
+
     async def _refresh_devices_snapshot(timeout_seconds: float = 15.0):
         return {
             11: {
@@ -202,6 +231,7 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
                 "brand": "Sony",
                 "device_class": "IR",
                 "device_class_code": 0x10,
+                "raw_body": device_raw_body,
             }
         }
 
@@ -245,6 +275,7 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         "brand": "Sony",
         "device_class": "IR",
         "device_class_code": 0x10,
+        "raw_body": device_raw_body,
     }
     hub._proxy.state.commands[11] = {18: "Input"}
     hub._proxy.state.buttons[11] = {0x58}
@@ -271,7 +302,6 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         "get_macros_for_activity",
         lambda ent_id, fetch_if_missing=True: ([{"command_id": 33, "label": "Power On"}], True),
     )
-    monkeypatch.setattr(hub._proxy, "fetch_idle_behavior", lambda *args, **kwargs: 3)
     monkeypatch.setattr(
         hub._proxy,
         "get_cached_macro_records",
@@ -318,30 +348,45 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
 
     assert result is not None
     assert result["kind"] == "device_backup"
+    assert result["schema_version"] == 2
+    assert isinstance(result.get("captured_at"), str) and result["captured_at"]
     assert result["complete"] is True
+    assert "raw" not in result
+    assert result["inputs"] == [
+        {"command_id": 18, "input_index": 1, "name": "Input"}
+    ]
     assert result["device"] == {
         "device_id": 11,
         "name": "TV",
         "brand": "Sony",
         "device_class": "IR",
         "device_class_code": 0x10,
-        "idle_behavior": 3,
-        "power_mode": 3,
-        "power_model": 3,
+        "icon": 1,
+        "sort": 0,
+        "code_type": 0x10,
+        "device_type": 0x10,
+        "code_id_hex": "00 " * 15 + "00",
+        "hide": 0,
+        "input_flag": 0,
+        "channel": 0,
+        "power_state": 0,
+        "ip_address": None,
+        "poll_time": -1,
+        "input_mode": 1,
+        "inputs_configured": True,
+        "power_mode": 1,
+        "power_style": 3,
+        "power_configured": True,
+        "share_mode": 0,
+        "tail_marker": 0,
+        "extras": None,
     }
     assert result["commands"] == [
         {
             "command_id": 18,
             "name": "Input",
-            "blob_kind": "descriptive",
-            "command_blob": blob_body.hex(" "),
-            "parsed_blob": "P:Sony12 R:40000 D:1 F:18 MUL:2",
-            "replay_tail_checksum": replay_tail,
-            "command_checksum": replay_tail,
+            "blob_hex": blob_body.hex(" "),
         }
-    ]
-    assert result["inputs"] == [
-        {"command_id": 18, "input_index": 1, "name": "Input"}
     ]
     assert result["button_bindings"] == [
         {
@@ -368,7 +413,6 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
             "button_id": 0x21,
             "name": "Power On",
             "is_power_macro": False,
-            "raw_label_slot": "00 21",
             "steps": [
                 {
                     "device_id": 11,
@@ -383,7 +427,6 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
             "button_id": 0xC6,
             "name": "POWER_ON",
             "is_power_macro": True,
-            "raw_label_slot": "00 c6",
             "steps": [
                 {
                     "device_id": 11,
@@ -400,10 +443,138 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         "commands": True,
         "buttons": True,
         "macros": True,
-        "idle_behavior": True,
         "inputs": True,
         "blobs": True,
     }
+
+    loop.close()
+
+
+def test_async_backup_device_skips_macros_and_inputs_when_unconfigured(monkeypatch):
+    """When the device row reports power/inputs are not configured, the
+    backup flow must not call REQ_MACROS (the hub fabricates a synthetic
+    startup/shutdown placeholder for unconfigured-power devices that we
+    must not try to restore) and must not call REQ_ACTIVITY_INPUTS
+    (the hub rejects it with a non-success STATUS_ACK). Both lists
+    appear empty in the backup, and ``completeness`` is still ``True``.
+    """
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    hass = FakeHass(loop)
+
+    hub = SofabatonHub(
+        hass,
+        "entry-id",
+        "hub-name",
+        "127.0.0.1",
+        1234,
+        {},
+        9999,
+        10000,
+        True,
+        False,
+    )
+
+    # Unconfigured device: input_mode=0, power_mode=0 (defaults match the
+    # "none" capture documented in Phase 7).
+    device_config = DeviceConfig(
+        name="Denon avr tst",
+        brand="Denon",
+        device_id=2,
+        icon=0x13,
+        sort=7,
+        code_type=0x0D,
+        device_type=0x07,
+        hide=0,
+        input_flag=0,
+        channel=0,
+        power_state=0,
+        ip_address=None,
+        poll_time=0,
+        input_mode=0,
+        power_mode=0,
+        power_style=2,
+        share_mode=0,
+        tail_marker=1,
+    )
+    device_payload = build_device_create_payload(device_config, hub_version="X1")
+    device_raw_body = device_payload[3:]
+
+    async def _refresh_devices_snapshot(timeout_seconds: float = 15.0):
+        return {
+            2: {
+                "name": "Denon avr tst",
+                "brand": "Denon",
+                "device_class": "IR",
+                "device_class_code": 0x07,
+                "raw_body": device_raw_body,
+            }
+        }
+
+    async def _wait_ready(*args, **kwargs):
+        return None
+
+    async def _fetch_blob(*, device_id: int, command_id: int | None = None, wait_timeout: float = 10.0):
+        return {
+            "device_id": device_id,
+            "complete": True,
+            "commands": [],
+        }
+
+    monkeypatch.setattr(hub, "_async_refresh_devices_snapshot", _refresh_devices_snapshot)
+    monkeypatch.setattr(hub, "_reset_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(hub, "_async_wait_for_command_fetch_complete", _wait_ready)
+    monkeypatch.setattr(hub, "_async_wait_for_buttons_ready", _wait_ready)
+    monkeypatch.setattr(hub, "async_fetch_blob", _fetch_blob)
+
+    hub._proxy.state.devices[2] = {
+        "name": "Denon avr tst",
+        "brand": "Denon",
+        "device_class": "IR",
+        "device_class_code": 0x07,
+        "raw_body": device_raw_body,
+    }
+    hub._proxy.state.commands[2] = {}
+    hub._proxy.state.buttons[2] = set()
+
+    monkeypatch.setattr(hub._proxy, "clear_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_commands_for_entity",
+        lambda ent_id, fetch_if_missing=True: ({}, True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_buttons_for_entity",
+        lambda ent_id, fetch_if_missing=True: ([], True),
+    )
+
+    # If the flow forgets to skip, these will be hit -- make that loud.
+    def _must_not_call_macros(*args, **kwargs):
+        raise AssertionError(
+            "get_macros_for_activity must not be called for an unconfigured-power device"
+        )
+
+    def _must_not_call_inputs(*args, **kwargs):
+        raise AssertionError(
+            "fetch_device_input_entries must not be called for an unconfigured-inputs device"
+        )
+
+    monkeypatch.setattr(hub._proxy, "get_macros_for_activity", _must_not_call_macros)
+    monkeypatch.setattr(hub._proxy, "fetch_device_input_entries", _must_not_call_inputs)
+    monkeypatch.setattr(hub._proxy, "get_cached_macro_records", lambda ent_id: [])
+
+    result = loop.run_until_complete(hub.async_backup_device(device_id=2))
+
+    assert result is not None
+    assert result["device"]["inputs_configured"] is False
+    assert result["device"]["power_configured"] is False
+    assert result["macros"] == []
+    assert result["inputs"] == []
+    # Completeness still True -- "empty by design" is a faithful capture.
+    assert result["completeness"]["macros"] is True
+    assert result["completeness"]["inputs"] is True
 
     loop.close()
 

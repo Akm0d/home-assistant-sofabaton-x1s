@@ -453,30 +453,6 @@ def _command_hub_line(hub_version: str | None) -> str:
     return "shared"
 
 
-def _extract_button_activity_id(data: bytes) -> int | None:
-    """Best-effort activity id discovery from an 18-byte row stream fragment."""
-
-    if len(data) < 2:
-        return None
-
-    def _matches_row_shape(offset: int) -> bool:
-        return (
-            offset + 10 <= len(data)
-            and data[offset + 3 : offset + 7] == b"\x00" * 4
-        )
-
-    for i in range(len(data) - 1):
-        row_id = data[i + 1]
-        if row_id in range(0xAE, 0xC2) and _matches_row_shape(i):
-            return data[i]
-
-    for i in range(len(data) - 1):
-        row_id = data[i + 1]
-        if row_id in range(0x01, 0x21) and _matches_row_shape(i):
-            return data[i]
-    return None
-
-
 def parse_button_burst_frame(
     opcode: int,
     raw_frame: bytes,
@@ -562,21 +538,10 @@ def parse_button_burst_frame(
             has_row_data=True,
         )
 
-    activity_id = _extract_button_activity_id(stream)
-    if activity_id is None:
-        return ButtonBurstFrame(
-            opcode=opcode,
-            hub_line="x1s_x2" if hinted_line != "x1" else hinted_line,
-            layout_kind="marker_like",
-            role="marker",
-            frame_no=frame_no,
-            activity_id=None,
-            data_start=len(payload),
-            total_frames=total_frames if total_frames and total_frames > 0 else None,
-            total_rows=total_rows,
-            has_row_data=False,
-        )
-
+    # Continuation pages carry only row bytes; the activity id was established
+    # by the page-1 header and is held by the burst assembler. Do not infer it
+    # from page-2+ row bytes -- inner record bytes can accidentally match a
+    # row-start shape and route the page to the wrong burst.
     inferred_line = hinted_line
     if inferred_line == "shared":
         inferred_line = "x1s_x2" if frame_no > 1 else "shared"
@@ -594,7 +559,7 @@ def parse_button_burst_frame(
         layout_kind=layout_kind,
         role=role,
         frame_no=frame_no,
-        activity_id=activity_id,
+        activity_id=None,
         data_start=3,
         total_frames=total_frames if total_frames and total_frames > 0 else None,
         total_rows=total_rows,
