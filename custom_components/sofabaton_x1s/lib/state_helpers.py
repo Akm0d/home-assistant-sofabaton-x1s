@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict, deque
-from typing import Any, Callable, Deque, Dict, Optional
+from typing import Any, Callable, Deque, Dict, Literal, Mapping, Optional
 
 from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2
 from .commands import (
@@ -87,6 +87,16 @@ class ActivityCache:
         # Per-button mapping details: act_lo → {button_id → {device_id, command_id, long_press_device_id?, long_press_command_id?}}
         self.button_details: Dict[int, Dict[int, Dict[str, int]]] = defaultdict(dict)
         self.commands: dict[int, dict[int, str]] = defaultdict(dict)
+        # Per-command record metadata captured at REQ_COMMANDS parse
+        # time. Keyed dev_id -> command_id -> {"library_type": int,
+        # "button_code": int}. ``library_type`` is the codec selector
+        # the hub stored alongside the command (0x0D for IR-DB, others
+        # for BT/RF/learned). ``button_code`` is the 48-bit canonical
+        # command identifier the hub uses when keymap entries or macro
+        # steps reference this command. Both are needed for a faithful
+        # restore. Backed by the bytes ``CommandRecord.control[0]`` and
+        # ``CommandRecord.control[1:7]`` respectively.
+        self.command_metadata: dict[int, dict[int, dict[str, int]]] = defaultdict(dict)
         self.ip_devices: Dict[int, Dict[str, Any]] = {}
         self.ip_buttons: Dict[int, Dict[int, Dict[str, Any]]] = defaultdict(dict)
         self.activity_command_refs: dict[int, set[tuple[int, int]]] = defaultdict(set)
@@ -101,6 +111,33 @@ class ActivityCache:
         self.activity_macros: dict[int, list[dict[str, int | str]]] = defaultdict(list)
         # Only track the most recent activation to avoid unbounded growth
         self.app_activations: Deque[dict[str, Any]] = deque(maxlen=1)
+
+    def entities(
+        self, kind: Literal["device", "activity"]
+    ) -> Mapping[int, Dict[str, Any]]:
+        """Return the live id-keyed map for ``kind``.
+
+        Read-side accessor that lets call sites name the entity kind
+        instead of hard-coding the attribute. The returned mapping is
+        the same dict the cache uses internally, so callers should
+        treat it as read-only: mutations should still go through the
+        dedicated mutator methods on the cache (or, where one does
+        not yet exist, the direct attribute) so a future migration to
+        a typed container has one place to land.
+
+        ``ip_devices`` remains a separate namespace and is not
+        unified by this accessor; callers that want the union still
+        reach into both maps explicitly.
+        """
+
+        if kind == "device":
+            return self.devices
+        if kind == "activity":
+            return self.activities
+        raise ValueError(
+            f"ActivityCache.entities: unknown kind={kind!r}; "
+            "expected 'device' or 'activity'"
+        )
 
     def set_hint(self, activity_id: Optional[int]) -> None:
         self.current_activity_hint = activity_id
@@ -476,6 +513,15 @@ class ActivityCache:
             dev_id=dev_id,
             hub_version=hub_version,
         ):
+            # control[0] is the codec selector; control[1..7] is the
+            # 6-byte canonical button code (BE). Surface both into the
+            # per-command metadata cache so backup can capture them
+            # without re-fetching the records.
+            if len(record.control) >= 7:
+                self.command_metadata[dev_id & 0xFF][record.command_id & 0xFF] = {
+                    "library_type": record.control[0] & 0xFF,
+                    "button_code": int.from_bytes(record.control[1:7], "big"),
+                }
             if record.command_id not in commands_found and record.label:
                 commands_found[record.command_id] = record.label
         return commands_found

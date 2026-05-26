@@ -25,23 +25,30 @@ from dataclasses import dataclass, field
 from typing import Final, Mapping
 
 from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2
+from .wire_schema import schema_for
 
-
-#: Total body length on X1 firmware (excluding the outer ``[01][seq_be]``
-#: wrapper but including the trailing checksum byte).
-DEVICE_BODY_LEN_X1: Final[int] = 120
-
-#: Total body length on X1S/X2 firmware.
-DEVICE_BODY_LEN_X1S_X2: Final[int] = 210
-
-#: Width of the name/brand/tail slots on X1.
-_NARROW_SLOT: Final[int] = 30
-
-#: Width of the name/brand/tail slots on X1S/X2.
-_WIDE_SLOT: Final[int] = 60
 
 #: Fixed length of the binary code identifier baked into the header.
 DEVICE_CODE_ID_LEN: Final[int] = 16
+
+
+#: Total body length on X1 firmware (excluding the outer ``[01][seq_be]``
+#: wrapper but including the trailing checksum byte). Mirrored from the
+#: shared :mod:`wire_schema` so legacy imports keep working; the schema
+#: module is the source of truth.
+DEVICE_BODY_LEN_X1: Final[int] = schema_for(HUB_VERSION_X1).device_body_len
+
+#: Total body length on X1S/X2 firmware.
+DEVICE_BODY_LEN_X1S_X2: Final[int] = schema_for(HUB_VERSION_X1S).device_body_len
+
+# Module-load asserts: catch any future drift between the historical
+# literals and the per-variant schema. The literals exist only for
+# external test fixtures that already imported them.
+assert DEVICE_BODY_LEN_X1 == 120
+assert DEVICE_BODY_LEN_X1S_X2 == 210
+assert schema_for(HUB_VERSION_X1).device_slot_width == 30
+assert schema_for(HUB_VERSION_X1S).device_slot_width == 60
+assert schema_for(HUB_VERSION_X2).device_slot_width == 60
 
 
 @dataclass(slots=True, frozen=True)
@@ -199,16 +206,14 @@ class DeviceConfig:
 
 
 def _slot_widths_for(hub_version: str) -> tuple[int, int, str]:
-    """Return (slot_width, body_len, encoding) for the hub variant."""
+    """Return (slot_width, body_len, encoding) for the hub variant.
 
-    if hub_version == HUB_VERSION_X1:
-        return _NARROW_SLOT, DEVICE_BODY_LEN_X1, "ascii"
-    if hub_version in (HUB_VERSION_X1S, HUB_VERSION_X2):
-        return _WIDE_SLOT, DEVICE_BODY_LEN_X1S_X2, "utf-16-be"
-    raise ValueError(
-        f"build_device_create_payload: unknown hub_version={hub_version!r}; "
-        "expected one of HUB_VERSION_X1 / HUB_VERSION_X1S / HUB_VERSION_X2."
-    )
+    Thin wrapper over :func:`schema_for` kept for call-site stability;
+    raises ``ValueError`` on unknown variants via the shared schema.
+    """
+
+    schema = schema_for(hub_version)
+    return schema.device_slot_width, schema.device_body_len, schema.device_label_encoding
 
 
 def _encode_text_slot(value: str, *, width: int, encoding: str) -> bytes:
@@ -359,19 +364,37 @@ def _decode_ip(tail_prefix: bytes) -> str | None:
     return ".".join(str(b) for b in tail_prefix[2:6])
 
 
-def parse_device_record(body: bytes, *, hub_version: str) -> DeviceConfig:
+def parse_device_record(
+    body: bytes,
+    *,
+    hub_version: str,
+    entity_kind: str = "device",
+) -> DeviceConfig:
     """Decode a hub-stored device record body into a :class:`DeviceConfig`.
 
     ``body`` is the inner body (with outer ``[01][seq_be]`` wrapper
-    already stripped) as received from a CATALOG_ROW_DEVICE frame, an
-    OP_REQ_BLOB device response, or any other path that exposes the
-    full 120/210-byte record. The returned config is the inverse of
-    :func:`build_device_create_payload` and can be passed straight
+    already stripped) as received from a CATALOG_ROW_DEVICE frame
+    (family ``0x07``), a CATALOG_ROW_ACTIVITY frame (family ``0x37``),
+    an OP_REQ_BLOB device response, or any other path that exposes
+    the full 120/210-byte record. The returned config is the inverse
+    of :func:`build_device_create_payload` and can be passed straight
     back to it to reconstruct the same wire bytes.
 
+    ``entity_kind`` defaults to ``"device"`` and accepts ``"activity"``
+    for callers that want to make the activity (family-0x37)
+    interpretation explicit at the call site. The body layout is
+    identical between the two kinds -- the field is metadata, not a
+    parse-time discriminant.
+
     Raises ``ValueError`` if the body length does not match the hub
-    variant.
+    variant, or if ``entity_kind`` is unrecognised.
     """
+
+    if entity_kind not in ("device", "activity"):
+        raise ValueError(
+            "parse_device_record: entity_kind must be 'device' or 'activity'; "
+            f"got {entity_kind!r}"
+        )
 
     slot_width, expected_len, encoding = _slot_widths_for(hub_version)
     if len(body) != expected_len:

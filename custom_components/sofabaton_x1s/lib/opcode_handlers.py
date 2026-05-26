@@ -8,7 +8,7 @@ import unicodedata
 from typing import TYPE_CHECKING
 
 from ..const import HUB_VERSION_X1
-from .commands import parse_button_burst_frame, parse_command_burst_frame, parse_ir_command_dump_frame
+from .commands import decode_burst_frame, parse_ir_command_dump_frame
 from .frame_handlers import BaseFrameHandler, FrameContext, register_handler
 from .macros import (
     MacroAssembler,
@@ -364,12 +364,12 @@ def _extract_dev_id(
     payload: bytes,
     opcode: int,
     *,
-    hub_version: str | None = None,
+    hub_version: str,
 ) -> int:
     """Determine device ID for a command burst frame."""
 
-    parsed = parse_command_burst_frame(opcode, raw, hub_version=hub_version)
-    if parsed is not None:
+    parsed = decode_burst_frame(opcode, raw, hub_version=hub_version)
+    if parsed is not None and hasattr(parsed, "device_id"):
         return parsed.device_id
 
     if len(payload) >= 4:
@@ -450,7 +450,7 @@ class IpCommandSyncRowHandler(BaseFrameHandler):
         if device_id is None:
             return
 
-        device_meta = proxy.state.devices.get(device_id & 0xFF, {})
+        device_meta = proxy.state.entities("device").get(device_id & 0xFF, {})
         proxy.state.record_virtual_device(
             device_id,
             name=device_meta.get("name") or f"Device {device_id}",
@@ -524,26 +524,26 @@ class SaveCommitHandler(BaseFrameHandler):
 
 
 @register_handler(opcodes=(OP_CREATE_DEVICE_ACK,), directions=("H→A",))
-class RokuCreateDeviceAckHandler(BaseFrameHandler):
-    """Capture device id from create-device ack during Roku replay."""
+class CreateDeviceAckHandler(BaseFrameHandler):
+    """Capture device id from create-device ack during create sequence."""
 
     def handle(self, frame: FrameContext) -> None:
         payload = frame.payload
         if len(payload) < 1:
             return
         proxy: X1Proxy = frame.proxy
-        proxy.update_roku_device_id(payload[0])
-        proxy.notify_roku_ack(frame.opcode, payload)
+        proxy.set_assigned_device_id(payload[0])
+        proxy.notify_ack(frame.opcode, payload)
         proxy._log.info("[WIFI] create ack device_id=0x%02X", payload[0])
 
 
 @register_handler(opcodes=(0x0103, 0x013E, 0x0112), directions=("H→A",))
-class RokuAckHandler(BaseFrameHandler):
-    """Capture Roku replay ACK frames so replay can gate each next step."""
+class GenericCreateAckHandler(BaseFrameHandler):
+    """Capture Create-sequence ACK frames so replay can gate each next step."""
 
     def handle(self, frame: FrameContext) -> None:
         proxy: X1Proxy = frame.proxy
-        proxy.notify_roku_ack(frame.opcode, frame.payload)
+        proxy.notify_ack(frame.opcode, frame.payload)
 
 
 
@@ -575,16 +575,18 @@ class ActivateRequestHandler(BaseFrameHandler):
         proxy: X1Proxy = frame.proxy
         ent_id, code = payload
 
-        if ent_id in proxy.state.activities:
+        activities_view = proxy.state.entities("activity")
+        devices_view = proxy.state.entities("device")
+        if ent_id in activities_view:
             kind = "act"
             record_kind = "activity"
-            name = proxy.state.activities[ent_id].get("name", "")
+            name = activities_view[ent_id].get("name", "")
             if code == ButtonName.POWER_ON:
                 proxy.state.set_hint(ent_id)
-        elif ent_id in proxy.state.devices:
+        elif ent_id in devices_view:
             kind = "dev"
             record_kind = "device"
-            name = proxy.state.devices[ent_id].get("name", "")
+            name = devices_view[ent_id].get("name", "")
         else:
             kind = "id"
             record_kind = "unknown"
@@ -1073,7 +1075,7 @@ class KeymapHandler(BaseFrameHandler):
         payload = frame.payload
         now = time.monotonic()
         burst_act_lo = self._burst_activity(proxy)
-        parsed = parse_button_burst_frame(frame.opcode, raw, hub_version=proxy.hub_version)
+        parsed = decode_burst_frame(frame.opcode, raw, hub_version=proxy.hub_version)
         if parsed is not None:
             # Header frames carry the burst's activity id at payload[7].
             # Continuation pages do not; the activity id is held by the active
@@ -1487,7 +1489,7 @@ class DeviceButtonFamilyHandler(BaseFrameHandler):
                         frame.proxy.try_finish_ir_dump_burst(request_key)
                 return
 
-        parsed = parse_command_burst_frame(
+        parsed = decode_burst_frame(
             opcode,
             frame.raw,
             hub_version=frame.proxy.hub_version,
@@ -1574,10 +1576,10 @@ class FavoritesOrderHandler(BaseFrameHandler):
 
     After parsing the pairs are stored in ``proxy.state.activity_favorites_order``
     and a synthetic ACK ``0xFF63`` is fired so that
-    ``wait_for_roku_ack_any([(0xFF63, act_lo)])`` can unblock.
+    ``wait_for_ack_any([(0xFF63, act_lo)])`` can unblock.
     """
 
-    # Synthetic opcode used to signal completion via notify_roku_ack
+    # Synthetic opcode used to signal completion via notify_ack
     SYNTHETIC_ACK = 0xFF63
 
     def handle(self, frame: FrameContext) -> None:
@@ -1614,5 +1616,5 @@ class FavoritesOrderHandler(BaseFrameHandler):
         )
 
         # Signal any waiting request_favorites_order() call
-        proxy.notify_roku_ack(self.SYNTHETIC_ACK, bytes([act_lo]))
+        proxy.notify_ack(self.SYNTHETIC_ACK, bytes([act_lo]))
 

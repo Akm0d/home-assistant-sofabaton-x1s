@@ -152,31 +152,38 @@ class _FakeHub:
         self.calls.append(payload)
         return payload
 
-    async def async_backup_device(
+    async def async_backup_hub(
         self,
         *,
-        device_id: int,
+        device_ids=None,
         wait_timeout: float = 10.0,
     ):
         payload = {
-            "device_id": device_id,
+            "device_ids": list(device_ids) if device_ids is not None else None,
             "wait_timeout": wait_timeout,
-            "kind": "device_backup",
+            "kind": "hub_bundle",
+            "schema_version": 4,
+            "devices": [],
+            "activities": [],
             "complete": False,
         }
         self.calls.append(payload)
         return payload
 
-    async def async_restore_device(
+    async def async_restore_backup(
         self,
         payload: dict,
+        *,
+        wifi_commands_request_port: int = 8060,
     ):
         result = {
             "status": "success",
-            "device_id": 44,
-            "backup_kind": payload.get("kind"),
+            "bundle_kind": payload.get("kind"),
+            "device_id_map": {},
+            "restored_devices": [],
+            "restored_activities": [],
         }
-        self.calls.append({"kind": "restore_device", "payload": payload})
+        self.calls.append({"kind": "restore_backup", "payload": payload})
         return result
 
     async def async_play_ir_blob(
@@ -682,7 +689,7 @@ def test_fetch_blob_returns_action_payload(monkeypatch) -> None:
     assert hub.calls[-1] == result
 
 
-def test_backup_device_validates_device_id(monkeypatch) -> None:
+def test_backup_bundle_rejects_invalid_device_id(monkeypatch) -> None:
     hub = _FakeHub()
 
     async def _resolve(hass, call):
@@ -690,15 +697,33 @@ def test_backup_device_validates_device_id(monkeypatch) -> None:
 
     monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
 
-    with pytest.raises(ValueError, match="device_id must be between 1 and 255"):
+    with pytest.raises(ValueError, match="device_ids entries must be in 1..255"):
         asyncio.run(
-            integration._async_handle_backup_device(
-                _FakeCall({"device_id": 0})
+            integration._async_handle_backup_bundle(
+                _FakeCall({"device_ids": [0]})
             )
         )
 
 
-def test_backup_device_returns_action_payload(monkeypatch) -> None:
+def test_backup_bundle_rejects_non_list_device_ids(monkeypatch) -> None:
+    hub = _FakeHub()
+
+    async def _resolve(hass, call):
+        return hub
+
+    monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
+
+    with pytest.raises(ValueError, match="device_ids must be a list"):
+        asyncio.run(
+            integration._async_handle_backup_bundle(
+                _FakeCall({"device_ids": "11"})
+            )
+        )
+
+
+def test_backup_bundle_returns_action_payload_for_device_subset(
+    monkeypatch,
+) -> None:
     hub = _FakeHub()
 
     async def _resolve(hass, call):
@@ -707,21 +732,18 @@ def test_backup_device_returns_action_payload(monkeypatch) -> None:
     monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
 
     result = asyncio.run(
-        integration._async_handle_backup_device(
-            _FakeCall({"device_id": 11})
+        integration._async_handle_backup_bundle(
+            _FakeCall({"device_ids": [11, 12]})
         )
     )
 
-    assert result == {
-        "device_id": 11,
-        "wait_timeout": 10.0,
-        "kind": "device_backup",
-        "complete": False,
-    }
-    assert hub.calls[-1] == result
+    assert result["kind"] == "hub_bundle"
+    assert result["schema_version"] == 4
+    assert result["device_ids"] == [11, 12]
+    assert hub.calls[-1] is result
 
 
-def test_restore_device_requires_backup_object(monkeypatch) -> None:
+def test_backup_bundle_returns_action_payload_for_whole_hub(monkeypatch) -> None:
     hub = _FakeHub()
 
     async def _resolve(hass, call):
@@ -729,15 +751,34 @@ def test_restore_device_requires_backup_object(monkeypatch) -> None:
 
     monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
 
-    with pytest.raises(ValueError, match="backup must be an object payload returned by backup_device"):
+    result = asyncio.run(
+        integration._async_handle_backup_bundle(_FakeCall({}))
+    )
+
+    assert result["kind"] == "hub_bundle"
+    assert result["device_ids"] is None
+
+
+def test_restore_backup_requires_bundle_object(monkeypatch) -> None:
+    hub = _FakeHub()
+
+    async def _resolve(hass, call):
+        return hub
+
+    monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
+
+    with pytest.raises(
+        Exception,
+        match="backup must be an object payload returned by backup_bundle",
+    ):
         asyncio.run(
-            integration._async_handle_restore_device(
+            integration._async_handle_restore_backup(
                 _FakeCall({"backup": "not-a-dict"})
             )
         )
 
 
-def test_restore_device_returns_action_payload(monkeypatch) -> None:
+def test_restore_backup_returns_action_payload(monkeypatch) -> None:
     hub = _FakeHub()
 
     async def _resolve(hass, call):
@@ -745,19 +786,21 @@ def test_restore_device_returns_action_payload(monkeypatch) -> None:
 
     monkeypatch.setattr(integration, "_async_resolve_hub_from_call", _resolve)
 
-    backup = {"kind": "device_backup", "device": {"name": "TV"}}
+    backup = {
+        "kind": "hub_bundle",
+        "schema_version": 4,
+        "devices": [],
+        "activities": [],
+    }
     result = asyncio.run(
-        integration._async_handle_restore_device(
+        integration._async_handle_restore_backup(
             _FakeCall({"backup": backup})
         )
     )
 
-    assert result == {
-        "status": "success",
-        "device_id": 44,
-        "backup_kind": "device_backup",
-    }
-    assert hub.calls[-1] == {"kind": "restore_device", "payload": backup}
+    assert result["status"] == "success"
+    assert result["bundle_kind"] == "hub_bundle"
+    assert hub.calls[-1] == {"kind": "restore_backup", "payload": backup}
 
 
 def test_play_ir_blob_accepts_hex_blob_body(monkeypatch) -> None:

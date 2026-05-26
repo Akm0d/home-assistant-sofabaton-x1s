@@ -422,12 +422,15 @@ def _capture_sends(proxy: X1Proxy, monkeypatch) -> list[tuple[int, bytes]]:
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
 
-    def _wait_for_roku_ack_any(candidates, *, timeout=5.0, not_before=None):
-        if candidates == [(0x0103, 0x0C)]:
-            return None
+    def _wait_for_ack_any(candidates, *, timeout=5.0, not_before=None):
         return 0x0103, b"\x00"
 
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", _wait_for_roku_ack_any)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", _wait_for_ack_any)
+    monkeypatch.setattr(
+        proxy,
+        "_wait_for_ack_any_impl",
+        lambda candidates, *, timeout=5.0, not_before=None, log_timeout=True: None,
+    )
     return sent
 
 
@@ -548,15 +551,13 @@ def test_play_ir_blob_waits_for_per_chunk_ack(monkeypatch) -> None:
 
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
-    monkeypatch.setattr(proxy, "_wait_for_roku_ack_any_impl", lambda candidates, *, timeout=5.0, not_before=None, log_timeout=True: None)
+    monkeypatch.setattr(proxy, "_wait_for_ack_any_impl", lambda candidates, *, timeout=5.0, not_before=None, log_timeout=True: None)
 
-    def _wait_for_roku_ack_any(candidates, *, timeout=5.0, not_before=None):
+    def _wait_for_ack_any(candidates, *, timeout=5.0, not_before=None):
         ack_calls.append(list(candidates))
-        if candidates == [(0x0103, 0x0C)]:
-            return None
         return 0x0103, b"\x00"
 
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", _wait_for_roku_ack_any)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", _wait_for_ack_any)
 
     ok = proxy.play_ir_blob(blob, inter_frame_delay=0.0)
 
@@ -576,7 +577,7 @@ def test_play_ir_blob_rejects_failure_ack_on_final_chunk(monkeypatch) -> None:
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
 
-    def _wait_for_roku_ack_any(candidates, *, timeout=5.0, not_before=None):
+    def _wait_for_ack_any(candidates, *, timeout=5.0, not_before=None):
         ack_calls.append(list(candidates))
         if candidates == [(0x0103, 0x00)]:
             return 0x0103, b"\x00"
@@ -584,7 +585,7 @@ def test_play_ir_blob_rejects_failure_ack_on_final_chunk(monkeypatch) -> None:
             return 0x0103, b"\x0c"
         raise AssertionError(f"unexpected candidates: {candidates!r}")
 
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", _wait_for_roku_ack_any)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", _wait_for_ack_any)
 
     ok = proxy.play_ir_blob(blob, inter_frame_delay=0.0)
 
@@ -605,20 +606,18 @@ def test_play_ir_blob_rejects_late_failure_ack_after_final_success(monkeypatch) 
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
 
-    def _wait_for_roku_ack_any(candidates, *, timeout=5.0, not_before=None):
+    def _wait_for_ack_any(candidates, *, timeout=5.0, not_before=None):
         ack_calls.append(list(candidates))
         if candidates == [(0x0103, 0x00)]:
             return 0x0103, b"\x00"
         if candidates == [(0x0103, 0x00), (0x0103, 0x0C)]:
             return 0x0103, b"\x00"
-        if candidates == [(0x0103, 0x0C)]:
-            return 0x0103, b"\x0c"
         raise AssertionError(f"unexpected candidates: {candidates!r}")
 
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", _wait_for_roku_ack_any)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", _wait_for_ack_any)
     monkeypatch.setattr(
         proxy,
-        "_wait_for_roku_ack_any_impl",
+        "_wait_for_ack_any_impl",
         lambda candidates, *, timeout=5.0, not_before=None, log_timeout=True: (0x0103, b"\x0c")
         if candidates == [(0x0103, 0x0C)]
         else None,
@@ -644,14 +643,12 @@ def test_play_ir_blob_fails_when_chunk_ack_is_missing(monkeypatch) -> None:
 
     ack_count = 0
 
-    def _wait_for_roku_ack_any(candidates, *, timeout=5.0, not_before=None):
+    def _wait_for_ack_any(candidates, *, timeout=5.0, not_before=None):
         nonlocal ack_count
         ack_count += 1
-        if candidates == [(0x0103, 0x0C)]:
-            return None
         return None if ack_count == 2 else (0x0103, b"\x00")
 
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", _wait_for_roku_ack_any)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", _wait_for_ack_any)
 
     ok = proxy.play_ir_blob(blob, inter_frame_delay=0.0)
 

@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 
 import pytest
+from tests._stub_packages import ensure_stub_package
 
 from custom_components.sofabaton_x1s.const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,17 +13,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def _ensure_stub_package(name: str, path: Path) -> None:
-    if name in sys.modules:
-        return
-    module = types.ModuleType(name)
-    module.__path__ = [str(path)]
-    sys.modules[name] = module
-
-
-_ensure_stub_package("custom_components", ROOT / "custom_components")
-_ensure_stub_package("custom_components.sofabaton_x1s", ROOT / "custom_components" / "sofabaton_x1s")
-_ensure_stub_package("custom_components.sofabaton_x1s.lib", ROOT / "custom_components" / "sofabaton_x1s" / "lib")
+ensure_stub_package("custom_components", ROOT / "custom_components")
+ensure_stub_package("custom_components.sofabaton_x1s", ROOT / "custom_components" / "sofabaton_x1s")
+ensure_stub_package("custom_components.sofabaton_x1s.lib", ROOT / "custom_components" / "sofabaton_x1s" / "lib")
 
 from custom_components.sofabaton_x1s.lib.commands import (
     DeviceButtonAssembler,
@@ -174,9 +167,9 @@ def test_device_command_assembly_tracks_frames() -> None:
         data=data_part2,
     )
 
-    assert assembler.feed(OP_DEVBTN_HEADER, header_frame) == []
+    assert assembler.feed(OP_DEVBTN_HEADER, header_frame, hub_version=HUB_VERSION_X1) == []
 
-    completed = assembler.feed(OP_DEVBTN_TAIL, tail_frame)
+    completed = assembler.feed(OP_DEVBTN_TAIL, tail_frame, hub_version=HUB_VERSION_X1)
     assert len(completed) == 1
 
     assembled_dev_id, assembled_payload = completed[0]
@@ -266,7 +259,7 @@ def test_device_command_assembly_handles_single_command_page() -> None:
     opcode = int.from_bytes(raw[2:4], "big")
     assert opcode == OP_DEVBTN_SINGLE
 
-    completed = assembler.feed(opcode, raw)
+    completed = assembler.feed(opcode, raw, hub_version=HUB_VERSION_X1)
 
     assert len(completed) == 1
     dev_id, payload = completed[0]
@@ -364,7 +357,9 @@ def test_parse_command_burst_frame_detects_x1_wifi_header_variant() -> None:
         data=b"header",
     )
 
-    parsed = parse_command_burst_frame(OP_DEVBTN_PAGE_ALT1, raw)
+    parsed = parse_command_burst_frame(
+        OP_DEVBTN_PAGE_ALT1, raw, hub_version=HUB_VERSION_X1
+    )
 
     assert parsed is not None
     assert parsed.layout_kind == "x1_wifi"
@@ -546,7 +541,7 @@ def test_x1_wifi_header_variant_uses_header_device_and_frame_count() -> None:
     completed: list[tuple[int, bytes]] = []
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw))
+        completed.extend(assembler.feed(opcode, raw, hub_version=HUB_VERSION_X1))
 
     assert len(completed) == 1
     assembled_dev_id, _ = completed[0]
@@ -1542,7 +1537,7 @@ def test_parse_device_commands_realigns_utf16_label(
     raw = bytes.fromhex(raw_hex)
 
     opcode = int.from_bytes(raw[2:4], "big")
-    completed = assembler.feed(opcode, raw)
+    completed = assembler.feed(opcode, raw, hub_version=HUB_VERSION_X1)
 
     assert completed
     dev_id, payload = completed[0]
@@ -1912,7 +1907,7 @@ def test_x1_roku_pages_keep_all_twenty_commands() -> None:
     completed: list[tuple[int, bytes]] = []
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw))
+        completed.extend(assembler.feed(opcode, raw, hub_version=HUB_VERSION_X1))
 
     assert len(completed) == 1
 
@@ -1946,7 +1941,7 @@ def test_parse_device_commands_keeps_single_character_numeric_labels() -> None:
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=1))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=1, hub_version=HUB_VERSION_X1))
 
     if not completed:
         completed.extend(assembler.finalize_contiguous(1))
@@ -1994,7 +1989,7 @@ def test_parse_device_commands_handles_alt_command_pages() -> None:
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     if not completed:
         completed.extend(assembler.finalize_contiguous(dev_id))
@@ -2063,7 +2058,7 @@ def test_parse_device_commands_handles_wifi_device_twenty_command_capture() -> N
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     if not completed:
         completed.extend(assembler.finalize_contiguous(dev_id))
@@ -2107,7 +2102,7 @@ def test_parse_device_commands_handles_x2_wifi_fixed_width_capture() -> None:
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     if not completed:
         completed.extend(assembler.finalize_contiguous(dev_id))
@@ -2299,7 +2294,7 @@ def test_parse_device_commands_handles_dev_id_one_sequence() -> None:
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     if not completed:
         completed.extend(assembler.finalize_contiguous(dev_id))
@@ -2358,7 +2353,7 @@ def test_parse_device_commands_handles_req_commands_responses() -> None:
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
         dev_id = raw[11]
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     assert len(completed) == 3
 
@@ -2392,7 +2387,7 @@ def test_parse_device_commands_handles_extended_req_commands_sequence() -> None:
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     if not completed:
         completed.extend(assembler.finalize_contiguous(dev_id))
@@ -2444,7 +2439,7 @@ def test_parse_device_commands_handles_req_commands_toggle_office() -> None:
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     assert len(completed) == 1
 
@@ -2487,7 +2482,7 @@ def test_parse_device_commands_preserves_x1s_unicode_label_with_ff_byte() -> Non
 
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     assert len(completed) == 1
 
@@ -2641,7 +2636,7 @@ a5 5a 49 5d 01 00 29 03 79 0d 00 00 00 00 2e 77 00 56 00 6f 00 6c 00 75 00 6d 00
     for raw in frames:
         opcode = int.from_bytes(raw[2:4], "big")
         # We know all frames belong to the same device; override to keep them together
-        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id))
+        completed.extend(assembler.feed(opcode, raw, dev_id_override=dev_id, hub_version=HUB_VERSION_X1))
 
     # Some assemblers emit on finalize; make sure we complete any dangling chain
     if not completed:

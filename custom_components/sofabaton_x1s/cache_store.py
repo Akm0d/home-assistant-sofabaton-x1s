@@ -8,13 +8,26 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 
-CACHE_STORE_VERSION = 1
+CACHE_STORE_VERSION = 2
 CACHE_STORE_MINOR_VERSION = 1
+
+
+class _MigratingStore(Store[dict[str, Any]]):
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        # Phase 6 reshaped cached state; discard any pre-v2 payload.
+        if old_major_version < CACHE_STORE_VERSION:
+            return {"enabled": False, "hubs": {}}
+        return old_data
 
 
 class PersistentCacheStore:
     def __init__(self, hass: HomeAssistant) -> None:
-        self._store: Store[dict[str, Any]] = Store(
+        self._store: Store[dict[str, Any]] = _MigratingStore(
             hass,
             CACHE_STORE_VERSION,
             f"{DOMAIN}.persistent_cache",

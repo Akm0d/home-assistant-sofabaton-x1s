@@ -35,7 +35,6 @@ from .const import (
     CONF_ROKU_LISTEN_PORT,
     DEFAULT_ROKU_LISTEN_PORT,
     format_hub_entry_title,
-    DEFAULT_HUB_VERSION,
     HVER_BY_HUB_VERSION,
     HUB_VERSION_BY_HVER,
 )
@@ -1249,7 +1248,12 @@ def _reconcile_version_metadata(
     if isinstance(stored_version, str):
         stored_version = stored_version.strip() or None
 
-    resolved_version = detected_version or stored_version or DEFAULT_HUB_VERSION
+    # ``resolved_version`` may be ``None`` for entries created via manual
+    # entry before the first proxy connect; in that case the post-connect
+    # banner is responsible for filling it in. Downstream consumers that
+    # need a concrete variant (wire builders/parsers) read from the live
+    # proxy state, not from the persisted entry data.
+    resolved_version = detected_version or stored_version
     confidence_version = detected_version or stored_version
 
     changed = False
@@ -1402,18 +1406,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _async_handle_fetch_blob,
             supports_response=SupportsResponse.OPTIONAL,
         )
-    if not hass.services.has_service(DOMAIN, "backup_device"):
+    if not hass.services.has_service(DOMAIN, "backup_bundle"):
         hass.services.async_register(
             DOMAIN,
-            "backup_device",
-            _async_handle_backup_device,
+            "backup_bundle",
+            _async_handle_backup_bundle,
             supports_response=SupportsResponse.OPTIONAL,
         )
-    if not hass.services.has_service(DOMAIN, "restore_device"):
+    if not hass.services.has_service(DOMAIN, "restore_backup"):
         hass.services.async_register(
             DOMAIN,
-            "restore_device",
-            _async_handle_restore_device,
+            "restore_backup",
+            _async_handle_restore_backup,
             supports_response=SupportsResponse.OPTIONAL,
         )
     if not hass.services.has_service(DOMAIN, "play_ir_blob"):
@@ -1489,8 +1493,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, "fetch_device_commands")
             hass.services.async_remove(DOMAIN, "dump_ir_commands")
             hass.services.async_remove(DOMAIN, "fetch_blob")
-            hass.services.async_remove(DOMAIN, "backup_device")
-            hass.services.async_remove(DOMAIN, "restore_device")
+            hass.services.async_remove(DOMAIN, "backup_bundle")
+            hass.services.async_remove(DOMAIN, "restore_backup")
             hass.services.async_remove(DOMAIN, "play_ir_blob")
             hass.services.async_remove(DOMAIN, "persist_ir_blob")
             hass.services.async_remove(DOMAIN, "create_wifi_device")
@@ -1590,47 +1594,92 @@ async def _async_handle_fetch_blob(call: ServiceCall):
     return result
 
 
-async def _async_handle_backup_device(call: ServiceCall):
+async def _async_handle_backup_bundle(call: ServiceCall):
+    """Service handler for ``sofabaton_x1s.backup_bundle``.
+
+    ``device_ids`` (optional list of 1..255 integers) selects a
+    device-only bundle; omit it (or pass an empty list) to back up
+    everything (all devices + all activities). The return is a
+    ``hub_bundle`` payload (see :meth:`SofabatonHub.async_backup_hub`).
+    """
+
     hass = call.hass
     hub = await _async_resolve_hub_from_call(hass, call)
     if hub is None:
         raise ValueError("Could not resolve Sofabaton hub from service call")
 
-    _raise_if_sync_in_progress(hub, "_async_handle_backup_device")
+    _raise_if_sync_in_progress(hub, "_async_handle_backup_bundle")
 
-    device_id = int(call.data["device_id"])
-    if device_id < 1 or device_id > 255:
-        raise ValueError("device_id must be between 1 and 255")
+    raw_device_ids = call.data.get("device_ids")
+    device_ids: list[int] | None
+    if raw_device_ids is None:
+        device_ids = None
+    elif isinstance(raw_device_ids, (list, tuple)):
+        if not raw_device_ids:
+            device_ids = None
+        else:
+            device_ids = []
+            for raw in raw_device_ids:
+                try:
+                    value = int(raw)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"device_ids entries must be integers (got {raw!r})"
+                    ) from exc
+                if value < 1 or value > 255:
+                    raise ValueError(
+                        f"device_ids entries must be in 1..255 (got {value})"
+                    )
+                device_ids.append(value)
+    else:
+        raise ValueError(
+            "device_ids must be a list of device id integers, or omitted "
+            "to back up the whole hub"
+        )
 
-    result = await hub.async_backup_device(device_id=device_id)
-    if result is None:
-        raise ValueError(f"Hub did not return device data for device {device_id}")
-    return result
+    return await hub.async_backup_hub(device_ids=device_ids)
 
 
-async def _async_handle_restore_device(call: ServiceCall):
+async def _async_handle_restore_backup(call: ServiceCall):
+    """Service handler for ``sofabaton_x1s.restore_backup``.
+
+    Accepts a ``hub_bundle`` payload (schema_version 4). Devices in
+    the bundle are restored first; activities are restored second,
+    after the hub has been erased (currently a ``NotImplementedError``
+    stub -- see :meth:`SofabatonHub.async_erase_configuration`).
+    """
+
     hass = call.hass
     hub = await _async_resolve_hub_from_call(hass, call)
     if hub is None:
         raise ValueError("Could not resolve Sofabaton hub from service call")
 
-    _raise_if_sync_in_progress(hub, "_async_handle_restore_device")
+    _raise_if_sync_in_progress(hub, "_async_handle_restore_backup")
 
     payload = call.data.get("backup")
     if not isinstance(payload, dict):
-        raise ValueError("backup must be an object payload returned by backup_device")
+        raise ValueError(
+            "backup must be an object payload returned by backup_bundle"
+        )
+
     wifi_commands_request_port = _resolve_roku_listen_port(hass, hub.entry_id)
 
     try:
-        result = await hub.async_restore_device(
+        result = await hub.async_restore_backup(
             payload,
             wifi_commands_request_port=wifi_commands_request_port,
         )
+    except NotImplementedError as exc:
+        raise HomeAssistantError(str(exc)) from exc
+    except ValueError as exc:
+        raise HomeAssistantError(f"restore_backup validation failed: {exc}") from exc
     except Exception as exc:
-        raise HomeAssistantError(f"restore_device failed: {exc}") from exc
+        raise HomeAssistantError(f"restore_backup failed: {exc}") from exc
     if result is None:
         raise HomeAssistantError("Hub did not accept the restore transaction")
     return result
+
+
 
 
 async def _async_handle_play_ir_blob(call: ServiceCall):

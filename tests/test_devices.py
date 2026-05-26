@@ -10,29 +10,22 @@ from __future__ import annotations
 import sys
 import types
 from pathlib import Path
+from tests._stub_packages import ensure_stub_package
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def _ensure_stub_package(name: str, path: Path) -> None:
-    if name in sys.modules:
-        return
-    module = types.ModuleType(name)
-    module.__path__ = [str(path)]  # type: ignore[attr-defined]
-    sys.modules[name] = module
-
-
-_ensure_stub_package(
+ensure_stub_package(
     "custom_components",
     ROOT / "custom_components",
 )
-_ensure_stub_package(
+ensure_stub_package(
     "custom_components.sofabaton_x1s",
     ROOT / "custom_components" / "sofabaton_x1s",
 )
-_ensure_stub_package(
+ensure_stub_package(
     "custom_components.sofabaton_x1s.lib",
     ROOT / "custom_components" / "sofabaton_x1s" / "lib",
 )
@@ -301,8 +294,7 @@ def test_real_x1_capture_input_and_power_configuration_signals() -> None:
     "inputs configured" and "power configured" signals on real X1 wire data.
 
     Captures: the same Denon AVR record at three configuration stages,
-    differing only in tail[10..12]. See docs/protocol/apk-refactor-log.md
-    Phase 5 for the diff analysis.
+    differing only in tail[10..12].
     """
 
     # Fixed-tail suffix shared by all three frames (28 trailing bytes:

@@ -66,6 +66,10 @@ def test_reconcile_keeps_entry_unchanged_when_already_consistent() -> None:
 
 
 def test_reconcile_does_not_backfill_hver_without_confident_source() -> None:
+    # When there is no HVER and no stored version, the reconcile pass
+    # leaves the variant unresolved instead of silently inheriting the
+    # X1 layout. The connect banner is responsible for filling it in
+    # once the proxy hands the hub off.
     version, data, opts, changed = _reconcile_version_metadata(
         {
             "mdns_txt": {"MAC": "aa:bb"},
@@ -73,11 +77,11 @@ def test_reconcile_does_not_backfill_hver_without_confident_source() -> None:
         {},
     )
 
-    assert version == "X1"
-    assert changed is True
+    assert version is None
+    assert changed is False
     assert "HVER" not in data["mdns_txt"]
-    assert data["mdns_version"] == "X1"
-    assert opts["mdns_version"] == "X1"
+    assert data.get("mdns_version") is None
+    assert opts.get("mdns_version") is None
 
 
 def test_inspect_frontend_dir_returns_contents_for_existing_directory(tmp_path) -> None:

@@ -1129,10 +1129,20 @@ def test_catalog_activity_handler_finishes_burst_immediately_on_final_row() -> N
     handler.handle(_build_context(proxy, second, OP_CATALOG_ROW_ACTIVITY, "CATALOG_ROW_ACTIVITY"))
 
     assert proxy._burst.active is False
-    assert proxy.state.activities == {
+    # state.activities also carries raw_body bytes for downstream
+    # schema parsing (e.g. backup); strip it here to keep the
+    # assertion focused on the catalog-row decode.
+    activities_view = {
+        act_id: {k: v for k, v in entry.items() if k != "raw_body"}
+        for act_id, entry in proxy.state.activities.items()
+    }
+    assert activities_view == {
         0x65: {"name": "Watch TV", "active": False, "needs_confirm": False},
         0x66: {"name": "Play Xbox", "active": True, "needs_confirm": False},
     }
+    for entry in proxy.state.activities.values():
+        assert isinstance(entry.get("raw_body"), (bytes, bytearray))
+        assert len(entry["raw_body"]) >= 1
     assert proxy.state.current_activity_hint == 0x66
 
 def test_catalog_activity_handler_decodes_utf16_labels() -> None:

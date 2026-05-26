@@ -74,11 +74,28 @@ class NotifyRegistration:
     call_me_hint: bytes
 
 
+def _classify_or_x1(mdns_txt: Dict[str, str]) -> str:
+    """Classify ``mdns_txt`` for transport-layer NOTIFY routing.
+
+    NOTIFY framing only branches on the X1 vs X1S/X2 vs X2 envelope
+    shape; an unrecognised advertisement does not justify dropping the
+    listener registration, so this helper falls back to the X1 line
+    when classification fails. The shape is byte-compatible across the
+    rest of the family and the subsequent connect banner re-classifies
+    authoritatively.
+    """
+
+    try:
+        return classify_hub_version(mdns_txt)
+    except ValueError:
+        return HUB_VERSION_X1
+
+
 def build_connect_ready_beacon(mdns_txt: Dict[str, str]) -> bytes:
     """Build the UDP post-connect readiness beacon emitted by physical hubs."""
 
     mac_bytes = NotifyDemuxer._extract_mac_bytes(mdns_txt)
-    hub_version = classify_hub_version(mdns_txt)
+    hub_version = _classify_or_x1(mdns_txt)
     _device_id, call_me_hint = NotifyDemuxer._build_device_identifiers(mac_bytes, hub_version)
     frame = bytes([SYNC0, SYNC1, 0x07, 0xC4]) + call_me_hint + b"\x00"
     return frame + bytes([_sum8(frame)])
@@ -108,7 +125,7 @@ class NotifyDemuxer:
         call_me_cb: Callable[[str, int, str, int], None],
     ) -> None:
         mac_bytes = self._extract_mac_bytes(mdns_txt)
-        hub_version = classify_hub_version(mdns_txt)
+        hub_version = _classify_or_x1(mdns_txt)
         device_id, call_me_hint = self._build_device_identifiers(
             mac_bytes, hub_version
         )

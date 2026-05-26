@@ -77,8 +77,6 @@ _LOGGER = logging.getLogger(__name__)
 _HARD_BUTTON_TO_CODE: dict[str, int] = {"up": ButtonName.UP, "down": ButtonName.DOWN, "left": ButtonName.LEFT, "right": ButtonName.RIGHT, "ok": ButtonName.OK, "back": ButtonName.BACK, "home": ButtonName.HOME, "menu": ButtonName.MENU, "volup": ButtonName.VOL_UP, "voldn": ButtonName.VOL_DOWN, "mute": ButtonName.MUTE, "chup": ButtonName.CH_UP, "chdn": ButtonName.CH_DOWN, "guide": ButtonName.GUIDE, "dvr": ButtonName.DVR, "play": ButtonName.PLAY, "exit": ButtonName.EXIT, "rew": ButtonName.REW, "pause": ButtonName.PAUSE, "fwd": ButtonName.FWD, "red": ButtonName.RED, "green": ButtonName.GREEN, "yellow": ButtonName.YELLOW, "blue": ButtonName.BLUE, "a": ButtonName.A, "b": ButtonName.B, "c": ButtonName.C}
 _WIFI_COMMAND_SLOT_COUNT = 10
 _WIFI_COMMAND_LONG_PRESS_OFFSET = 10
-_NETWORK_CALLBACK_TRANSPORT = "network_callback"
-_NETWORK_CALLBACK_PROFILE_SOURCE = "wifi_commands"
 
 
 def _parse_managed_wifi_brand(brand: str) -> tuple[str | None, str | None]:
@@ -114,9 +112,13 @@ def get_hub_model(entry: ConfigEntry) -> str:
 
     mdns_txt = entry.data.get("mdns_txt", {})
     if isinstance(mdns_txt, dict):
-        detected_model = classify_hub_version(mdns_txt)
-        if detected_model:
-            return detected_model
+        try:
+            return classify_hub_version(mdns_txt)
+        except ValueError:
+            # Fall through to the stored config-entry value when the
+            # advertisement is missing/unrecognised; the banner will
+            # repair it on first connect.
+            pass
 
     model = entry.options.get(CONF_MDNS_VERSION) or entry.data.get(CONF_MDNS_VERSION)
     if isinstance(model, str) and model:
@@ -163,7 +165,18 @@ class SofabatonHub:
         self.port = port
         self.mdns_txt = dict(mdns_txt or {})
         self.mdns_txt["HA_PROXY"] = "1"
-        self.version = version or classify_hub_version(self.mdns_txt)
+        if version:
+            self.version = version
+        else:
+            try:
+                self.version = classify_hub_version(self.mdns_txt)
+            except ValueError:
+                # Manual entry or pre-handshake: variant is unknown
+                # until the connect banner identifies it. Pin to the
+                # narrow-line layout in the meantime so wire-schema
+                # lookups stay valid; a real-hub mismatch is corrected
+                # by ``_apply_banner_identity`` on first connect.
+                self.version = HUB_VERSION_X1
 
         self._proxy_udp_port = proxy_udp_port
         self._hub_listen_base = hub_listen_base
@@ -745,7 +758,7 @@ class SofabatonHub:
         self._log.debug(
             "[%s] Restored persistent cache: devices=%s buttons=%s commands=%s macros=%s activities_map=%s",
             self.entry_id,
-            len(self._proxy.state.devices),
+            len(self._proxy.state.entities("device")),
             len(self._proxy.state.buttons),
             len(self._proxy.state.commands),
             len(self._proxy.state.activity_macros),
@@ -850,7 +863,7 @@ class SofabatonHub:
             if name:
                 return name
 
-        for source in (self._proxy.state.devices, self._proxy.state.ip_devices):
+        for source in (self._proxy.state.entities("device"), self._proxy.state.ip_devices):
             if not isinstance(source, dict):
                 continue
             cached_device = source.get(dev_lo)
@@ -874,7 +887,7 @@ class SofabatonHub:
             if device_class:
                 return device_class
 
-        for source in (self._proxy.state.devices, self._proxy.state.ip_devices):
+        for source in (self._proxy.state.entities("device"), self._proxy.state.ip_devices):
             if not isinstance(source, dict):
                 continue
             cached_device = source.get(dev_lo)
@@ -959,7 +972,7 @@ class SofabatonHub:
         catalog_ids: set[int] = set()
         catalog_ids.update(int(dev_id) & 0xFF for dev_id in self.devices.keys())
 
-        for source in (self._proxy.state.devices, self._proxy.state.ip_devices):
+        for source in (self._proxy.state.entities("device"), self._proxy.state.ip_devices):
             if not isinstance(source, dict):
                 continue
             catalog_ids.update(int(dev_id) & 0xFF for dev_id in source.keys())
@@ -1012,11 +1025,14 @@ class SofabatonHub:
 
     def _looks_like_activity(self, ent_id: int) -> bool:
         ent_lo = ent_id & 0xFF
-        return ent_lo in self._proxy.state.activities
+        return ent_lo in self._proxy.state.entities("activity")
 
     def _looks_like_device(self, ent_id: int) -> bool:
         ent_lo = ent_id & 0xFF
-        return ent_lo in self._proxy.state.devices or ent_lo in self._proxy.state.ip_devices
+        return (
+            ent_lo in self._proxy.state.entities("device")
+            or ent_lo in self._proxy.state.ip_devices
+        )
 
     def _commands_ready_for(self, ent_id: int) -> bool:
         if self._looks_like_activity(ent_id):
@@ -1234,8 +1250,6 @@ class SofabatonHub:
         )
         device_meta = dict(device_snapshot.get(dev_lo) or {})
         if not device_meta:
-            device_meta = dict(self._proxy.state.devices.get(dev_lo) or {})
-        if not device_meta:
             return None
 
         # Parse the device's stored schema up-front so we can short-circuit
@@ -1308,8 +1322,17 @@ class SofabatonHub:
         normalized_device_class = normalize_device_class(
             device_meta.get("device_class", device_meta.get("device_class_code"))
         )
+        # Non-IR codecs (BT, RF, and network-callback wifi variants) live
+        # in the same family-0x0E command record table on the hub; the
+        # 0x020C raw dump is the only way to round-trip them byte-for-byte
+        # since their library_data is opaque to the IR-blob normalizer.
+        uses_raw_command_dump = (
+            normalized_device_class
+            in (DEVICE_CLASS_BLUETOOTH, DEVICE_CLASS_RF_315, DEVICE_CLASS_RF_433)
+            or _is_network_callback_device_class(normalized_device_class)
+        )
         raw_command_dump: dict[str, Any] | None = None
-        if normalized_device_class in (DEVICE_CLASS_BLUETOOTH, DEVICE_CLASS_RF_315, DEVICE_CLASS_RF_433):
+        if uses_raw_command_dump:
             raw_command_dump = await self.async_dump_ir_commands(
                 device_id=dev_lo,
                 wait_timeout=max(wait_timeout, 15.0),
@@ -1354,53 +1377,56 @@ class SofabatonHub:
                 if command_id:
                     blob_by_command[command_id] = dict(command)
 
-        restore_profile = await self._async_build_network_restore_profile(
-            device_id=dev_lo,
-            device_meta=device_meta,
+        # Per-command metadata captured at REQ_COMMANDS parse time
+        # (library_type, button_code). Keyed by command_id; rows below
+        # copy these into restore_data so the restore path can
+        # re-create the command record byte-faithfully without
+        # synthesising values.
+        command_meta_for_device = (
+            self._proxy.state.command_metadata.get(dev_lo, {})
+            if hasattr(self._proxy.state, "command_metadata")
+            else {}
         )
-        if restore_profile is not None:
-            blobs_complete = True
 
         command_rows: list[dict[str, Any]] = []
-        if restore_profile is not None:
-            slots = restore_profile.get("slots")
-            if isinstance(slots, list):
-                for idx, slot in enumerate(slots[:_WIFI_COMMAND_SLOT_COUNT], start=1):
-                    if not isinstance(slot, dict):
-                        continue
-                    command_rows.append(
-                        {
-                            "command_id": idx,
-                            "name": str(slot.get("name") or f"Command {idx}").strip() or f"Command {idx}",
-                            "restore_data": {
-                                "transport": _NETWORK_CALLBACK_TRANSPORT,
-                                "slot_index": idx - 1,
-                            },
-                        }
-                    )
-        else:
-            all_command_ids = sorted(set(label_map) | set(blob_by_command))
-            for command_id in all_command_ids:
-                blob_command = blob_by_command.get(command_id, {})
-                row = {
-                    "command_id": command_id,
-                    "name": label_map.get(command_id)
-                    or blob_command.get("command_label")
-                    or blob_command.get("label"),
-                }
-                if normalized_device_class == DEVICE_CLASS_IR:
-                    row["blob_hex"] = blob_command.get("command_blob")
-                elif normalized_device_class in (
-                    DEVICE_CLASS_BLUETOOTH,
-                    DEVICE_CLASS_RF_315,
-                    DEVICE_CLASS_RF_433,
-                ):
-                    restore_data = self._build_hub_code_record_restore_data(blob_command)
-                    if restore_data is not None:
-                        row["restore_data"] = restore_data
-                else:
-                    row["blob_hex"] = blob_command.get("command_blob")
-                command_rows.append(row)
+        all_command_ids = sorted(set(label_map) | set(blob_by_command))
+        for command_id in all_command_ids:
+            blob_command = blob_by_command.get(command_id, {})
+            row = {
+                "command_id": command_id,
+                "name": label_map.get(command_id)
+                or blob_command.get("command_label")
+                or blob_command.get("label"),
+            }
+            if normalized_device_class == DEVICE_CLASS_IR:
+                blob_hex = blob_command.get("command_blob")
+                # Emit IR rows in the same hub_code_record shape used by
+                # BT/RF / network-callback so restore has a single uniform
+                # reader. When per-command metadata is missing (command
+                # not in current command-table cache), default to
+                # library_type=0x0D and button_code=0; the restore path
+                # synthesises a button_code from the new command id.
+                if blob_hex:
+                    meta = command_meta_for_device.get(command_id)
+                    meta_dict = meta if isinstance(meta, dict) else {}
+                    row["restore_data"] = {
+                        "transport": "hub_code_record",
+                        "library_type": int(meta_dict.get("library_type", 0x0D)) & 0xFF,
+                        "button_code": int(meta_dict.get("button_code", 0)) & 0xFFFFFFFFFFFF,
+                        "data_hex": blob_hex,
+                    }
+            elif uses_raw_command_dump:
+                # BT, RF, and the wifi network-callback variants all
+                # share the family-0x0E record shape; the page-one
+                # extractor pulls library_type / command_code /
+                # data_hex straight from the dump so backup→restore is
+                # transport-agnostic.
+                restore_data = self._build_hub_code_record_restore_data(blob_command)
+                if restore_data is not None:
+                    row["restore_data"] = restore_data
+            else:
+                row["blob_hex"] = blob_command.get("command_blob")
+            command_rows.append(row)
 
         input_rows: list[dict[str, Any]] = []
         if input_entries:
@@ -1495,7 +1521,7 @@ class SofabatonHub:
 
         result = {
             "kind": "device_backup",
-            "schema_version": 2,
+            "schema_version": 3,
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "complete": complete,
             "completeness": {
@@ -1518,115 +1544,373 @@ class SofabatonHub:
             "favorite_slots": favorite_rows,
             "macros": macro_rows,
         }
-        if restore_profile is not None:
-            result["restore_profile"] = restore_profile
         return result
 
-    async def async_restore_device(
+    async def async_backup_activity(
+        self,
+        activity_id: int,
+        *,
+        wait_timeout: float = 10.0,
+    ) -> dict[str, Any] | None:
+        """Fetch a restore-oriented activity backup payload from the hub.
+
+        An activity shares the device-record wire schema, but is filled
+        almost entirely with *references to other devices* -- button
+        bindings point at commands on real devices, macro steps invoke
+        commands on real devices, favourites likewise. The only "own"
+        content is the activity's name, label, and macro labels.
+
+        The output payload therefore carries the activity's parsed
+        schema plus the keymap / macro / favourite / keybinding lists,
+        each entry annotated with the *source* device_id and the
+        canonical 48-bit ``button_code``. At restore time the caller
+        supplies a ``device_id_map`` mapping source device_ids to the
+        ones assigned on the destination hub.
+        """
+
+        act_lo = activity_id & 0xFF
+
+        # Make sure the activity catalog is fresh enough that raw_body
+        # is in cache.
+        await self._async_refresh_activities_snapshot(timeout_seconds=max(wait_timeout, 5.0))
+
+        activity_meta = dict(self._proxy.state.entities("activity").get(act_lo) or {})
+        if not activity_meta:
+            return None
+
+        # Parse the activity schema from raw_body if we have it.
+        activity_config: DeviceConfig | None = None
+        raw_body = activity_meta.get("raw_body")
+        if isinstance(raw_body, (bytes, bytearray)) and raw_body:
+            try:
+                activity_config = parse_device_record(
+                    bytes(raw_body), hub_version=self.version
+                )
+            except ValueError:
+                activity_config = None
+
+        # Trigger keymap + macros fetches for this activity. The same
+        # buttons / button_details / macros tables that devices use are
+        # keyed by the activity id here.
+        self._reset_entity_cache(
+            act_lo,
+            clear_buttons=True,
+            clear_favorites=True,
+            clear_macros=True,
+        )
+        await self.hass.async_add_executor_job(
+            self._proxy.clear_entity_cache,
+            act_lo,
+            True,
+            True,
+            True,
+        )
+
+        _buttons, buttons_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_buttons_for_entity, act_lo, fetch_if_missing=True)
+        )
+        if not buttons_ready:
+            await self._async_wait_for_buttons_ready(act_lo)
+
+        _macros, macros_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_macros_for_activity, act_lo, fetch_if_missing=True)
+        )
+        if not macros_ready:
+            await self._async_wait_for_macros_ready(act_lo, timeout=wait_timeout)
+
+        button_codes, final_buttons_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_buttons_for_entity, act_lo, fetch_if_missing=False)
+        )
+        _macros2, final_macros_ready = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_macros_for_activity, act_lo, fetch_if_missing=False)
+        )
+
+        # Translate the proxy state into the backup row shapes.
+        button_details = self._proxy.state.button_details.get(act_lo, {})
+        button_rows: list[dict[str, Any]] = []
+        referenced_source_device_ids: set[int] = set()
+        for button_id in sorted(set(button_codes) | set(button_details)):
+            details = button_details.get(button_id, {})
+            target_device_id = int(details.get("device_id", 0)) & 0xFF
+            command_id = int(details.get("command_id", 0)) & 0xFF
+            if target_device_id == 0:
+                # Button slot exists but isn't bound to a target device;
+                # skip on backup (and on restore).
+                continue
+            referenced_source_device_ids.add(target_device_id)
+            button_rows.append(
+                {
+                    "button_id": button_id & 0xFF,
+                    "button_name": BUTTONNAME_BY_CODE.get(button_id & 0xFF),
+                    "device_id": target_device_id,
+                    "command_id": command_id,
+                    "long_press_device_id": (
+                        int(details["long_press_device_id"]) & 0xFF
+                        if details.get("long_press_device_id") is not None
+                        else None
+                    ),
+                    "long_press_command_id": (
+                        int(details["long_press_command_id"]) & 0xFF
+                        if details.get("long_press_command_id") is not None
+                        else None
+                    ),
+                }
+            )
+            if details.get("long_press_device_id") is not None:
+                referenced_source_device_ids.add(
+                    int(details["long_press_device_id"]) & 0xFF
+                )
+
+        macro_rows: list[dict[str, Any]] = []
+        macro_records = await self.hass.async_add_executor_job(
+            partial(self._proxy.get_cached_macro_records, act_lo)
+        )
+        for record in macro_records:
+            step_entries: list[dict[str, Any]] = []
+            for entry in record.key_sequence:
+                step_device_id = entry.device_id & 0xFF
+                if step_device_id != 0:
+                    referenced_source_device_ids.add(step_device_id)
+                step_entries.append(
+                    {
+                        "device_id": step_device_id,
+                        "command_id": entry.key_id & 0xFF,
+                        # The macro step's "fid" is the canonical 48-bit
+                        # button_code. We store it verbatim; restore
+                        # will translate it via the device_id_map +
+                        # the target device's restored command codes.
+                        "button_code": int(entry.fid) & 0xFFFFFFFFFFFF,
+                        "duration": entry.duration & 0xFF,
+                        "delay": entry.delay & 0xFF,
+                    }
+                )
+            macro_rows.append(
+                {
+                    "button_id": record.key_id & 0xFF,
+                    "name": record.label,
+                    "is_power_macro": str(record.label or "").upper().startswith("POWER_"),
+                    "steps": step_entries,
+                }
+            )
+
+        favorite_rows: list[dict[str, Any]] = []
+        for slot in self._proxy.state.get_activity_favorite_slots(act_lo):
+            if not isinstance(slot, dict):
+                continue
+            target_device_id = int(slot.get("device_id", 0)) & 0xFF
+            if target_device_id != 0:
+                referenced_source_device_ids.add(target_device_id)
+            favorite_rows.append(
+                {
+                    "button_id": int(slot.get("button_id", 0)) & 0xFF,
+                    "device_id": target_device_id,
+                    "command_id": int(slot.get("command_id", 0)) & 0xFF,
+                    "source": str(slot.get("source", "cache")),
+                }
+            )
+
+        activity_block = self._build_device_block(act_lo, activity_meta, activity_config)
+
+        complete = all(
+            [
+                bool(activity_block),
+                final_buttons_ready,
+                final_macros_ready,
+            ]
+        )
+
+        return {
+            "kind": "activity_backup",
+            "schema_version": 3,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "complete": complete,
+            "completeness": {
+                "activity": bool(activity_block),
+                "buttons": bool(final_buttons_ready),
+                "macros": bool(final_macros_ready),
+            },
+            "hub": {
+                "entry_id": self.entry_id,
+                "name": self.name,
+                "version": self.version,
+            },
+            # Use the same "device" key as device_backup payloads so the
+            # restore-side schema parser can be reused. ``entity_type``
+            # marks this entry as an activity.
+            "device": {**activity_block, "entity_type": "activity"},
+            "button_bindings": button_rows,
+            "favorite_slots": favorite_rows,
+            "macros": macro_rows,
+            # The set of source-side device ids that *must* appear in
+            # the device_id_map at restore time. Surfacing this lets
+            # the caller validate readiness before invoking restore.
+            "referenced_source_device_ids": sorted(referenced_source_device_ids),
+        }
+
+    async def async_backup_hub(
+        self,
+        *,
+        device_ids: list[int] | None = None,
+        wait_timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        """Build a ``hub_bundle`` payload covering the requested scope.
+
+        ``device_ids=None`` (the default) backs up *everything*: all
+        devices and all activities currently known to the hub. The
+        bundle's ``activities`` list is non-empty only in this mode.
+
+        ``device_ids=[...]`` backs up just the listed devices; no
+        activities are included. The result is still a ``hub_bundle``
+        envelope (with ``activities: []``) so callers see exactly one
+        wire shape regardless of scope -- per the bundle-backup plan
+        the per-entity envelopes are no longer surfaced.
+        """
+
+        if device_ids is None:
+            # Full-hub bundle: refresh both catalogs so the per-entity
+            # backups operate against current state.
+            await self._async_refresh_devices_snapshot(
+                timeout_seconds=max(wait_timeout, 5.0)
+            )
+            await self._async_refresh_activities_snapshot(
+                timeout_seconds=max(wait_timeout, 5.0)
+            )
+            selected_device_ids = sorted(
+                await self.hass.async_add_executor_job(
+                    self._proxy.get_known_device_ids
+                )
+            )
+            selected_activity_ids = sorted(
+                await self.hass.async_add_executor_job(
+                    self._proxy.get_known_activity_ids
+                )
+            )
+        else:
+            normalized: list[int] = []
+            for raw in device_ids:
+                value = int(raw)
+                if value < 1 or value > 255:
+                    raise ValueError(
+                        f"backup_bundle device_ids entries must be in 1..255 (got {raw!r})"
+                    )
+                if value not in normalized:
+                    normalized.append(value)
+            if not normalized:
+                raise ValueError(
+                    "backup_bundle device_ids must contain at least one device id "
+                    "or be omitted entirely (to back up the whole hub)"
+                )
+            selected_device_ids = normalized
+            selected_activity_ids = []
+
+        device_payloads: list[dict[str, Any]] = []
+        for dev_id in selected_device_ids:
+            payload = await self.async_backup_device(
+                device_id=dev_id, wait_timeout=wait_timeout
+            )
+            if payload is None:
+                raise ValueError(
+                    f"Hub did not return device data for device {dev_id}"
+                )
+            device_payloads.append(payload)
+
+        activity_payloads: list[dict[str, Any]] = []
+        for act_id in selected_activity_ids:
+            payload = await self.async_backup_activity(
+                activity_id=act_id, wait_timeout=wait_timeout
+            )
+            if payload is None:
+                # An activity present in the catalog that the hub
+                # refused to detail is a hard error: bundle integrity
+                # depends on every referenced activity being captured.
+                raise ValueError(
+                    f"Hub did not return activity data for activity {act_id}"
+                )
+            activity_payloads.append(payload)
+
+        complete = all(bool(p.get("complete")) for p in device_payloads) and all(
+            bool(p.get("complete")) for p in activity_payloads
+        )
+
+        return {
+            "kind": "hub_bundle",
+            "schema_version": 4,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "complete": complete,
+            "hub": {
+                "entry_id": self.entry_id,
+                "name": self.name,
+                "version": self.version,
+            },
+            "devices": device_payloads,
+            "activities": activity_payloads,
+        }
+
+    async def async_erase_configuration(self) -> None:
+        """Erase all hub configuration (devices, activities, favorites, macros).
+
+        Replace-mode bundle restores call this before recreating any
+        content. The per-hub-version wire sequence is not implemented
+        yet -- Phase D of the bundle-backup plan researches it and
+        Phase E lands the implementation; until then this stub raises
+        ``NotImplementedError`` so replace-mode restores fail fast
+        with a clear, version-specific error and zero side effects.
+        """
+
+        raise NotImplementedError(
+            f"hub erase is not implemented for hub_version={self.version!r}; "
+            "restoring a bundle that contains activities requires erase "
+            "support (see docs/protocol/bundle-backup-plan.md phases D/E)"
+        )
+
+    async def async_restore_backup(
         self,
         payload: dict[str, Any],
         *,
         wifi_commands_request_port: int = 8060,
     ) -> dict[str, Any] | None:
-        """Restore a device from a ``backup_device`` payload."""
+        """Restore a ``hub_bundle`` payload onto the live hub.
+
+        Walks ``payload['devices']`` first, building an auto
+        ``source_device_id -> new_device_id`` map. Then walks
+        ``payload['activities']`` (if any), threading the auto map
+        plus the bundle's device payloads through so the activity
+        restore can resolve ``0xC5`` input-ordinal macro entries
+        locally instead of needing the source hub to be reachable.
+
+        Replace mode (``activities`` non-empty) calls
+        :meth:`async_erase_configuration` first; until erase ships,
+        that stub raises ``NotImplementedError`` and the bundle
+        restore fails before any wire writes.
+        """
+
+        if not isinstance(payload, dict):
+            raise ValueError("restore_backup expects a hub_bundle object")
+        if payload.get("kind") != "hub_bundle":
+            raise ValueError(
+                "restore_backup payload must declare kind == 'hub_bundle'"
+            )
+        if int(payload.get("schema_version", 0)) != 4:
+            raise ValueError(
+                "restore_backup payload schema_version must be 4 "
+                f"(got {payload.get('schema_version')!r}); older bundles are "
+                "rejected -- no migrator is provided"
+            )
+
+        activities = payload.get("activities") or []
+        if activities:
+            # Replace mode. Erase the hub first; the current stub
+            # raises NotImplementedError, which propagates to the
+            # caller with the hub_version in the message.
+            await self.async_erase_configuration()
 
         return await self.hass.async_add_executor_job(
             partial(
-                self._proxy.restore_device,
+                self._proxy.restore_hub_bundle,
                 payload=payload,
                 wifi_commands_request_port=wifi_commands_request_port,
             )
         )
-
-    async def _async_build_network_restore_profile(
-        self,
-        *,
-        device_id: int,
-        device_meta: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        """Return a restore profile for managed callback-backed network devices."""
-
-        device_class = normalize_device_class(
-            device_meta.get("device_class", device_meta.get("device_class_code"))
-        )
-        if not _is_network_callback_device_class(device_class):
-            return None
-
-        store = await async_get_command_config_store(self.hass)
-        records = await store.async_list_hub_devices(self.entry_id)
-        if not records:
-            return None
-
-        dev_lo = device_id & 0xFF
-        managed_key, managed_hash = _parse_managed_wifi_brand(device_meta.get("brand", ""))
-
-        match: dict[str, Any] | None = None
-        deployed_matches = [
-            record
-            for record in records
-            if isinstance(record, dict) and record.get("deployed_device_id") == dev_lo
-        ]
-        if len(deployed_matches) == 1:
-            match = deployed_matches[0]
-        elif managed_key:
-            key_matches = [
-                record
-                for record in records
-                if isinstance(record, dict) and str(record.get("device_key") or "").strip() == managed_key
-            ]
-            if len(key_matches) == 1:
-                match = key_matches[0]
-        elif managed_hash:
-            hash_matches = [
-                record
-                for record in records
-                if isinstance(record, dict)
-                and (
-                    str(record.get("deployed_commands_hash") or "").strip() == managed_hash
-                    or str(record.get("commands_hash") or "").strip() == managed_hash
-                )
-            ]
-            if len(hash_matches) == 1:
-                match = hash_matches[0]
-
-        if not isinstance(match, dict):
-            return None
-
-        slots_raw = match.get("commands")
-        if not isinstance(slots_raw, list) or not slots_raw:
-            return None
-
-        slots: list[dict[str, Any]] = []
-        input_command_ids: list[int] = []
-        for idx, slot in enumerate(slots_raw[:_WIFI_COMMAND_SLOT_COUNT]):
-            if not isinstance(slot, dict):
-                continue
-            slot_copy = dict(slot)
-            slot_name = str(slot_copy.get("name") or f"Command {idx + 1}").strip() or f"Command {idx + 1}"
-            slot_copy["name"] = slot_name
-            slots.append(slot_copy)
-            if str(slot_copy.get("input_activity_id") or "").strip():
-                input_command_ids.append(idx + 1)
-
-        if not slots:
-            return None
-
-        return {
-            "transport": _NETWORK_CALLBACK_TRANSPORT,
-            "source": _NETWORK_CALLBACK_PROFILE_SOURCE,
-            "device_key": str(match.get("device_key") or DEFAULT_WIFI_DEVICE_KEY),
-            "device_name": str(match.get("device_name") or device_meta.get("name") or "").strip(),
-            "slots": slots,
-            "power_on_command_id": normalize_power_command_id(
-                match.get("power_on_command_id"),
-                max_command_id=len(slots),
-            ),
-            "power_off_command_id": normalize_power_command_id(
-                match.get("power_off_command_id"),
-                max_command_id=len(slots),
-            ),
-            "input_command_ids": input_command_ids or None,
-        }
 
     def _build_device_block(
         self,
@@ -2651,7 +2935,13 @@ class SofabatonHub:
     async def _async_refresh_devices_snapshot(
         self, timeout_seconds: float = 15.0
     ) -> dict[int, dict[str, Any]]:
-        """Request a fresh device burst and wait briefly for the local cache to update."""
+        """Request a fresh device burst and return the proxy-state snapshot.
+
+        The returned mapping is the raw ``state.entities("device")`` view, so
+        ``raw_body`` is included. Callers that need a JSON-safe view
+        must pass each entry through :func:`to_export_view`. This
+        contract is symmetric with :meth:`_async_refresh_activities_snapshot`.
+        """
 
         previous_generation = self._devices_generation
         await self.hass.async_add_executor_job(self._proxy.request_devices)
@@ -2659,10 +2949,31 @@ class SofabatonHub:
         deadline = monotonic() + timeout_seconds
         while monotonic() < deadline:
             if self._devices_generation > previous_generation:
-                return dict(self.devices)
+                return dict(self._proxy.state.entities("device"))
             await asyncio.sleep(0.1)
 
-        return dict(self.devices)
+        return dict(self._proxy.state.entities("device"))
+
+    async def _async_refresh_activities_snapshot(
+        self, timeout_seconds: float = 15.0
+    ) -> dict[int, dict[str, Any]]:
+        """Request a fresh activities burst and return the proxy-state snapshot.
+
+        Returns the raw ``state.entities("activity")`` view (``raw_body``
+        included); the JSON-export boundary is the only place that
+        strips it via :func:`to_export_view`.
+        """
+
+        previous_generation = self._activities_generation
+        await self.hass.async_add_executor_job(self._proxy.request_activities)
+
+        deadline = monotonic() + timeout_seconds
+        while monotonic() < deadline:
+            if self._activities_generation > previous_generation:
+                return dict(self._proxy.state.entities("activity"))
+            await asyncio.sleep(0.1)
+
+        return dict(self._proxy.state.entities("activity"))
 
     async def async_request_catalog(self, kind: str, timeout_seconds: float = 30.0) -> None:
         """Send REQ_ACTIVITIES or REQ_DEVICES to the hub and wait for the burst to complete.
@@ -3000,7 +3311,7 @@ class SofabatonHub:
                     raise HomeAssistantError("Failed creating Wifi Device")
 
                 wifi_device_id = int(created["device_id"])
-                cached_created_device = self._proxy.state.devices.get(wifi_device_id & 0xFF)
+                cached_created_device = self._proxy.state.entities("device").get(wifi_device_id & 0xFF)
                 if isinstance(cached_created_device, dict):
                     self.devices[wifi_device_id & 0xFF] = dict(cached_created_device)
                 else:

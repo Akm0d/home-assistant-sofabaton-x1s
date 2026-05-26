@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 
 from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2
 from .protocol_const import FAMILY_MACROS, opcode_family, opcode_hi
+from .wire_schema import schema_for
 
 
 @dataclass(slots=True)
@@ -327,11 +328,14 @@ MACRO_KEY_ENTRY_SIZE = 10
 #: Byte offset within a region where per-key macro entries begin.
 MACRO_KEY_ENTRY_START = 2
 
-#: Length of the trailing label slot for X1 hubs (ASCII).
-MACRO_LABEL_LEN_X1 = 30
+#: Length of the trailing label slot for X1 hubs (ASCII). Mirrored
+#: from :mod:`wire_schema` for backwards-compatible imports.
+MACRO_LABEL_LEN_X1 = schema_for(HUB_VERSION_X1).macro_label_slot_len
 
 #: Length of the trailing label slot for X1S/X2 hubs (UTF-16BE).
-MACRO_LABEL_LEN_X1S_X2 = 60
+MACRO_LABEL_LEN_X1S_X2 = schema_for(HUB_VERSION_X1S).macro_label_slot_len
+
+assert MACRO_LABEL_LEN_X1 == 30 and MACRO_LABEL_LEN_X1S_X2 == 60
 
 
 @dataclass(slots=True, frozen=True)
@@ -379,17 +383,15 @@ class MacroRecord:
     raw_label_slot: bytes = b""
 
 
-def _stride_label_len_for_macros(hub_version: str | None) -> tuple[int, str]:
-    """Return ``(label_len, encoding)`` for the given hub model."""
+def _stride_label_len_for_macros(hub_version: str) -> tuple[int, str]:
+    """Return ``(label_len, encoding)`` for the given hub model.
 
-    if hub_version == HUB_VERSION_X1:
-        return (MACRO_LABEL_LEN_X1, "ascii")
-    if hub_version in (HUB_VERSION_X1S, HUB_VERSION_X2):
-        return (MACRO_LABEL_LEN_X1S_X2, "utf-16-be")
-    raise ValueError(
-        f"parse_macro_record_from_region: unknown hub_version={hub_version!r}; "
-        "expected one of HUB_VERSION_X1 / HUB_VERSION_X1S / HUB_VERSION_X2."
-    )
+    Thin wrapper over :func:`schema_for`; raises ``ValueError`` on
+    unknown variants via the shared schema.
+    """
+
+    schema = schema_for(hub_version)
+    return schema.macro_label_slot_len, schema.macro_label_encoding
 
 
 #: Auto-generated activity macro labels that real hubs sometimes preface

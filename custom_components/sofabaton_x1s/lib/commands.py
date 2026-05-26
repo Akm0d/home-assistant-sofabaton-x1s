@@ -6,6 +6,7 @@ import re
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2
+from .wire_schema import schema_for
 from .protocol_const import (
     FAMILY_KEYMAP,
     FAMILY_DEVBTNS,
@@ -312,38 +313,30 @@ class ButtonBurstFrame:
 
 
 #: Per-record stride in the assembled body. 40 bytes on X1 (ASCII labels),
-#: 70 bytes on X1S/X2 (UTF-16BE labels).
-COMMAND_RECORD_STRIDE_X1 = 40
-COMMAND_RECORD_STRIDE_X1S_X2 = 70
+#: 70 bytes on X1S/X2 (UTF-16BE labels). Mirrored from
+#: :mod:`wire_schema` for backwards-compatible external imports.
+COMMAND_RECORD_STRIDE_X1 = schema_for(HUB_VERSION_X1).command_stride
+COMMAND_RECORD_STRIDE_X1S_X2 = schema_for(HUB_VERSION_X1S).command_stride
 
 #: Per-record byte offsets common to both X1 and X1S/X2 layouts.
 COMMAND_RECORD_LABEL_OFFSET = 9
-COMMAND_RECORD_LABEL_LEN_X1 = 30
-COMMAND_RECORD_LABEL_LEN_X1S_X2 = 60
+COMMAND_RECORD_LABEL_LEN_X1 = schema_for(HUB_VERSION_X1).command_label_slot_len
+COMMAND_RECORD_LABEL_LEN_X1S_X2 = schema_for(HUB_VERSION_X1S).command_label_slot_len
+
+assert COMMAND_RECORD_STRIDE_X1 == 40 and COMMAND_RECORD_STRIDE_X1S_X2 == 70
+assert COMMAND_RECORD_LABEL_LEN_X1 == 30 and COMMAND_RECORD_LABEL_LEN_X1S_X2 == 60
 
 
-def _stride_and_label_len(hub_version: str | None) -> tuple[int, int, str]:
+def _stride_and_label_len(hub_version: str) -> tuple[int, int, str]:
     """Return (stride, label_len, encoding) for the hub model.
 
-    Encoding is the literal codec name accepted by ``bytes.decode``.
+    Thin wrapper over :func:`schema_for`; encoding is the literal
+    codec name accepted by ``bytes.decode``. Unknown hub versions
+    raise ``ValueError`` via the shared schema.
     """
 
-    if hub_version == HUB_VERSION_X1:
-        return (
-            COMMAND_RECORD_STRIDE_X1,
-            COMMAND_RECORD_LABEL_LEN_X1,
-            "ascii",
-        )
-    if hub_version in (HUB_VERSION_X1S, HUB_VERSION_X2):
-        return (
-            COMMAND_RECORD_STRIDE_X1S_X2,
-            COMMAND_RECORD_LABEL_LEN_X1S_X2,
-            "utf-16-be",
-        )
-    raise ValueError(
-        f"iter_command_records_from_assembled: unknown hub_version={hub_version!r}; "
-        "expected one of HUB_VERSION_X1 / HUB_VERSION_X1S / HUB_VERSION_X2."
-    )
+    schema = schema_for(hub_version)
+    return schema.command_stride, schema.command_label_slot_len, schema.command_label_encoding
 
 
 def _decode_schema_label(label_bytes: bytes, encoding: str) -> str:
@@ -437,27 +430,30 @@ def iter_command_records_from_assembled(
         )
 
 
-def _button_hub_line(hub_version: str | None) -> str:
-    if hub_version == HUB_VERSION_X1:
-        return "x1"
-    if hub_version in (HUB_VERSION_X1S, HUB_VERSION_X2):
-        return "x1s_x2"
-    return "shared"
+def _button_hub_line(hub_version: str) -> str:
+    """Return the burst-frame ``hub_line`` tag for the hub variant.
+
+    Validates ``hub_version`` against the shared schema so unknown
+    values fail at the call site rather than silently falling back to
+    a shape-sniffing heuristic.
+    """
+
+    schema_for(hub_version)
+    return "x1" if hub_version == HUB_VERSION_X1 else "x1s_x2"
 
 
-def _command_hub_line(hub_version: str | None) -> str:
-    if hub_version == HUB_VERSION_X1:
-        return "x1"
-    if hub_version in (HUB_VERSION_X1S, HUB_VERSION_X2):
-        return "x1s_x2"
-    return "shared"
+def _command_hub_line(hub_version: str) -> str:
+    """Return the burst-frame ``hub_line`` tag for the hub variant."""
+
+    schema_for(hub_version)
+    return "x1" if hub_version == HUB_VERSION_X1 else "x1s_x2"
 
 
 def parse_button_burst_frame(
     opcode: int,
     raw_frame: bytes,
     *,
-    hub_version: str | None = None,
+    hub_version: str,
 ) -> ButtonBurstFrame | None:
     """Return parsed family metadata for a button-burst frame.
 
@@ -501,7 +497,7 @@ def parse_button_burst_frame(
     if opcode == OP_MARKER:
         return ButtonBurstFrame(
             opcode=opcode,
-            hub_line="x1s_x2" if hinted_line != "x1" else hinted_line,
+            hub_line="x1s_x2" if hinted_line != "x1" else "x1",
             layout_kind="x1s_marker",
             role="marker",
             frame_no=frame_no,
@@ -515,8 +511,6 @@ def parse_button_burst_frame(
     stream = payload[3:] if len(payload) > 3 else b""
     if stream and len(stream) < 18:
         inferred_line = hinted_line
-        if inferred_line == "shared":
-            inferred_line = "x1s_x2" if frame_no > 1 else "shared"
 
         role = "final" if total_frames is not None and frame_no >= total_frames else "page"
         layout_kind = "page"
@@ -571,7 +565,7 @@ def parse_command_burst_frame(
     opcode: int,
     raw_frame: bytes,
     *,
-    hub_version: str | None = None,
+    hub_version: str,
 ) -> CommandBurstFrame | None:
     """Return parsed family metadata for a command-burst frame.
 
@@ -1037,7 +1031,7 @@ class DeviceCommandAssembler:
         raw_frame: bytes,
         *,
         dev_id_override: int | None = None,
-        hub_version: str | None = None,
+        hub_version: str,
     ) -> List[Tuple[int, bytes]]:
         """Feed a raw frame and return completed payloads when available."""
 
@@ -1137,7 +1131,7 @@ class DeviceButtonAssembler:
         raw_frame: bytes,
         *,
         activity_id_override: int | None = None,
-        hub_version: str | None = None,
+        hub_version: str,
     ) -> List[Tuple[int, bytes, int | None]]:
         """Feed a raw keymap frame and return completed row streams when available."""
 
@@ -1186,6 +1180,47 @@ class DeviceButtonAssembler:
         return completed
 
 
+# ---------------------------------------------------------------------------
+# Phase 9 -- per-family parse dispatcher
+#
+# Replaces the previous "import every burst parser at the call site" pattern
+# in :mod:`lib.opcode_handlers` with a single entry point that picks the
+# right metadata parser from the opcode's family code. Adding a new family
+# means adding one branch here; opcode_handlers stays family-agnostic.
+# ---------------------------------------------------------------------------
+
+
+def decode_burst_frame(
+    opcode: int,
+    raw_frame: bytes,
+    *,
+    hub_version: str,
+) -> ButtonBurstFrame | CommandBurstFrame | None:
+    """Dispatch to the per-family burst-frame metadata parser.
+
+    The integration receives multi-page bursts for keymaps (family
+    ``0x3D``), per-device command records (family ``0x5D``) and a
+    handful of marker / single-frame variants in adjacent families.
+    This dispatcher routes each incoming frame to the parser that owns
+    its family, returning the parser's structured frame record (or
+    ``None`` when the opcode does not belong to a known burst family).
+
+    Callers should pass the proxy's ``hub_version`` -- the parsers use
+    it to decide stride and label encoding, and reject unknown values
+    via :func:`schema_for`.
+    """
+
+    if _is_keymap_family(opcode):
+        return parse_button_burst_frame(opcode, raw_frame, hub_version=hub_version)
+    if (
+        _is_devbtn_family(opcode)
+        or opcode_family(opcode) == 0x0D
+        or opcode == OP_DEVBTN_SINGLE
+    ):
+        return parse_command_burst_frame(opcode, raw_frame, hub_version=hub_version)
+    return None
+
+
 __all__ = [
     "ButtonBurstFrame",
     "CommandRecord",
@@ -1199,6 +1234,7 @@ __all__ = [
     "build_denonk_ir_blob",
     "descriptive_play_blob_text",
     "denonk_checksum",
+    "decode_burst_frame",
     "COMMAND_RECORD_LABEL_LEN_X1",
     "COMMAND_RECORD_LABEL_LEN_X1S_X2",
     "COMMAND_RECORD_LABEL_OFFSET",

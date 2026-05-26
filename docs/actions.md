@@ -24,6 +24,8 @@ filter by `sofabaton_x1s`.
 | `sofabaton_x1s.sync_command_config` | Deploy the saved Wifi Commands configuration to the hub | No |
 | `sofabaton_x1s.device_to_activity` | Add a device to an activity | No |
 | `sofabaton_x1s.delete_device` | Delete a device from the hub | No |
+| `sofabaton_x1s.backup_bundle` | Read a `hub_bundle` JSON payload covering devices and (optionally) all activities | Yes |
+| `sofabaton_x1s.restore_backup` | Restore a `hub_bundle` payload onto the live hub | Yes |
 
 > **Sync guard:** several actions that modify the hub raise an error if a
 > `sync_command_config` is currently in progress.
@@ -461,6 +463,83 @@ action: sofabaton_x1s.delete_device
 data:
   device: 89c3874a93f1e9ee0f49e24a2710535e
   device_id: 5
+```
+
+---
+
+## `sofabaton_x1s.backup_bundle`
+
+Builds a single `hub_bundle` JSON payload covering either a subset of
+devices or the entire hub (every device plus every activity). The bundle
+is the only backup unit -- there is no standalone device or activity
+backup. See `docs/protocol/bundle-backup-plan.md` for the rationale.
+
+| Parameter | Type | Required | Description |
+| --------- | ---- | :------: | ----------- |
+| `device` | HA Device | Yes | Your Sofabaton hub. |
+| `device_ids` | list of int (1-255) | No | Devices to back up. Omit (or pass an empty list) to back up the whole hub (all devices + all activities). When supplied, activities are not included. |
+
+**Response (top-level fields)**
+
+| Field | Description |
+| ----- | ----------- |
+| `kind` | Always `"hub_bundle"`. |
+| `schema_version` | Always `4`. Older bundles are rejected on restore -- no migrator is provided. |
+| `captured_at` | ISO 8601 timestamp. |
+| `complete` | `true` when every per-entity backup inside the bundle is complete. |
+| `hub` | `{entry_id, name, version}` of the source hub. |
+| `devices` | List of per-device backup payloads. |
+| `activities` | List of per-activity backup payloads. Empty when `device_ids` was supplied. |
+
+```yaml
+action: sofabaton_x1s.backup_bundle
+data:
+  device: 89c3874a93f1e9ee0f49e24a2710535e
+  # device_ids: [5, 6, 7]   # uncomment to back up only these devices
+response_variable: bundle
+```
+
+---
+
+## `sofabaton_x1s.restore_backup`
+
+Restores a `hub_bundle` payload (schema_version 4) onto the live hub.
+Devices are restored first; the action auto-builds the
+`source_device_id -> new_device_id` map. Activities are restored second
+using that map.
+
+There are two modes, picked automatically from the bundle's contents:
+
+- **Append mode** -- bundle has `activities: []`. The listed devices are
+  added alongside any pre-existing devices; existing content is left
+  untouched.
+- **Replace mode** -- bundle has any activities. The hub must be erased
+  first so referenced device ids land predictably. Erase is not yet
+  implemented (see `docs/protocol/bundle-backup-plan.md` phases D/E);
+  until it ships, replace-mode restores fail fast with a clear
+  `hub_version`-specific error and no wire writes.
+
+| Parameter | Type | Required | Description |
+| --------- | ---- | :------: | ----------- |
+| `device` | HA Device | Yes | Your Sofabaton hub. |
+| `backup` | object | Yes | Full `hub_bundle` payload returned by `backup_bundle`. |
+
+**Response (top-level fields)**
+
+| Field | Description |
+| ----- | ----------- |
+| `status` | `"success"` or `"failed"`. |
+| `device_id_map` | Mapping from source device id (string) to assigned device id (int). |
+| `restored_devices` | Per-device summary (source_device_id, assigned device_id, restored_commands). |
+| `restored_activities` | Per-activity summary (source_activity_id, assigned activity_id, skipped_input_ordinals). |
+| `failed_at` | When `status="failed"`, a `[kind, source_id]` pair pointing at the device or activity that didn't complete. No rollback is attempted; earlier entries remain on the hub. |
+
+```yaml
+action: sofabaton_x1s.restore_backup
+data:
+  device: 89c3874a93f1e9ee0f49e24a2710535e
+  backup: !input bundle_payload
+response_variable: result
 ```
 
 ---

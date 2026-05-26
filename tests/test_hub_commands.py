@@ -200,7 +200,7 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
     # (power configured), power_style=3 (companion to power_mode). The
     # backup flow uses these to decide whether to actually call
     # REQ_ACTIVITY_INPUTS and REQ_MACROS -- on an unconfigured device it
-    # short-circuits those (see Phase 7 in apk-refactor-log.md).
+    # short-circuits those.
     device_config = DeviceConfig(
         name="TV",
         brand="Sony",
@@ -348,7 +348,7 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
 
     assert result is not None
     assert result["kind"] == "device_backup"
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
     assert isinstance(result.get("captured_at"), str) and result["captured_at"]
     assert result["complete"] is True
     assert "raw" not in result
@@ -385,7 +385,12 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         {
             "command_id": 18,
             "name": "Input",
-            "blob_hex": blob_body.hex(" "),
+            "restore_data": {
+                "transport": "hub_code_record",
+                "library_type": 0x0D,
+                "button_code": 0,
+                "data_hex": blob_body.hex(" "),
+            },
         }
     ]
     assert result["button_bindings"] == [
@@ -450,7 +455,140 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
     loop.close()
 
 
-def test_async_backup_device_includes_network_restore_profile_for_managed_device(monkeypatch):
+def test_async_backup_device_returns_rich_schema_from_snapshot_raw_body(monkeypatch):
+    """``_async_refresh_devices_snapshot`` now returns the raw proxy-state
+    view (``raw_body`` included), so the on-demand backup parses the
+    full device schema without a separate rehydration step.
+
+    Regression for the live restore that produced ``code_type=0x0A``
+    on a Bluetooth keyboard: when ``raw_body`` was missing from the
+    snapshot the backup degraded to a four-field shape and the restore
+    fell back to default ``code_type`` / ``device_type``, recreating
+    the device under the wrong class on the hub.
+    """
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    hass = FakeHass(loop)
+
+    hub = SofabatonHub(
+        hass,
+        "entry-id",
+        "hub-name",
+        "127.0.0.1",
+        1234,
+        {},
+        9999,
+        10000,
+        True,
+        False,
+    )
+
+    # BT keyboard-style device: code_type=0x03 (the byte that ended up
+    # as 0x0A in the live restore log because the snapshot view stripped
+    # raw_body and the backup fell back to defaults).
+    device_config = DeviceConfig(
+        name="Troeloeloe",
+        brand="Bluetooth Keyboard",
+        device_id=6,
+        icon=1,
+        code_type=0x03,
+        device_type=0x10,
+        input_mode=2,
+        power_mode=1,
+        power_style=3,
+    )
+    device_payload = build_device_create_payload(device_config, hub_version="X1")
+    device_raw_body = device_payload[3:]
+
+    # Snapshot view: carries raw_body straight from proxy state, per
+    # the Phase 2 contract on _async_refresh_devices_snapshot.
+    async def _refresh_devices_snapshot(timeout_seconds: float = 15.0):
+        return {
+            6: {
+                "name": "Troeloeloe",
+                "brand": "Bluetooth Keyboard",
+                "device_class": "bluetooth",
+                "device_class_code": 3,
+                "raw_body": device_raw_body,
+            }
+        }
+
+    async def _wait_ready(*args, **kwargs):
+        return None
+
+    async def _dump_ir_commands(*, device_id: int, wait_timeout: float = 15.0):
+        return {"complete": True, "commands": []}
+
+    monkeypatch.setattr(hub, "_async_refresh_devices_snapshot", _refresh_devices_snapshot)
+    monkeypatch.setattr(hub, "_reset_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(hub, "_async_wait_for_command_fetch_complete", _wait_ready)
+    monkeypatch.setattr(hub, "_async_wait_for_buttons_ready", _wait_ready)
+    monkeypatch.setattr(hub, "_async_wait_for_macros_ready", _wait_ready)
+    monkeypatch.setattr(hub, "async_dump_ir_commands", _dump_ir_commands)
+
+    # Authoritative state still carries raw_body. The fix should pull it
+    # from here when the snapshot view doesn't have it.
+    hub._proxy.state.devices[6] = {
+        "name": "Troeloeloe",
+        "brand": "Bluetooth Keyboard",
+        "device_class": "bluetooth",
+        "device_class_code": 3,
+        "raw_body": device_raw_body,
+    }
+    hub._proxy.state.commands[6] = {}
+    hub._proxy.state.buttons[6] = set()
+    hub._proxy.state.button_details[6] = {}
+    hub._proxy._macros_complete.add(6)
+
+    monkeypatch.setattr(hub._proxy, "clear_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_commands_for_entity",
+        lambda ent_id, fetch_if_missing=True: ({}, True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_buttons_for_entity",
+        lambda ent_id, fetch_if_missing=True: ([], True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_macros_for_activity",
+        lambda ent_id, fetch_if_missing=True: ([], True),
+    )
+    monkeypatch.setattr(hub._proxy, "get_cached_macro_records", lambda ent_id: [])
+    monkeypatch.setattr(
+        hub._proxy,
+        "fetch_device_input_entries",
+        lambda *args, **kwargs: [],
+    )
+
+    result = loop.run_until_complete(hub.async_backup_device(device_id=6))
+
+    assert result is not None
+    device_block = result["device"]
+    # Rich schema fields must be present -- this is what guards against
+    # the restore-time fallback to default code_type/device_type that
+    # creates the wrong device class on the hub.
+    assert device_block["code_type"] == 0x03
+    assert device_block["device_type"] == 0x10
+    assert device_block["input_mode"] == 2
+    assert device_block["power_mode"] == 1
+    assert device_block["power_style"] == 3
+    assert "code_id_hex" in device_block
+    assert "tail_marker" in device_block
+
+    loop.close()
+
+
+def test_async_backup_device_emits_hub_code_record_for_network_callback_device(monkeypatch):
+    """Wifi (network-callback) devices round-trip through the same raw
+    family-0x020C dump path BT/RF use; each command row carries the
+    captured library_type / command_code / data_hex so restore can
+    replay the record byte-for-byte without any Wifi-Commands-specific
+    profile."""
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     hass = FakeHass(loop)
@@ -472,7 +610,7 @@ def test_async_backup_device_includes_network_restore_profile_for_managed_device
         return {
             9: {
                 "name": "Living Room Audio",
-                "brand": "m3-default-a1b2c3",
+                "brand": "Brand",
                 "device_class": "wifi_sonos",
                 "device_class_code": 0x1C,
                 "raw_body": None,
@@ -482,32 +620,33 @@ def test_async_backup_device_includes_network_restore_profile_for_managed_device
     async def _wait_ready(*args, **kwargs):
         return None
 
+    fetch_blob_calls: list[int] = []
+
     async def _fetch_blob(*, device_id: int, command_id: int | None = None, wait_timeout: float = 10.0):
+        fetch_blob_calls.append(device_id)
+        return None
+
+    async def _dump_ir_commands(*, device_id: int, command_id: int | None = None, wait_timeout: float = 10.0):
         return {
             "device_id": device_id,
             "requested_command_id": command_id,
-            "total_commands": 0,
-            "received_command_count": 0,
-            "complete": False,
-            "commands": [],
-        }
-
-    class _Store:
-        async def async_list_hub_devices(self, entry_id):
-            return [
+            "total_commands": 1,
+            "received_command_count": 1,
+            "complete": True,
+            "commands": [
                 {
-                    "device_key": "default",
-                    "device_name": "Living Room Audio",
-                    "commands": [
-                        {"name": "TV", "input_activity_id": "101"},
-                        {"name": "Bluetooth", "input_activity_id": ""},
+                    "command_id": 3,
+                    "device_id": device_id,
+                    "label": "TV",
+                    "ir_blob_hex": "aa bb cc dd",
+                    "pages": [
+                        {
+                            "payload_hex": "01 00 01 01 00 01 09 03 1c 00 00 00 00 4e 21 54 56",
+                        }
                     ],
-                    "power_on_command_id": 1,
-                    "power_off_command_id": 2,
-                    "deployed_device_id": 9,
-                    "deployed_commands_hash": "a1b2c3",
                 }
-            ]
+            ],
+        }
 
     monkeypatch.setattr(hub, "_async_refresh_devices_snapshot", _refresh_devices_snapshot)
     monkeypatch.setattr(hub, "_reset_entity_cache", lambda *args, **kwargs: None)
@@ -515,15 +654,11 @@ def test_async_backup_device_includes_network_restore_profile_for_managed_device
     monkeypatch.setattr(hub, "_async_wait_for_buttons_ready", _wait_ready)
     monkeypatch.setattr(hub, "_async_wait_for_macros_ready", _wait_ready)
     monkeypatch.setattr(hub, "async_fetch_blob", _fetch_blob)
-    monkeypatch.setattr(
-        hub_module,
-        "async_get_command_config_store",
-        lambda _hass: asyncio.sleep(0, result=_Store()),
-    )
+    monkeypatch.setattr(hub, "async_dump_ir_commands", _dump_ir_commands)
 
     hub._proxy.state.devices[9] = {
         "name": "Living Room Audio",
-        "brand": "m3-default-a1b2c3",
+        "brand": "Brand",
         "device_class": "wifi_sonos",
         "device_class_code": 0x1C,
     }
@@ -532,7 +667,7 @@ def test_async_backup_device_includes_network_restore_profile_for_managed_device
     monkeypatch.setattr(
         hub._proxy,
         "get_commands_for_entity",
-        lambda ent_id, fetch_if_missing=True: ({1: "TV", 2: "Bluetooth"}, True),
+        lambda ent_id, fetch_if_missing=True: ({3: "TV"}, True),
     )
     monkeypatch.setattr(
         hub._proxy,
@@ -551,31 +686,20 @@ def test_async_backup_device_includes_network_restore_profile_for_managed_device
 
     assert result is not None
     assert result["complete"] is True
+    assert "restore_profile" not in result
+    assert fetch_blob_calls == [], "wifi devices must skip the IR-blob fetch path"
     assert result["commands"] == [
         {
-            "command_id": 1,
+            "command_id": 3,
             "name": "TV",
-            "restore_data": {"transport": "network_callback", "slot_index": 0},
-        },
-        {
-            "command_id": 2,
-            "name": "Bluetooth",
-            "restore_data": {"transport": "network_callback", "slot_index": 1},
-        },
+            "restore_data": {
+                "transport": "hub_code_record",
+                "library_type": 0x1C,
+                "command_code": "00 00 00 00 4e 21",
+                "data_hex": "aa bb cc dd",
+            },
+        }
     ]
-    assert result["restore_profile"] == {
-        "transport": "network_callback",
-        "source": "wifi_commands",
-        "device_key": "default",
-        "device_name": "Living Room Audio",
-        "slots": [
-            {"name": "TV", "input_activity_id": "101"},
-            {"name": "Bluetooth", "input_activity_id": ""},
-        ],
-        "power_on_command_id": 1,
-        "power_off_command_id": 2,
-        "input_command_ids": [1],
-    }
 
     loop.close()
 

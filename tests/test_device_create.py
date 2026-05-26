@@ -24,26 +24,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from tests._stub_packages import ensure_stub_package
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def _ensure_stub_package(name: str, path: Path) -> None:
-    if name in sys.modules:
-        return
-    module = types.ModuleType(name)
-    module.__path__ = [str(path)]
-    sys.modules[name] = module
-
-
-_ensure_stub_package("custom_components", ROOT / "custom_components")
-_ensure_stub_package(
+ensure_stub_package("custom_components", ROOT / "custom_components")
+ensure_stub_package(
     "custom_components.sofabaton_x1s",
     ROOT / "custom_components" / "sofabaton_x1s",
 )
-_ensure_stub_package(
+ensure_stub_package(
     "custom_components.sofabaton_x1s.lib",
     ROOT / "custom_components" / "sofabaton_x1s" / "lib",
 )
@@ -60,7 +53,7 @@ from custom_components.sofabaton_x1s.lib.device_create import (
     FAMILY_DEVICE_CREATE,
     FAMILY_DEVICE_UPDATE,
     FAMILY_INPUTS,
-    FAMILY_IR_COMMAND,
+    FAMILY_COMMAND_WRITE,
     FAMILY_MACRO,
     FAMILY_REMOTE_SYNC,
     FAMILY_SET_IDLE_BEHAVIOR,
@@ -68,13 +61,11 @@ from custom_components.sofabaton_x1s.lib.device_create import (
     build_button_binding_step,
     build_device_create_step,
     build_device_update_step,
-    build_inputs_step,
-    build_ir_command_steps,
+    build_command_write_steps,
     build_macro_step_record,
     build_macro_step,
     build_remote_sync_step,
     build_set_idle_behavior_step,
-    build_x1_input_entry,
     run_create_sequence,
     synthesize_command_code,
 )
@@ -288,6 +279,7 @@ def test_macro_step_matches_capture_frame_479_power_on() -> None:
 
     step_record = bytes.fromhex("0d 00 00 00 00 00 00 01 00 ff".replace(" ", ""))
     step = build_macro_step(
+        hub_version=HUB_VERSION_X1,
         device_id=0x0D,
         key_id=0xC6,
         label="POWER_ON",
@@ -312,6 +304,7 @@ def test_macro_step_matches_capture_frame_479_power_on() -> None:
 
 def test_macro_step_with_zero_steps_writes_label_only() -> None:
     step = build_macro_step(
+        hub_version=HUB_VERSION_X1,
         device_id=0x0D,
         key_id=0xC7,
         label="EMPTY",
@@ -327,6 +320,7 @@ def test_macro_step_with_zero_steps_writes_label_only() -> None:
 def test_macro_step_rejects_step_record_length_not_multiple_of_ten() -> None:
     with pytest.raises(ValueError):
         build_macro_step(
+            hub_version=HUB_VERSION_X1,
             device_id=0,
             key_id=0,
             label="x",
@@ -339,54 +333,16 @@ def test_macro_step_rejects_step_record_length_not_multiple_of_ten() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_inputs_step_matches_capture_frame_483_no_switching() -> None:
-    step = build_inputs_step(
-        device_id=0x0D,
-        source_type=2,
-        source_count=0,
-    )
-
-    assert step.family == FAMILY_INPUTS
-    assert step.ack_opcode == ACK_OPCODE_STATUS
-    assert step.ack_first_byte == ACK_STATUS_BYTE_OK
-    assert len(step.payload) == 119
-    # Outer wrapper + body header (= [01, 00, 01] outer + [01, 00, 01,
-    # dev_id, source_type, source_count, start_pos, restart_pos]
-    # body header).
-    assert step.payload[:11] == bytes.fromhex(
-        "01 00 01"           # outer
-        " 01 00 01"          # inner page header
-        " 0d 02 00 00 00"    # device, source_type=2, source_count=0, positions
-        .replace(" ", "")
-    )
-    # All trailing key blocks are zero (no switching configured) ...
-    assert step.payload[11:118] == b"\x00" * 107
-    # ... and the body checksum is sum of body bytes (the body starts at
-    # payload[3], so checksum = sum(payload[3..117]) mod 256).
-    assert step.payload[118] == sum(step.payload[3:118]) & 0xFF
-
-
-def test_inputs_step_rejects_entry_length_mismatch() -> None:
-    with pytest.raises(ValueError):
-        build_inputs_step(
-            device_id=0x0D,
-            source_type=1,
-            source_count=2,
-            entries=b"\x00" * 27,  # only one entry-worth of bytes, but count=2
-        )
-
-
 def test_synthesize_command_code_matches_x1_keymap_convention() -> None:
     assert synthesize_command_code(0x01) == 0x4E21
     assert synthesize_command_code(0x06) == 0x4E26
 
 
-def test_build_x1_input_entry_matches_observed_shape() -> None:
-    entry = build_x1_input_entry(command_id=0x02, label="Command 2")
-
-    assert len(entry) == 27
-    assert entry[:7] == bytes.fromhex("02 00 00 00 00 4e 22")
-    assert entry[7:] == b"Command 2".ljust(20, b"\x00")
+# Inputs builder/parser tests now live in ``tests/lib/test_inputs.py``;
+# the legacy ``build_inputs_step`` / ``build_x1_input_entry`` shape was
+# rewritten in Phase 3 of the protocol refactor and the canonical
+# layout (4 control-key rows + 10 favorite slots + state byte) is
+# pinned there instead of here.
 
 
 def test_build_macro_step_record_serializes_ten_byte_row() -> None:
@@ -413,7 +369,8 @@ def test_ir_command_steps_single_page_when_body_fits() -> None:
     """
 
     library_data = bytes.fromhex("02 20 00 00 00 00 12 34 00 00 56 78 00 00".replace(" ", ""))
-    steps = build_ir_command_steps(
+    steps = build_command_write_steps(
+        hub_version=HUB_VERSION_X1,
         command_seq=1,
         command_burst_size=1,
         device_id=0x0D,
@@ -460,7 +417,8 @@ def test_ir_command_steps_replicates_capture_frame_193_prelude() -> None:
     library_data = b"\x02\x20\x00\x00\x00\x00" + b"\x00" * 550
     assert len(library_data) == 556
 
-    steps = build_ir_command_steps(
+    steps = build_command_write_steps(
+        hub_version=HUB_VERSION_X1,
         command_seq=1,
         command_burst_size=42,            # observed: 42 commands in the burst
         device_id=0x0D,
@@ -498,7 +456,8 @@ def test_ir_command_steps_splits_long_blob_at_247_byte_chunks() -> None:
     library_data = bytes(range(256))[:200] + bytes(range(256))[:200] + bytes(range(256))[:127]
     assert len(library_data) == 527
 
-    steps = build_ir_command_steps(
+    steps = build_command_write_steps(
+        hub_version=HUB_VERSION_X1,
         command_seq=2,
         command_burst_size=5,
         device_id=0x0D,
@@ -524,7 +483,8 @@ def test_ir_command_steps_splits_long_blob_at_247_byte_chunks() -> None:
 
 def test_ir_command_steps_validates_byte_ranges() -> None:
     with pytest.raises(ValueError):
-        build_ir_command_steps(
+        build_command_write_steps(
+            hub_version=HUB_VERSION_X1,
             command_seq=0,                  # invalid: must be >= 1
             command_burst_size=1,
             device_id=0,
@@ -535,7 +495,8 @@ def test_ir_command_steps_validates_byte_ranges() -> None:
             library_data=b"\x01",
         )
     with pytest.raises(ValueError):
-        build_ir_command_steps(
+        build_command_write_steps(
+            hub_version=HUB_VERSION_X1,
             command_seq=1,
             command_burst_size=1,
             device_id=0,
@@ -546,7 +507,8 @@ def test_ir_command_steps_validates_byte_ranges() -> None:
             library_data=b"\x01",
         )
     with pytest.raises(ValueError):
-        build_ir_command_steps(
+        build_command_write_steps(
+            hub_version=HUB_VERSION_X1,
             command_seq=1,
             command_burst_size=1,
             device_id=0,
@@ -572,7 +534,7 @@ class _FakeProxy:
     def _send_family_frame(self, family: int, payload: bytes) -> None:
         self.send_log.append((family, bytes(payload)))
 
-    def wait_for_roku_ack_any(
+    def wait_for_ack_any(
         self,
         candidates: list[tuple[int, int | None]],
         *,
@@ -664,3 +626,146 @@ def test_run_create_sequence_captures_device_id_only_from_flagged_step() -> None
 
     assert result.success is True
     assert result.assigned_device_id == 0x0E
+
+
+def test_run_create_sequence_distinguishes_rejection_from_timeout() -> None:
+    """When the hub answers with a byte in ``ack_reject_first_bytes``,
+    the result must report ``rejected=True`` (not a timeout)."""
+
+    rejected_step = _step(
+        "reject",
+        0x0E,
+        b"\x01\x02",
+        ACK_OPCODE_STATUS,
+        ack_first_byte=0,
+        ack_reject_first_bytes=(0x0C,),
+    )
+    proxy = _FakeProxy(ack_script=[(ACK_OPCODE_STATUS, b"\x0C")])
+
+    result = run_create_sequence(proxy, [rejected_step])
+
+    assert result.success is False
+    assert result.rejected is True
+    assert result.reject_payload == b"\x0C"
+    assert result.failed_step is rejected_step
+
+
+def test_run_create_sequence_treats_any_nonzero_status_ack_as_rejection() -> None:
+    """STATUS_ACK steps that ask for success on ``payload[0]==0x00`` must
+    also fail fast on any non-zero first byte. STATUS_ACK is a binary
+    verdict (zero=accepted, anything else=rejected with a status code),
+    so a non-zero first byte is always a rejection of the in-flight
+    write -- waiting out the per-step timeout would just turn a fast,
+    diagnosable rejection into a slow "timeout".
+    """
+
+    step = _step(
+        "inputs",
+        0x46,
+        b"\x00",
+        ACK_OPCODE_STATUS,
+        ack_first_byte=0,
+        # No explicit reject byte list -- wildcard behaviour must kick in.
+    )
+    proxy = _FakeProxy(ack_script=[(ACK_OPCODE_STATUS, b"\x09")])
+
+    result = run_create_sequence(proxy, [step])
+
+    assert result.success is False
+    assert result.rejected is True
+    assert result.reject_payload == b"\x09"
+    assert result.failed_step is step
+
+
+# ---------------------------------------------------------------------------
+# Source-faithful single-command save: the canonical builder writes the
+# same 30-byte ASCII label slot the app's encoder uses, regardless of
+# whether the caller is doing a fresh-create burst (size=N) or a
+# single-command save (size=1).
+# ---------------------------------------------------------------------------
+
+
+_SOURCE_FAITHFUL_IR_SAVE_PAGE = (
+    # outer page header + body: size=1, total_pages=1, dev=0x12,
+    # cmd_id=0x07, library_type=0x0D, button_code=0, 30-byte label
+    # 'Input\0...', 10 bytes of library_data 00..09, body checksum.
+    "01000101000112070d000000000000"
+    "496e70757400000000000000000000000000000000000000000000000000"
+    "00010203040506070809"
+    "65"
+)
+
+
+def test_single_command_save_writes_source_faithful_30_byte_label_slot() -> None:
+    """A burst of size 1 (the single-command save path) emits the same
+    30-byte ASCII label slot the source app uses for the multi-command
+    create burst. There is no per-call slot-width customization."""
+
+    steps = build_command_write_steps(
+        hub_version=HUB_VERSION_X1,
+        command_seq=1,
+        command_burst_size=1,
+        device_id=0x12,
+        button_id=0x07,
+        library_type=0x0D,
+        button_code=0,
+        label="Input",
+        library_data=bytes(range(10)),
+    )
+
+    assert len(steps) == 1
+    assert steps[0].family == FAMILY_COMMAND_WRITE
+    assert steps[0].payload.hex() == _SOURCE_FAITHFUL_IR_SAVE_PAGE
+
+
+_SOURCE_FAITHFUL_CMDREC_SAVE_PAGE = (
+    "010001010001120703000000004e25"
+    "426c7565746f6f7468000000000000000000000000000000000000000000"
+    "aabbccdd"
+    "55"
+)
+
+
+def test_single_command_save_non_ir_codec_writes_library_type_and_button_code() -> None:
+    steps = build_command_write_steps(
+        hub_version=HUB_VERSION_X1,
+        command_seq=1,
+        command_burst_size=1,
+        device_id=0x12,
+        button_id=0x07,
+        library_type=0x03,
+        button_code=0x4E25,
+        label="Bluetooth",
+        library_data=bytes.fromhex("aabbccdd"),
+    )
+
+    assert len(steps) == 1
+    assert steps[0].payload.hex() == _SOURCE_FAITHFUL_CMDREC_SAVE_PAGE
+
+
+_SOURCE_FAITHFUL_IR_SAVE_PAGES_MULTI = [
+    "01000101000205090d000000000000426967000000000000000000000000000000000000000000000000000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcc",
+    "010002cdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b62",
+]
+
+
+def test_single_command_save_pages_a_long_blob_at_247_byte_chunks() -> None:
+    """Multi-page single-command save (300-byte blob, label 'Big',
+    source-faithful 30-byte slot)."""
+
+    steps = build_command_write_steps(
+        hub_version=HUB_VERSION_X1,
+        command_seq=1,
+        command_burst_size=1,
+        device_id=0x05,
+        button_id=0x09,
+        library_type=0x0D,
+        button_code=0,
+        label="Big",
+        library_data=bytes((i & 0xFF) for i in range(300)),
+    )
+
+    assert [step.payload.hex() for step in steps] == _SOURCE_FAITHFUL_IR_SAVE_PAGES_MULTI
+    # Each page advertises the rejection byte to the sequencer.
+    for step in steps:
+        assert step.ack_reject_first_bytes == (0x0C,)

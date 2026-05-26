@@ -97,9 +97,16 @@ fetch_blob:
           max: 255
           mode: box
 
-backup_device:
-  name: Backup device
-  description: Fetches a fresh, restore-oriented JSON backup payload for the selected hub device. The response includes live device metadata, command labels, canonical command blobs, inputs, idle behavior, button bindings, favorites, macros, and the raw 0x020C dump payloads used to build the backup.
+backup_bundle:
+  name: Backup hub bundle
+  description: >-
+    Returns a hub_bundle JSON payload (schema_version 4). With device_ids
+    omitted, backs up everything (all devices and all activities). With
+    device_ids supplied, backs up just the listed devices (activities are
+    not included; bundles that mix devices with activities are produced
+    only by the whole-hub mode). The bundle is the only backup unit -- per
+    the bundle-backup plan there is no standalone device or activity
+    payload anymore.
   fields:
     device:
       name: Sofabaton hub
@@ -107,19 +114,24 @@ backup_device:
       selector:
         device:
           integration: sofabaton_x1s
-    device_id:
-      name: Device id
-      description: Hub device id to back up directly from the live hub.
-      required: true
+    device_ids:
+      name: Device ids
+      description: >-
+        Optional list of device ids (1..255) to back up. Omit (or pass an
+        empty list) to back up the whole hub.
+      required: false
       selector:
-        number:
-          min: 1
-          max: 255
-          mode: box
+        object:
 
-restore_device:
-  name: Restore device
-  description: Restores a hub device from a JSON object previously returned by backup_device. The current implementation restores X1 backups.
+restore_backup:
+  name: Restore hub bundle
+  description: >-
+    Restores a hub_bundle JSON payload (schema_version 4). Devices in the
+    bundle are restored first; the action auto-builds the source->new
+    device_id map. Activities in the bundle are then restored using that
+    map. Bundles containing activities require a hub erase first; until
+    erase support ships this fails fast with a clear error and no wire
+    writes.
   fields:
     device:
       name: Sofabaton hub
@@ -129,7 +141,7 @@ restore_device:
           integration: sofabaton_x1s
     backup:
       name: Backup payload
-      description: Full object returned by the backup_device action.
+      description: Full hub_bundle object returned by the backup_bundle action.
       required: true
       selector:
         object:

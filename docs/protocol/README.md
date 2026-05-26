@@ -48,9 +48,11 @@ They intentionally avoid:
 | [connection-flow.md](connection-flow.md) | Discovery, `CALL_ME`, TCP session establishment |
 | [opcodes.md](opcodes.md) | Known request and response opcodes |
 | [data-structures.md](data-structures.md) | Repeated payload structures and row layouts |
-| [hub-versions.md](hub-versions.md) | X1 vs X1S vs X2 differences |
+| [inputs.md](inputs.md) | Family-0x46 inputs page (entry region + control keys + favorites) |
+| [hub-versions.md](hub-versions.md) | X1 vs X1S vs X2 differences, including per-variant record dimensions |
 | [wifi-commands.md](wifi-commands.md) | WiFi/IP device creation, sync, and refresh flows |
-| [reference-impl.md](reference-impl.md) | Mapping from protocol concepts to this repository's code |
+| [ack-handling.md](ack-handling.md) | How the hub signals accept / reject / timeout |
+| [reference-impl.md](reference-impl.md) | Mapping from protocol concepts to this repository's code (orchestrator, mixin layout, ack-outcome dataclasses, state accessor) |
 
 ---
 

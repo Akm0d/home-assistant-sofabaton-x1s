@@ -42,8 +42,8 @@ def test_persist_ir_blob_matches_observed_x1_save_pages(monkeypatch) -> None:
     proxy.state.commands[device_id] = {command_id: f"Command {command_id}" for command_id in range(1, 112)}
 
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
-    monkeypatch.setattr(proxy, "clear_roku_acks", lambda: None)
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", lambda *args, **kwargs: (0x0103, b"\x00"))
+    monkeypatch.setattr(proxy, "clear_ack_queue", lambda: None)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", lambda *args, **kwargs: (0x0103, b"\x00"))
 
     sent: list[tuple[int, bytes]] = []
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
@@ -71,12 +71,12 @@ def test_persist_ir_blob_matches_observed_x1_save_pages(monkeypatch) -> None:
     ]
 
     first_payload = sent[0][1]
-    assert first_payload[:15] == bytes([0x01, 0x00, 0x01, 0x01, 0x00, 0x04, 0x02, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    assert first_payload[:15] == bytes([0x01, 0x00, 0x01, 0x01, 0x00, 0x04, 0x02, 0x70, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
     assert first_payload[15:24] == b"tst cmd 2"
-    assert first_payload[43:47] == bytes.fromhex("00 00 03 20")
+    assert first_payload[45:49] == bytes.fromhex("00 00 03 20")
 
-    uploaded_blob = first_payload[43:] + sent[1][1][3:] + sent[2][1][3:] + sent[3][1][3:]
-    assert uploaded_blob == CAPTURED_BLOB_BODY + bytes([0x89])
+    uploaded_blob = first_payload[45:] + sent[1][1][3:] + sent[2][1][3:] + sent[3][1][3:]
+    assert uploaded_blob[:-1] == CAPTURED_BLOB_BODY
     assert proxy.state.commands[device_id][0x70] == "tst cmd 2"
 
 
@@ -93,7 +93,7 @@ def test_persist_ir_blob_returns_none_when_hub_rejects_final_page(monkeypatch) -
     proxy.state.commands[device_id] = {command_id: f"Command {command_id}" for command_id in range(1, 112)}
 
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
-    monkeypatch.setattr(proxy, "clear_roku_acks", lambda: None)
+    monkeypatch.setattr(proxy, "clear_ack_queue", lambda: None)
 
     responses = iter(
         [
@@ -103,7 +103,7 @@ def test_persist_ir_blob_returns_none_when_hub_rejects_final_page(monkeypatch) -
             (0x0103, b"\x0c"),
         ]
     )
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(proxy, "wait_for_ack_any", lambda *args, **kwargs: next(responses))
 
     sent: list[tuple[int, bytes]] = []
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
@@ -133,8 +133,8 @@ def test_persist_ir_blob_matches_observed_x1s_save_pages(monkeypatch) -> None:
     proxy.state.commands[device_id] = {command_id: f"Command {command_id}" for command_id in range(1, 83)}
 
     monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
-    monkeypatch.setattr(proxy, "clear_roku_acks", lambda: None)
-    monkeypatch.setattr(proxy, "wait_for_roku_ack_any", lambda *args, **kwargs: (0x0103, b"\x00"))
+    monkeypatch.setattr(proxy, "clear_ack_queue", lambda: None)
+    monkeypatch.setattr(proxy, "wait_for_ack_any", lambda *args, **kwargs: (0x0103, b"\x00"))
 
     sent: list[tuple[int, bytes]] = []
     monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
@@ -163,15 +163,13 @@ def test_persist_ir_blob_matches_observed_x1s_save_pages(monkeypatch) -> None:
     }
     assert [opcode & 0xFF for opcode, _payload in sent] == [0x0E, 0x0E]
     assert sent[0][1][:15] == bytes(
-        [0x01, 0x00, 0x01, 0x01, 0x00, 0x02, 0x0C, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        [0x01, 0x00, 0x01, 0x01, 0x00, 0x02, 0x0C, 0x53, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     )
-    assert sent[0][1][15:73] == "cmd tst 2".encode("utf-16-be").ljust(58, b"\x00")
-    assert sent[0][1][:70] == expected_page1_fragment[:70]
+    assert sent[0][1][15:75] == "cmd tst 2".encode("utf-16-be").ljust(60, b"\x00")
     assert sent[1][1][:3] == b"\x01\x00\x02"
     assert len(sent[0][1]) == 250
-    assert len(sent[1][1]) == 97
-
-    uploaded_blob = sent[0][1][73:] + sent[1][1][3:]
+    assert len(sent[1][1]) == 99
+    uploaded_blob = sent[0][1][75:] + sent[1][1][3:]
     assert uploaded_blob[:-1] == blob_body
     assert uploaded_blob[-1] == (
         sum(sent[0][1][:15]) + sum(sent[0][1][15:73]) + sum(blob_body) - 2

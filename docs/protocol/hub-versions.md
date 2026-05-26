@@ -164,3 +164,34 @@ Observed patterns:
 
 This means clients should choose decoding rules per family and layout, not per
 hub version alone.
+
+---
+
+## Per-variant record dimensions
+
+X1S and X2 share the same record layouts across every observed
+family; X1 uses narrower fixed slots and ASCII labels.
+
+| Field | X1 | X1S / X2 |
+|---|---|---|
+| Device record body length (families `0x07` / `0x37`, including trailing checksum) | 120 bytes | 210 bytes |
+| Device record name / brand / tail slot width | 30 bytes | 60 bytes |
+| Device record label encoding | ASCII | UTF-16BE |
+| Command record stride (family `0x0E` assembled records) | 40 bytes | 70 bytes |
+| Command record label slot width | 30 bytes | 60 bytes |
+| Command record label encoding | ASCII | UTF-16BE |
+| Macro label slot width (family `0x12`) | 30 bytes | 60 bytes |
+| Macro label encoding | ASCII | UTF-16BE |
+| Inputs entry stride (family `0x46`) | 27 bytes | 48 bytes |
+| Inputs entry label encoding | ASCII (20-byte slot) | UTF-16BE (40-byte slot) |
+| Inputs entry ordinal byte present? | no | yes (1 byte) |
+| Inputs trailing region (4 control-key rows + 10 favorite rows + 1 state byte) | 107 bytes | 107 bytes |
+
+The trailing region of the family-`0x46` inputs page is identical
+across variants. See [inputs.md](inputs.md) for the full page
+layout.
+
+Clients targeting an unknown future firmware lineage should treat
+the variant as unknown and refuse to write, rather than defaulting
+to either of the layouts above — writes using the wrong stride
+produce silently-acked but structurally invalid records.
