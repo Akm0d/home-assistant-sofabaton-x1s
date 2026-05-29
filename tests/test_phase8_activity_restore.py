@@ -77,7 +77,7 @@ def _activity_backup(
         ]
     return {
         "kind": "activity_backup",
-        "schema_version": 3,
+        "schema_version": 4,
         "device": {
             "entity_type": "activity",
             "device_id": 5,
@@ -158,7 +158,15 @@ def test_restore_activity_post_steps_match_canonical(monkeypatch) -> None:
 
     favorite_calls: list[tuple[int, int, int, int | None]] = []
 
-    def _command_to_favorite(activity_id, device_id, command_id, *, slot_id=None, refresh_after_write=True):
+    def _command_to_favorite(
+        activity_id,
+        device_id,
+        command_id,
+        *,
+        slot_id=None,
+        refresh_after_write=True,
+        query_existing_order=True,
+    ):
         favorite_calls.append((activity_id, device_id, command_id, slot_id))
         return {"activity_id": activity_id, "device_id": device_id, "command_id": command_id}
 
@@ -198,8 +206,18 @@ def test_restore_activity_writes_favorite_slots(monkeypatch) -> None:
 
     favorite_calls: list[tuple[int, int, int, int | None]] = []
 
-    def _command_to_favorite(activity_id, device_id, command_id, *, slot_id=None, refresh_after_write=True):
-        favorite_calls.append((activity_id, device_id, command_id, slot_id))
+    def _command_to_favorite(
+        activity_id,
+        device_id,
+        command_id,
+        *,
+        slot_id=None,
+        refresh_after_write=True,
+        query_existing_order=True,
+    ):
+        favorite_calls.append(
+            (activity_id, device_id, command_id, slot_id, refresh_after_write, query_existing_order)
+        )
         return {"activity_id": activity_id, "device_id": device_id, "command_id": command_id}
 
     monkeypatch.setattr(proxy, "command_to_favorite", _command_to_favorite)
@@ -216,8 +234,8 @@ def test_restore_activity_writes_favorite_slots(monkeypatch) -> None:
     # device ids remapped through the device_id_map and the source
     # slot id preserved.
     assert favorite_calls == [
-        (0x55, 0x21, 1, 0xA0),
-        (0x55, 0x22, 2, 0xA1),
+        (0x55, 0x21, 1, 0xA0, False, False),
+        (0x55, 0x22, 2, 0xA1, False, False),
     ]
 
 

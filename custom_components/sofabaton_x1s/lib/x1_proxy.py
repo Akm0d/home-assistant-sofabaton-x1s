@@ -14,7 +14,7 @@ from dataclasses import replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..const import HUB_VERSION_X1, HUB_VERSION_X1S, HUB_VERSION_X2, classify_hub_version, mdns_service_type_for_props
-from ..logging_utils import get_hub_logger
+from ..logging_utils import LogTag, get_hub_logger
 from .frame_handlers import FrameContext, frame_handler_registry
 from .ack import AckOutcome, InputsBurstResult, SendStepResult
 from .commands import (
@@ -646,7 +646,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
     
     def set_diag_dump(self, enable: bool) -> None:
         self.diag_dump = bool(enable)
-        self._log.info("[PROXY] hex logging %s", "enabled" if enable else "disabled")
+        self._log.info("%s hex logging %s", LogTag.PROXY, "enabled" if enable else "disabled")
 
     def can_issue_commands(self) -> bool:
         return self.transport.can_issue_commands()
@@ -658,8 +658,9 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
 
     def _send_family_frame(self, family: int, payload: bytes) -> None:
         opcode = ((len(payload) & 0xFF) << 8) | (family & 0xFF)
-        self._log.info(
-            "[WIFI] send family=0x%02X opcode=0x%04X payload=%dB",
+        self._log.debug(
+            "%s send family=0x%02X opcode=0x%04X payload=%dB",
+            LogTag.WIFI,
             family,
             opcode,
             len(payload),
@@ -708,8 +709,9 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
 
         total_attempts = max(1, int(retries) + 1)
         for attempt in range(1, total_attempts + 1):
-            self._log.info(
-                "[WIFI][STEP] %s tx family=0x%02X expect_ack=0x%04X first_byte=%s attempt=%d/%d",
+            self._log.debug(
+                "%s[STEP] %s tx family=0x%02X expect_ack=0x%04X first_byte=%s attempt=%d/%d",
+                LogTag.WIFI,
                 step_name,
                 family,
                 ack_opcode,
@@ -735,7 +737,8 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 )
                 if is_status_reject:
                     self._log.warning(
-                        "[WIFI][STEP] %s hub rejected status=0x%02X payload=%s",
+                        "%s[STEP] %s hub rejected status=0x%02X payload=%s",
+                        LogTag.WIFI,
                         step_name,
                         first_byte,
                         matched_payload.hex(" "),
@@ -747,12 +750,13 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                     )
                 if matched_opcode != ack_opcode:
                     self._log.warning(
-                        "[WIFI][STEP] %s matched fallback ack=0x%04X (expected=0x%04X)",
+                        "%s[STEP] %s matched fallback ack=0x%04X (expected=0x%04X)",
+                        LogTag.WIFI,
                         step_name,
                         matched_opcode,
                         ack_opcode,
                     )
-                self._log.info("[WIFI][STEP] %s acked via 0x%04X", step_name, matched_opcode)
+                self._log.debug("%s[STEP] %s acked via 0x%04X", LogTag.WIFI, step_name, matched_opcode)
                 return SendStepResult(
                     outcome=AckOutcome.acked,
                     ack_opcode=matched_opcode,
@@ -761,7 +765,8 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
 
             if attempt < total_attempts:
                 self._log.warning(
-                    "[WIFI][STEP] %s retrying after ack timeout (attempt %d/%d)",
+                    "%s[STEP] %s retrying after ack timeout (attempt %d/%d)",
+                    LogTag.WIFI,
                     step_name,
                     attempt,
                     total_attempts,
@@ -770,7 +775,8 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                     time.sleep(retry_delay)
 
         self._log.warning(
-            "[WIFI][STEP] %s timeout waiting ack=0x%04X first_byte=%s",
+            "%s[STEP] %s timeout waiting ack=0x%04X first_byte=%s",
+            LogTag.WIFI,
             step_name,
             ack_opcode,
             f"0x{ack_first_byte:02X}" if ack_first_byte is not None else "*",
@@ -807,12 +813,13 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             sender=self._send_cmd_frame,
         )
         if sent:
-            self._log.info("[CMD] queued %s (0x%04X) %dB", OPNAMES.get(opcode, f"OP_{opcode:04X}"), opcode, len(payload))
+            self._log.debug("%s queued %s (0x%04X) %dB", LogTag.CMD, OPNAMES.get(opcode, f"OP_{opcode:04X}"), opcode, len(payload))
             if frame is not None:
-                self._log.info("[DUMP] queued %s", _hexdump(frame))
+                self._log.debug("%s queued %s", LogTag.WIRE, _hexdump(frame))
         else:
-            self._log.info(
-                "[CMD] ignoring %s: proxy client is connected",
+            self._log.debug(
+                "%s ignoring %s: proxy client is connected",
+                LogTag.CMD,
                 OPNAMES.get(opcode, f"OP_{opcode:04X}"),
             )
         return sent
@@ -1073,7 +1080,8 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         self.state.devices[dev_lo] = normalize_device_entry(existing)
 
         self._log.info(
-            "[IDLE] %s dev=0x%02X mode=%d",
+            "%s idle %s dev=0x%02X mode=%d",
+            LogTag.REMOTE,
             source,
             dev_lo,
             normalized_mode,
@@ -1259,7 +1267,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 version = classify_hub_version(self.mdns_txt)
             except ValueError:
                 self._log.warning(
-                    "[FIND_REMOTE] hub_version unknown; cannot pick opcode."
+                    "%s find-remote: hub_version unknown; cannot pick opcode.", LogTag.REMOTE
                 )
                 return False
         self.hub_version = version
@@ -1287,7 +1295,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 version = classify_hub_version(self.mdns_txt)
             except ValueError:
                 self._log.warning(
-                    "[REMOTE_SYNC] hub_version unknown; cannot pick opcode."
+                    "%s sync: hub_version unknown; cannot pick opcode.", LogTag.REMOTE
                 )
                 return False
         self.hub_version = version
@@ -1302,7 +1310,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
 
             remote_id = self.wait_for_x2_remote_sync_id(timeout=2.0)
             if remote_id is None:
-                self._log.warning("[REMOTE_SYNC] timed out waiting for X2 remote list response")
+                self._log.warning("%s sync: timed out waiting for X2 remote list response", LogTag.REMOTE)
                 return False
 
             return self.enqueue_cmd(OP_X2_REMOTE_SYNC, remote_id + b"\x01")
@@ -1426,16 +1434,18 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         last_ack: tuple[int, bytes] | None = None
         for seq, page_payload in enumerate(paged_payloads, start=1):
             page_opcode = ((len(page_payload) & 0xFF) << 8) | 0x12
-            self._log.info(
-                "[ACTIVITY_ASSIGN] save macro page seq=%d/%d opcode=0x%04X payload=%dB",
+            self._log.debug(
+                "%s save macro page seq=%d/%d opcode=0x%04X payload=%dB",
+                LogTag.ACTIVITY,
                 seq,
                 len(paged_payloads),
                 page_opcode,
                 len(page_payload),
             )
             if self.diag_dump:
-                self._log.info(
-                    "[ACTIVITY_ASSIGN] save macro page %d/%d payload %s",
+                self._log.debug(
+                    "%s save macro page %d/%d payload %s",
+                    LogTag.WIRE,
                     seq,
                     len(paged_payloads),
                     page_payload.hex(" "),
@@ -1454,7 +1464,8 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             )
             if last_ack is None:
                 self._log.warning(
-                    "[ACTIVITY_ASSIGN] missing ACK after macro save page seq=%d/%d button=0x%02X",
+                    "%s missing ACK after macro save page seq=%d/%d button=0x%02X",
+                    LogTag.ACTIVITY,
                     seq,
                     len(paged_payloads),
                     macro_button,
@@ -1468,7 +1479,8 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             if ack_opcode == 0x0103 and (not ack_payload or ack_payload[0] != 0x00):
                 status = ack_payload[0] if ack_payload else None
                 self._log.warning(
-                    "[ACTIVITY_ASSIGN] hub rejected macro save page seq=%d/%d button=0x%02X status=%s",
+                    "%s hub rejected macro save page seq=%d/%d button=0x%02X status=%s",
+                    LogTag.ACTIVITY,
                     seq,
                     len(paged_payloads),
                     macro_button,
@@ -1597,19 +1609,19 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             zc.register_service(info)
         except BadTypeInNameException:
             self._log.exception(
-                "[mDNS] service type %s was rejected; advertisement will not be started",
+                "[MDNS] service type %s was rejected; advertisement will not be started",
                 service_type,
             )
             return False
         except NonUniqueNameException:
             self._log.warning(
-                "[mDNS] service name %s is already in use; advertisement will not be started",
+                "[MDNS] service name %s is already in use; advertisement will not be started",
                 info.name,
             )
             return False
         self._mdns_infos.append(info)
         self._log.info(
-            "[mDNS] registered %s on %s:%d (HVER=%s)",
+            "[MDNS] registered %s on %s:%d (HVER=%s)",
             info.name,
             socket.inet_ntoa(ip_bytes),
             self.proxy_udp_port,
@@ -1617,7 +1629,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         )
 
         self._adv_started = True
-        self._log.info("[mDNS] registration complete; verify via Zeroconf browser if available")
+        self._log.info("[MDNS] registration complete; verify via Zeroconf browser if available")
         return True
 
     # ---------------------------------------------------------------------
@@ -1781,19 +1793,20 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             is_retry = self._activity_retry_send_pending
             self._activity_retry_send_pending = False
             self._begin_activity_request(is_retry=is_retry)
-        self._log.info(
-            "[SEND] hub %s (0x%04X) %dB",
+        self._log.debug(
+            "%s hub %s (0x%04X) %dB",
+            LogTag.SEND,
             OPNAMES.get(opcode, f"OP_{opcode:04X}"),
             opcode,
             len(payload),
         )
         self.transport.send_local(frame)
         if self.diag_dump:
-            self._log.info("[DUMP] →hub %s", _hexdump(frame))
+            self._log.debug("%s →hub %s", LogTag.WIRE, _hexdump(frame))
 
     def _handle_hub_frame(self, data: bytes, cid: int) -> None:
         if self.diag_dump:
-            self._log.info("[DUMP #%d] H→A %s", cid, _hexdump(data))
+            self._log.debug("%s #%d H→A %s", LogTag.WIRE, cid, _hexdump(data))
         frames = self._df_h2a.feed(data, cid)
         if frames:
             self._handle_hub_frames(frames)
@@ -1802,7 +1815,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
 
     def _handle_app_frame(self, data: bytes, cid: int) -> None:
         if self.diag_dump:
-            self._log.info("[DUMP #%d] A→H %s", cid, _hexdump(data))
+            self._log.debug("%s #%d A→H %s", LogTag.WIRE, cid, _hexdump(data))
         frames = self._df_a2h.feed(data, cid)
         if frames:
             self._handle_app_frames(frames)
@@ -1841,8 +1854,16 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
     # Structured frame logs
     # ---------------------------------------------------------------------
     def _log_frames(self, direction: str, frames: List[Tuple[int, bytes, bytes, int, int]]) -> None:
+        # Per-frame decode is DEBUG-only and does non-trivial parsing work;
+        # skip it entirely when nothing is listening at DEBUG. The frontend
+        # logs tab and the hex-logging switch both force this logger to DEBUG
+        # while they are active, so attributed frame lines still reach the
+        # tools-card and diagnostics download.
+        if not self._log.isEnabledFor(logging.DEBUG):
+            return
         for op, raw, payload, scid, ecid in frames:
             name = OPNAMES.get(op)
+            fam_name = opcode_family_name(op)
             hi = opcode_hi(op)
             fam = opcode_family(op)
             note = f"#{scid}→#{ecid}" if scid != ecid else f"#{ecid}"
@@ -1854,9 +1875,20 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             parsed_macro = parse_macro_burst_frame(op, raw)
             if name is None and parsed_macro is not None:
                 name = parsed_macro.display_name
-            if name is None:
-                name = f"OP_{op:04X}"
-            self._log.info("[FRAME %s] %s %s (0x%04X) len=%d", note, direction, name, op, len(raw))
+
+            # Lead with the most specific label we can resolve: a named opcode,
+            # else its family, else an explicit "unmapped" marker. We long ago
+            # classified most traffic by family, so "unmapped" is now reserved
+            # for genuinely unknown low-bytes rather than the default.
+            if name is not None:
+                label = name if fam_name is None else f"{name} fam={fam_name}"
+            elif fam_name is not None:
+                label = f"{fam_name} op=0x{op:04X}"
+            else:
+                label = f"unmapped op=0x{op:04X} hi=0x{hi:02X} fam=0x{fam:02X}"
+            self._log.debug(
+                "%s %s %s (0x%04X) len=%d %s", LogTag.FRAME, direction, label, op, len(raw), note
+            )
             if parsed is not None:
                 totals = (
                     f"{parsed.frame_no}/{parsed.total_frames}"
@@ -1879,7 +1911,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                     else ""
                 )
                 self._log.debug(
-                    "[FRAME %s] REQ_COMMANDS role=%s variant=%s page=%s dev=0x%02X%s%s%s",
+                    f"{LogTag.FRAME} %s REQ_COMMANDS role=%s variant=%s page=%s dev=0x%02X%s%s%s",
                     note,
                     parsed.role,
                     parsed.layout_kind,
@@ -1908,7 +1940,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 )
                 row_data = " row_data=yes" if parsed_buttons.has_row_data else " row_data=no"
                 self._log.debug(
-                    "[FRAME %s] REQ_BUTTONS role=%s variant=%s page=%s%s%s%s",
+                    f"{LogTag.FRAME} %s REQ_BUTTONS role=%s variant=%s page=%s%s%s%s",
                     note,
                     parsed_buttons.role,
                     parsed_buttons.layout_kind,
@@ -1936,7 +1968,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 )
                 len_ok = " len_ok=yes" if parsed_macro.payload_length_matches_hi else " len_ok=no"
                 self._log.debug(
-                    "[FRAME %s] REQ_MACROS role=%s frag=%s%s%s%s",
+                    f"{LogTag.FRAME} %s REQ_MACROS role=%s frag=%s%s%s%s",
                     note,
                     parsed_macro.role,
                     frag,
@@ -1945,23 +1977,12 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                     len_ok,
                 )
 
-            if op not in OPNAMES and parsed_macro is None:
-                fam_name = opcode_family_name(op)
-                self._log.debug(
-                    "[FRAME %s] unknown opcode 0x%04X hi=0x%02X family(lo)=0x%02X%s",
-                    direction,
-                    op,
-                    hi,
-                    fam,
-                    "" if fam_name is None else f" ({fam_name})",
-                )
-
             if direction == "A→H" and fam == FAMILY_PLAY_BLOB:
                 blob = self._extract_single_frame_play_blob(payload)
                 if blob is not None:
                     descriptor_text = self._descriptive_play_blob_text(blob)
                     if descriptor_text is not None:
-                        self._log.info("[PLAY_BLOB] descriptor %s", descriptor_text)
+                        self._log.debug("%s descriptor %s", LogTag.IR, descriptor_text)
 
             context = FrameContext(
                 proxy=self,
@@ -1976,7 +1997,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 try:
                     handler.handle(context)
                 except Exception:
-                    self._log.debug("[PARSE] error while decoding op 0x%04X via %s", op, handler.__class__.__name__, exc_info=True)
+                    self._log.debug("%s error while decoding op 0x%04X via %s", LogTag.PARSE, op, handler.__class__.__name__, exc_info=True)
 
     # ---------------------------------------------------------------------
     # Lifecycle
@@ -1988,7 +2009,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         if self._adv_started:
             return
         if not self.has_banner_identity():
-            self._log.debug("[mDNS] discovery deferred until banner identity is ready")
+            self._log.debug("[MDNS] discovery deferred until banner identity is ready")
             return
             
         self.proxy_udp_port = self.transport.proxy_udp_port
@@ -2005,9 +2026,9 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 for info in self._mdns_infos:
                     try:
                         self._zc.unregister_service(info)
-                        self._log.info("[mDNS] unregistered %s", info.name)
+                        self._log.info("[MDNS] unregistered %s", info.name)
                     except Exception:
-                        self._log.exception("[mDNS] failed to unregister service %s", info.name)
+                        self._log.exception("[MDNS] failed to unregister service %s", info.name)
             finally:
                 if self._zc_owned:
                     self._zc.close()
@@ -2024,7 +2045,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
     def stop(self) -> None:
         self._stop_discovery()
         self.transport.stop()
-        self._log.info("[STOP] proxy stopped")
+        self._log.info("%s proxy stopped", LogTag.PROXY)
 
 
 from . import opcode_handlers  # noqa: F401  # register frame handlers

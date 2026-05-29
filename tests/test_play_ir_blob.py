@@ -719,7 +719,7 @@ def test_log_frames_logs_descriptive_play_blob_from_app(caplog) -> None:
     opcode = (len(payload) << 8) | 0x0F
     raw = bytes.fromhex("a5 5a") + opcode.to_bytes(2, "big") + payload + b"\x00"
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         proxy._log_frames("A→H", [(opcode, raw, payload, 1, 1)])
 
     assert "descriptor P:Sony12 R:40000 D:1 F:18 MUL:2" in caplog.text

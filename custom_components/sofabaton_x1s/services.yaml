@@ -100,7 +100,7 @@ fetch_blob:
 backup_bundle:
   name: Backup hub bundle
   description: >-
-    Returns a hub_bundle JSON payload (schema_version 4). With device_ids
+    Returns a hub_bundle JSON payload (schema_version 5). With device_ids
     omitted, backs up everything (all devices and all activities). With
     device_ids supplied, backs up just the listed devices (activities are
     not included; bundles that mix devices with activities are produced
@@ -126,7 +126,7 @@ backup_bundle:
 restore_backup:
   name: Restore hub bundle
   description: >-
-    Restores a hub_bundle JSON payload (schema_version 4). Devices in the
+    Restores a hub_bundle JSON payload (schema_version 5). Devices in the
     bundle are restored first; the action auto-builds the source->new
     device_id map. Activities in the bundle are then restored using that
     map. Bundles containing activities require a hub erase first; until

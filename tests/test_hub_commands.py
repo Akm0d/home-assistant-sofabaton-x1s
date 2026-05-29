@@ -193,6 +193,114 @@ def test_async_fetch_blob_normalizes_tail_and_descriptor(monkeypatch):
     loop.close()
 
 
+def test_async_backup_activity_filters_internal_power_macro_device_255(monkeypatch):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    hass = FakeHass(loop)
+
+    hub = SofabatonHub(
+        hass,
+        "entry-id",
+        "hub-name",
+        "127.0.0.1",
+        1234,
+        {},
+        9999,
+        10000,
+        True,
+        False,
+    )
+
+    act_id = 0x65
+    act_lo = act_id & 0xFF
+
+    async def _refresh_activities_snapshot(timeout_seconds: float = 15.0):
+        return {
+            act_lo: {
+                "name": "Watch TV",
+                "device_class": "activity",
+                "device_class_code": 0x00,
+                "raw_body": None,
+            }
+        }
+
+    async def _wait_ready(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(hub, "_async_refresh_activities_snapshot", _refresh_activities_snapshot)
+    monkeypatch.setattr(hub, "_reset_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(hub, "_async_wait_for_buttons_ready", _wait_ready)
+    monkeypatch.setattr(hub, "_async_wait_for_macros_ready", _wait_ready)
+
+    hub._proxy.state.activities[act_lo] = {
+        "name": "Watch TV",
+        "device_class": "activity",
+        "device_class_code": 0x00,
+        "raw_body": None,
+    }
+    hub._proxy.state.button_details[act_lo] = {}
+    hub._proxy.state.activity_favorite_slots[act_lo] = []
+
+    monkeypatch.setattr(hub._proxy, "clear_entity_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_buttons_for_entity",
+        lambda ent_id, fetch_if_missing=True: ([], True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_macros_for_activity",
+        lambda ent_id, fetch_if_missing=True: ([{"command_id": 0xC6, "label": "POWER_ON"}], True),
+    )
+    monkeypatch.setattr(
+        hub._proxy,
+        "get_cached_macro_records",
+        lambda ent_id: [
+            MacroRecord(
+                activity_id=ent_id,
+                key_id=0xC6,
+                label="POWER_ON",
+                raw_label_slot=b"\x00\xc6",
+                key_sequence=(
+                    MacroKeyEntry(device_id=11, key_id=1, fid=0x4E21, duration=0, delay=0xFF),
+                    MacroKeyEntry(device_id=0xFF, key_id=2, fid=0x4E22, duration=0, delay=0xFF),
+                    MacroKeyEntry(device_id=12, key_id=3, fid=0x4E23, duration=1, delay=5),
+                ),
+            ),
+        ],
+    )
+
+    result = loop.run_until_complete(hub.async_backup_activity(activity_id=act_id))
+
+    assert result is not None
+    assert result["complete"] is True
+    assert result["macros"] == [
+        {
+            "button_id": 0xC6,
+            "name": "POWER_ON",
+            "steps": [
+                {
+                    "device_id": 11,
+                    "command_id": 1,
+                    "button_code": 0x4E21,
+                    "duration": 0,
+                    "delay": 0xFF,
+                },
+                {
+                    "device_id": 12,
+                    "command_id": 3,
+                    "button_code": 0x4E23,
+                    "duration": 1,
+                    "delay": 5,
+                },
+            ],
+        }
+    ]
+    assert result["referenced_source_device_ids"] == [11, 12]
+
+    loop.close()
+
+
 def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -382,13 +490,16 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
 
     assert result is not None
     assert result["kind"] == "device_backup"
-    assert result["schema_version"] == 3
+    assert result["schema_version"] == 4
     assert isinstance(result.get("captured_at"), str) and result["captured_at"]
     assert result["complete"] is True
     assert "raw" not in result
-    assert result["inputs"] == [
-        {"command_id": 18, "input_index": 1, "name": "Input"}
-    ]
+    # Slim format: the redundant top-level "inputs" list, device-level
+    # "favorite_slots", and the "completeness" diagnostic are dropped.
+    assert "inputs" not in result
+    assert "favorite_slots" not in result
+    assert "completeness" not in result
+    assert "hub" not in result
     assert result["input_record"] == {
         "device_id": 11,
         "source_id_byte": 1,
@@ -425,7 +536,6 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         "inputs_configured": True,
         "power_mode": 1,
         "power_style": 3,
-        "power_configured": True,
         "share_mode": 0,
         "tail_marker": 0,
         "extras": None,
@@ -442,36 +552,25 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
             },
         }
     ]
+    # Device-level bindings drop the device_id/long_press_device_id
+    # echoes (restore re-derives them); labels are kept for editability.
     assert result["button_bindings"] == [
         {
             "button_id": 0x58,
             "button_name": None,
-            "device_id": 11,
             "command_id": 18,
             "command_name": "Input",
-            "long_press_device_id": None,
             "long_press_command_id": None,
         }
     ]
-    assert result["favorite_slots"] == [
-        {
-            "button_id": 18,
-            "device_id": 11,
-            "command_id": 18,
-            "name": "Input",
-            "source": "keymap",
-        }
-    ]
+    # Device-level macro steps drop the device_id/fid echoes.
     assert result["macros"] == [
         {
             "button_id": 0x21,
             "name": "Power On",
-            "is_power_macro": False,
             "steps": [
                 {
-                    "device_id": 11,
                     "command_id": 18,
-                    "fid": 0,
                     "duration": 1,
                     "delay": 2,
                 }
@@ -480,12 +579,9 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         {
             "button_id": 0xC6,
             "name": "POWER_ON",
-            "is_power_macro": True,
             "steps": [
                 {
-                    "device_id": 11,
                     "command_id": 1,
-                    "fid": 0,
                     "duration": 0,
                     "delay": 0xFF,
                 }
@@ -493,15 +589,6 @@ def test_async_backup_device_returns_restore_oriented_payload(monkeypatch):
         },
     ]
     assert result["key_sort"] == {"device_id": 11, "msg_hex": "58 12"}
-    assert result["completeness"] == {
-        "device": True,
-        "commands": True,
-        "buttons": True,
-        "macros": True,
-        "inputs": True,
-        "blobs": True,
-        "key_sort": True,
-    }
 
     loop.close()
 
@@ -1012,13 +1099,12 @@ def test_async_backup_device_skips_macros_and_inputs_when_unconfigured(monkeypat
 
     assert result is not None
     assert result["device"]["inputs_configured"] is False
-    assert result["device"]["power_configured"] is False
     assert result["macros"] == []
-    assert result["inputs"] == []
-    # Completeness still True -- "empty by design" is a faithful capture.
-    assert result["completeness"]["macros"] is True
-    assert result["completeness"]["inputs"] is True
-    assert result["completeness"]["key_sort"] is True
+    # Slim format: no top-level "inputs" list and no "completeness" block.
+    assert "inputs" not in result
+    assert "completeness" not in result
+    # "empty by design" is still a faithful, complete capture.
+    assert result["complete"] is True
 
     loop.close()
 

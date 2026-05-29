@@ -312,6 +312,45 @@ class WifiDeviceMixin:
         payload[-1] = (sum(payload[:-1]) - 0x02) & 0xFF
         return bytes(payload)
 
+    def _send_virtual_ip_wifi_publish_finalize(
+        self,
+        *,
+        device_id: int,
+        device_name: str,
+        brand_name: str,
+    ) -> bool:
+        """Send the X1S/X2 wifi-device "publish identity" finalize (0xD508).
+
+        Despite living near the inputs flow historically, this step is
+        what flips the hub-side "device configured" flag on X1S/X2 and
+        must run on every wifi-create regardless of whether the caller
+        configured any input slots. (The canonical family-0x08 device
+        record finalize sent earlier in the create flow is not enough on
+        these variants -- the firmware also needs this identity-publish
+        body, which carries a fixed bookend header/tail wrapped around
+        the device_id, name, and brand.)
+        """
+
+        finalize_payload = self._build_virtual_ip_wifi_input_finalize_payload(
+            device_id=device_id,
+            device_name=device_name,
+            brand_name=brand_name,
+        )
+        self._log.info(
+            "[WIFI][STEP] publish-finalize tx opcode=0x%04X expect_ack=0x0103 first_byte=* attempt=1/1",
+            0xD508,
+        )
+        send_ts = time.monotonic()
+        self._send_cmd_frame(0xD508, finalize_payload)
+        ack = self.wait_for_ack_any([(0x0103, None)], timeout=5.0, not_before=send_ts)
+        if ack is None:
+            self._log.warning(
+                "[WIFI][STEP] publish-finalize failed waiting ack=0x0103 first_byte=*"
+            )
+            return False
+        self._log.info("[WIFI][STEP] publish-finalize acked via 0x%04X", ack[0])
+        return True
+
     def _wait_for_wifi_input_refresh(
         self,
         *,
@@ -415,6 +454,11 @@ class WifiDeviceMixin:
             ):
                 return False
 
+        # X1 re-runs the canonical family-0x08 device-record finalize
+        # after writing inputs; the X1S/X2 identity-publish finalize
+        # (0xD508 with a different body shape) is sent unconditionally
+        # by :meth:`_run_wifi_create_virtual_ip` so it also fires when
+        # no inputs are configured.
         if self.hub_version == HUB_VERSION_X1:
             finalize_payload = self._build_wifi_device_payload(
                 device_name=device_name,
@@ -423,16 +467,6 @@ class WifiDeviceMixin:
                 device_id=device_id,
                 brand_name=brand_name,
             )
-            finalize_opcode = None
-        else:
-            finalize_payload = self._build_virtual_ip_wifi_input_finalize_payload(
-                device_id=device_id,
-                device_name=device_name,
-                brand_name=brand_name,
-            )
-            finalize_opcode = 0xD508
-
-        if finalize_opcode is None:
             _step = self._send_step(
                 step_name="input-config-finalize",
                 family=0x08,
@@ -441,20 +475,6 @@ class WifiDeviceMixin:
             )
             if not _step.ok:
                 return False
-        else:
-            self._log.info(
-                "[WIFI][STEP] input-config-finalize tx opcode=0x%04X expect_ack=0x0103 first_byte=* attempt=1/1",
-                finalize_opcode,
-            )
-            send_ts = time.monotonic()
-            self._send_cmd_frame(finalize_opcode, finalize_payload)
-            ack = self.wait_for_ack_any([(0x0103, None)], timeout=5.0, not_before=send_ts)
-            if ack is None:
-                self._log.warning(
-                    "[WIFI][STEP] input-config-finalize failed waiting ack=0x0103 first_byte=*"
-                )
-                return False
-            self._log.info("[WIFI][STEP] input-config-finalize acked via 0x%04X", ack[0])
 
         return True
 
@@ -1013,6 +1033,17 @@ class WifiDeviceMixin:
             brand_name=brand_name,
             commands=list(commands or []),
             input_command_ids=input_command_ids,
+        ):
+            return None
+
+        # X1S/X2 firmware only marks the device as "configured" once the
+        # identity-publish finalize lands, regardless of whether any
+        # input slots were configured. Always run it after power and
+        # input writes so it observes their final state.
+        if not self._send_virtual_ip_wifi_publish_finalize(
+            device_id=device_id,
+            device_name=device_name,
+            brand_name=brand_name,
         ):
             return None
 

@@ -39,7 +39,7 @@ class _Hub:
             )
         return {
             "kind": "hub_bundle",
-            "schema_version": 4,
+            "schema_version": 5,
             "captured_at": "2026-05-26T08:09:10+00:00",
             "devices": [{"device": {"device_id": 11, "name": "TV"}}],
             "activities": [],
@@ -155,7 +155,7 @@ def test_ws_backup_restore_starts_merge_operation(monkeypatch):
             integration._ws_backup_restore(
                 hass,
                 conn,
-                {"id": 23, "entry_id": "entry-1", "mode": "merge", "backup": {"kind": "hub_bundle", "schema_version": 4, "devices": [], "activities": []}},
+                {"id": 23, "entry_id": "entry-1", "mode": "merge", "backup": {"kind": "hub_bundle", "schema_version": 5, "devices": [], "activities": []}},
             )
         )
     finally:
@@ -205,7 +205,7 @@ def test_run_backup_restore_operation_preserves_final_progress_counts():
                 hass,
                 operation_id,
                 hub=_Hub(),
-                payload={"kind": "hub_bundle", "schema_version": 4, "devices": [], "activities": []},
+                payload={"kind": "hub_bundle", "schema_version": 5, "devices": [], "activities": []},
                 mode="replace",
             )
         )
@@ -256,7 +256,7 @@ def test_run_backup_restore_operation_ignores_late_running_progress_after_succes
                 hass,
                 operation_id,
                 hub=_Hub(),
-                payload={"kind": "hub_bundle", "schema_version": 4, "devices": [], "activities": []},
+                payload={"kind": "hub_bundle", "schema_version": 5, "devices": [], "activities": []},
                 mode="replace",
             )
         )

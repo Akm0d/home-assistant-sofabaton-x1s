@@ -122,12 +122,14 @@ class CacheBackupMixin:
                 self.hub_version = str(sanitized["model"])
             self._banner_info_event.set()
 
+        has_devices_catalog = "devices" in data
         devices = data.get("devices", {})
         self.state.devices = {
             int(k) & 0xFF: normalize_device_entry(v)
             for k, v in devices.items()
             if isinstance(v, dict)
         }
+        self._devices_catalog_ready = has_devices_catalog and isinstance(devices, dict)
 
         buttons = data.get("buttons", {})
         self.state.buttons = {
@@ -273,6 +275,18 @@ class CacheBackupMixin:
                     parsed_labels[(dev_id, command_id)] = label
             if parsed_labels:
                 self.state.activity_keybinding_labels[act_lo] = parsed_labels
+
+        has_activities_catalog = "activities" in data
+        activities = data.get("activities", {})
+        if has_activities_catalog and isinstance(activities, dict):
+            self.state.activities = {
+                int(k) & 0xFF: dict(v)
+                for k, v in activities.items()
+                if isinstance(v, dict)
+            }
+            self._activities_catalog_ready = True
+        else:
+            self._activities_catalog_ready = False
 
         self._commands_complete = set(self.state.commands.keys())
         self._macros_complete = set(self.state.activity_macros.keys())

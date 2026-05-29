@@ -690,6 +690,7 @@ class ActivityOpsMixin:
         *,
         slot_id: int | None = None,
         refresh_after_write: bool = True,
+        query_existing_order: bool = True,
     ) -> dict[str, Any] | None:
         """Add a command favorite to an arbitrary activity."""
 
@@ -709,7 +710,7 @@ class ActivityOpsMixin:
         # On X1, macros share the same fav_id/slot namespace as command favorites
         # and must be included in the stage payload with their actual slot numbers.
         x1_existing_fav_ids: list[int] = []
-        if self.hub_version == HUB_VERSION_X1:
+        if self.hub_version == HUB_VERSION_X1 and query_existing_order:
             existing_order = self.request_favorites_order(act_lo) or []
             x1_existing_fav_ids = [
                 fav_id

@@ -3502,6 +3502,9 @@ if (!customElements.get("sofabaton-blobs-tab")) {
   customElements.define("sofabaton-blobs-tab", SofabatonBlobsTab);
 }
 
+// custom_components/sofabaton_x1s/www/src/shared/ha-context.ts
+var BACKUP_BUNDLE_SCHEMA_VERSION = 5;
+
 // custom_components/sofabaton_x1s/www/src/tabs/backup-state.ts
 function backupDeviceOptions(hub) {
   return hubDevices(hub).map((device) => ({
@@ -3574,8 +3577,10 @@ function validateBackupBundle(raw) {
   if (String(bundle.kind || "") !== "hub_bundle") {
     throw new Error("Backup file is not a Sofabaton hub bundle.");
   }
-  if (Number(bundle.schema_version || 0) !== 4) {
-    throw new Error(`Backup file schema_version must be 4 (got ${String(bundle.schema_version || "") || "unknown"}).`);
+  if (Number(bundle.schema_version || 0) !== BACKUP_BUNDLE_SCHEMA_VERSION) {
+    throw new Error(
+      `Backup file schema_version must be ${BACKUP_BUNDLE_SCHEMA_VERSION} (got ${String(bundle.schema_version || "") || "unknown"}).`
+    );
   }
   if (!Array.isArray(bundle.devices) || !Array.isArray(bundle.activities)) {
     throw new Error("Backup file is missing devices or activities arrays.");

@@ -19,7 +19,12 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from ..const import HUB_VERSION_X1
+from ..const import (
+    ACTIVITY_BACKUP_SCHEMA_VERSION,
+    DEVICE_BACKUP_SCHEMA_VERSION,
+    HUB_BUNDLE_SCHEMA_VERSION,
+    HUB_VERSION_X1,
+)
 from .device_create import (
     FAMILY_ACTIVITY_CREATE,
     DeviceCreateRequest,
@@ -515,51 +520,28 @@ class RestoreMixin:
 
         return command_steps, command_id_map, button_code_map, command_names
 
-    @staticmethod
-    def _restore_input_create_objects(
-        *,
-        hub_version: str,
-        inputs: list[dict[str, Any]],
-        map_command_id,
-    ) -> tuple[list[InputEntry], int]:
-        """Translate backed-up input rows into :class:`InputEntry` objects."""
-
-        restored_inputs = 0
-        entry_objects: list[InputEntry] = []
-        ordered_inputs = sorted(
-            (item for item in inputs if isinstance(item, dict)),
-            key=lambda item: int(item.get("input_index", 0)),
-        )
-        for ordinal_pos, row in enumerate(ordered_inputs, start=1):
-            mapped_command_id = map_command_id(row.get("command_id"))
-            if mapped_command_id is None:
-                continue
-            fid = (
-                synthesize_command_code(mapped_command_id)
-                if hub_version == HUB_VERSION_X1
-                else 0
-            )
-            entry_objects.append(
-                InputEntry(
-                    key_id=mapped_command_id,
-                    fid=fid,
-                    ordinal=ordinal_pos,
-                    label=str(row.get("name") or f"Input {mapped_command_id}"),
-                )
-            )
-            restored_inputs += 1
-        return entry_objects, restored_inputs
-
-    def _restore_x1_input_payload(
+    def _restore_input_payload(
         self,
         *,
         device_id: int,
-        input_mode: int,
         input_record: dict[str, Any] | None,
         inputs: list[dict[str, Any]],
         map_command_id,
     ) -> tuple[bytes | None, int]:
-        """Build the X1 family-0x46 payload from backup metadata."""
+        """Build the family-0x46 payload from backup metadata.
+
+        Replays the captured page faithfully: entries (with command_id
+        remapped to the restored device), plus the captured
+        ``source_id_byte``, position flags, trailing control-key rows,
+        favorite rows and state byte. ``inputModel`` is ``1`` for *all*
+        list-based switching styles (direct, menu, up/down, number-key,
+        source-cycling) -- they differ only in the 0x46 page contents,
+        so the trailing region must be replayed rather than gated on the
+        device-tail mode. A real direct device carries an all-zero
+        trailing region, so verbatim replay reproduces it. The page
+        round-trips identically on X1 and X1S/X2 via
+        :func:`build_inputs_write`.
+        """
 
         record = input_record if isinstance(input_record, dict) else {}
         record_entries = record.get("entries")
@@ -591,21 +573,6 @@ class RestoreMixin:
             )
             restored_inputs += 1
 
-        # X1 "Source selection" direct/discrete saves do not replay the
-        # richer trailing control-key / favorites rows from the fetched
-        # input record. The app's direct-input path writes only the
-        # selected input entries and zeroes the rest of the family-0x46
-        # body. Preserving a backup-captured trailing region here can
-        # leak extra candidate inputs back onto the restored device.
-        if (input_mode & 0xFF) == 1:
-            payload = build_inputs_write(
-                hub_version=self.hub_version,
-                device_id=device_id,
-                entries=entries,
-                source_id_byte=1 if entries else 0,
-            )
-            return payload, restored_inputs
-
         control_keys_raw = record.get("control_keys")
         control_keys = ControlKeyBlock()
         if isinstance(control_keys_raw, dict):
@@ -617,7 +584,7 @@ class RestoreMixin:
                     input_confirm=bytes.fromhex(str(control_keys_raw.get("input_confirm") or "").strip()) if str(control_keys_raw.get("input_confirm") or "").strip() else b"",
                 )
             except ValueError:
-                self._log.warning("[RESTORE] invalid X1 input_record control_keys; falling back to zeroed rows")
+                self._log.warning("[RESTORE] invalid input_record control_keys; falling back to zeroed rows")
 
         favorite_rows: list[FavoriteSlot] = []
         favorites_raw = record.get("favorites")
@@ -632,7 +599,7 @@ class RestoreMixin:
                 try:
                     favorite_rows.append(FavoriteSlot(payload=bytes.fromhex(stripped)))
                 except ValueError:
-                    self._log.warning("[RESTORE] invalid X1 input_record favorite row %r; zeroing", row)
+                    self._log.warning("[RESTORE] invalid input_record favorite row %r; zeroing", row)
                     favorite_rows.append(FavoriteSlot())
 
         source_id_byte = int(record.get("source_id_byte", 0)) & 0xFF
@@ -837,8 +804,15 @@ class RestoreMixin:
 
             if not isinstance(payload, dict):
                 raise ValueError("restore payload must be a dictionary")
-            if payload.get("kind") not in (None, "device_backup"):
+            if payload.get("kind") != "device_backup":
                 raise ValueError("restore payload kind must be 'device_backup'")
+            if int(payload.get("schema_version", 0)) != DEVICE_BACKUP_SCHEMA_VERSION:
+                raise ValueError(
+                    "restore_device payload schema_version must be "
+                    f"{DEVICE_BACKUP_SCHEMA_VERSION} (got "
+                    f"{payload.get('schema_version')!r}); re-export the device "
+                    "with the current backup format"
+                )
 
             device_block = payload.get("device")
             if not isinstance(device_block, dict):
@@ -851,19 +825,20 @@ class RestoreMixin:
                 payload=payload,
             )
 
+            # Input entries flow exclusively through ``input_record`` in
+            # the slim format; device-level favorites are an activity
+            # concept and are not part of a device backup.
             request = DeviceCreateRequest(
                 transport="ir",
                 device_block=dict(device_block),
                 commands=list(payload.get("commands") or []),
                 button_bindings=list(payload.get("button_bindings") or []),
                 macros=list(payload.get("macros") or []),
-                inputs=list(payload.get("inputs") or []),
                 input_record=(
                     dict(payload.get("input_record"))
                     if isinstance(payload.get("input_record"), dict)
                     else None
                 ),
-                favorites=list(payload.get("favorite_slots") or []),
                 key_sort=(
                     dict(payload.get("key_sort"))
                     if isinstance(payload.get("key_sort"), dict)
@@ -996,34 +971,18 @@ class RestoreMixin:
         restored_inputs = 0
         input_mode = int(device_block.get("input_mode", 0)) & 0xFF
         inputs_configured = bool(device_block.get("inputs_configured", input_mode != 0))
-        if input_mode == 2:
-            post_steps.append(
-                _input_create_step(
-                    device_id=new_device_id,
-                    payload=build_inputs_write(
-                        hub_version=self.hub_version,
-                        device_id=new_device_id,
-                        source_id_byte=0,
-                    ),
-                    label_suffix="disable",
-                )
-                )
-        elif inputs_configured and request.inputs:
-            entry_objects, restored_inputs = self._restore_input_create_objects(
-                hub_version=self.hub_version,
+        if inputs_configured and (request.inputs or request.input_record):
+            inputs_payload, restored_inputs = self._restore_input_payload(
+                device_id=new_device_id,
+                input_record=request.input_record,
                 inputs=request.inputs,
                 map_command_id=_map_command_id,
             )
-            if entry_objects:
+            if inputs_payload is not None:
                 post_steps.append(
                     _input_create_step(
                         device_id=new_device_id,
-                        payload=build_inputs_write(
-                            hub_version=self.hub_version,
-                            device_id=new_device_id,
-                            source_id_byte=input_mode or 1,
-                            entries=entry_objects,
-                        ),
+                        payload=inputs_payload,
                         label_suffix=f"count={restored_inputs}",
                     )
                 )
@@ -1276,46 +1235,22 @@ class RestoreMixin:
         restored_inputs = 0
         input_mode = int(device_block.get("input_mode", 0)) & 0xFF
         inputs_configured = bool(device_block.get("inputs_configured", input_mode != 0))
-        if input_mode == 2:
-            post_steps.append(
-                _input_create_step(
-                    device_id=new_device_id,
-                    payload=build_inputs_write(
-                        hub_version=self.hub_version,
-                        device_id=new_device_id,
-                        source_id_byte=0,
-                    ),
-                    label_suffix="disable",
-                )
-            )
-        elif inputs_configured and (request.inputs or request.input_record):
-            inputs_payload, restored_inputs = self._restore_x1_input_payload(
+        inputs_payload: bytes | None = None
+        if inputs_configured and (request.inputs or request.input_record):
+            inputs_payload, restored_inputs = self._restore_input_payload(
                 device_id=new_device_id,
-                input_mode=input_mode,
                 input_record=request.input_record,
                 inputs=request.inputs,
                 map_command_id=_map_command_id,
             )
-            if inputs_payload is not None:
-                post_steps.append(
-                    _input_create_step(
-                        device_id=new_device_id,
-                        payload=inputs_payload,
-                        label_suffix=f"count={restored_inputs}",
-                    )
+        if inputs_payload is not None:
+            post_steps.append(
+                _input_create_step(
+                    device_id=new_device_id,
+                    payload=inputs_payload,
+                    label_suffix=f"count={restored_inputs}",
                 )
-            else:
-                post_steps.append(
-                    _input_create_step(
-                        device_id=new_device_id,
-                        payload=build_inputs_write(
-                            hub_version=self.hub_version,
-                            device_id=new_device_id,
-                            source_id_byte=0,
-                        ),
-                        label_suffix="default",
-                    )
-                )
+            )
         else:
             post_steps.append(
                 _input_create_step(
@@ -1412,6 +1347,13 @@ class RestoreMixin:
                 raise ValueError("restore payload must be a dictionary")
             if payload.get("kind") != "activity_backup":
                 raise ValueError("restore_activity expects kind == 'activity_backup'")
+            if int(payload.get("schema_version", 0)) != ACTIVITY_BACKUP_SCHEMA_VERSION:
+                raise ValueError(
+                    "restore_activity payload schema_version must be "
+                    f"{ACTIVITY_BACKUP_SCHEMA_VERSION} (got "
+                    f"{payload.get('schema_version')!r}); re-export the activity "
+                    "with the current backup format"
+                )
             activity_block = payload.get("device")
             if not isinstance(activity_block, dict):
                 raise ValueError("restore payload must include a 'device' block")
@@ -1510,7 +1452,7 @@ class RestoreMixin:
 
         def _progress(**progress_payload: Any) -> None:
             if callable(progress_callback):
-                progress_callback(progress_payload)
+                progress_callback(**progress_payload)
 
         if not isinstance(payload, dict):
             raise ValueError("restore_hub_bundle payload must be a dict")
@@ -1518,9 +1460,10 @@ class RestoreMixin:
             raise ValueError(
                 "restore_hub_bundle expects kind == 'hub_bundle'"
             )
-        if int(payload.get("schema_version", 0)) != 4:
+        if int(payload.get("schema_version", 0)) != HUB_BUNDLE_SCHEMA_VERSION:
             raise ValueError(
-                "restore_hub_bundle payload schema_version must be 4 "
+                "restore_hub_bundle payload schema_version must be "
+                f"{HUB_BUNDLE_SCHEMA_VERSION} "
                 f"(got {payload.get('schema_version')!r})"
             )
         if not self.can_issue_commands():
@@ -1888,6 +1831,7 @@ class RestoreMixin:
                 target_command_id,
                 slot_id=slot_id,
                 refresh_after_write=False,
+                query_existing_order=False,
             )
             if not written:
                 self._log.warning(

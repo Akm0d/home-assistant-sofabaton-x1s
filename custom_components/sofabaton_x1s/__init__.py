@@ -1077,8 +1077,21 @@ async def _run_backup_export_operation(
 ) -> None:
     registry = _backup_operation_registry(hass)
 
-    def _progress(payload: dict[str, Any]) -> None:
-        registry.update(operation_id, **payload)
+    def _normalize_progress_payload(
+        payload: dict[str, Any] | None = None,
+        **payload_update: Any,
+    ) -> dict[str, Any]:
+        if payload is not None:
+            merged = dict(payload)
+            merged.update(payload_update)
+            return merged
+        return dict(payload_update)
+
+    def _progress(payload: dict[str, Any] | None = None, **payload_update: Any) -> None:
+        registry.update(
+            operation_id,
+            **_normalize_progress_payload(payload, **payload_update),
+        )
 
     try:
         result = await hub.async_backup_hub(
@@ -1115,8 +1128,21 @@ async def _run_backup_restore_operation(
 ) -> None:
     registry = _backup_operation_registry(hass)
 
-    def _progress(payload_update: dict[str, Any]) -> None:
-        registry.update_from_thread(operation_id, **payload_update)
+    def _normalize_progress_payload(
+        payload: dict[str, Any] | None = None,
+        **payload_update: Any,
+    ) -> dict[str, Any]:
+        if payload is not None:
+            merged = dict(payload)
+            merged.update(payload_update)
+            return merged
+        return dict(payload_update)
+
+    def _progress(payload: dict[str, Any] | None = None, **payload_update: Any) -> None:
+        registry.update_from_thread(
+            operation_id,
+            **_normalize_progress_payload(payload, **payload_update),
+        )
 
     try:
         result = await hub.async_restore_backup(
@@ -2196,7 +2222,7 @@ async def _async_handle_backup_bundle(call: ServiceCall):
 async def _async_handle_restore_backup(call: ServiceCall):
     """Service handler for ``sofabaton_x1s.restore_backup``.
 
-    Accepts a ``hub_bundle`` payload (schema_version 4). Devices in
+    Accepts a ``hub_bundle`` payload (schema_version 5). Devices in
     the bundle are restored first; activities are restored second,
     after the hub has been erased
     (see :meth:`SofabatonHub.async_erase_configuration`).

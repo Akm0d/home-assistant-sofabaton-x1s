@@ -29,6 +29,15 @@ HUB_VERSION_X1 = "X1"
 HUB_VERSION_X1S = "X1S"
 HUB_VERSION_X2 = "X2"
 
+# Backup-format schema versions. These gate restore: a payload whose
+# schema_version does not match is rejected so the slim, hand-editable
+# format stays an exact contract (no silent reads of a stale verbose
+# dump). Bump the matching constant whenever the corresponding export
+# shape changes, and update the restore gate + fixtures together.
+DEVICE_BACKUP_SCHEMA_VERSION = 4
+ACTIVITY_BACKUP_SCHEMA_VERSION = 4
+HUB_BUNDLE_SCHEMA_VERSION = 5
+
 HUB_VERSION_BY_HVER = {
     HVER_X1: HUB_VERSION_X1,
     HVER_X1S: HUB_VERSION_X1S,

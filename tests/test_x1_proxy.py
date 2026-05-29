@@ -992,6 +992,7 @@ def test_restore_device_replays_create_persist_and_finalize(monkeypatch) -> None
     monkeypatch.setattr(x1_proxy_module, "run_create_sequence", _run_create_sequence)
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 11,
             "name": "TV",
@@ -1132,10 +1133,19 @@ def test_restore_device_replays_create_persist_and_finalize(monkeypatch) -> None
     inputs_step = next(step for step in post_steps if step.family == 0x46)
     trailing_start = 3 + 8 + 27  # wrapper + body header + one X1 entry
     assert inputs_step.payload[7] == 0x01
-    assert inputs_step.payload[trailing_start : trailing_start + 36] == (b"\x00" * 36)
+    # The captured input_record carries a populated trailing region (an
+    # input_list control-key row + one favorite row + a non-zero state
+    # byte). Restore replays it verbatim so non-direct switching styles
+    # survive the round-trip; a real direct device captures all-zero
+    # trailing and is reproduced unchanged by the same path.
+    assert inputs_step.payload[trailing_start : trailing_start + 36] == (
+        bytes.fromhex("01 02 03 04 05 06 07 08 09") + b"\x00" * 27
+    )
     favorite_offset = trailing_start + 36
-    assert inputs_step.payload[favorite_offset : favorite_offset + 70] == (b"\x00" * 70)
-    assert inputs_step.payload[-2] == 0x00
+    assert inputs_step.payload[favorite_offset : favorite_offset + 70] == (
+        bytes.fromhex("11 12 13 14 15 16 17") + b"\x00" * 63
+    )
+    assert inputs_step.payload[-2] == 0x5A
 
 
 def test_restore_device_x1s_keeps_restore_style_sequence(monkeypatch) -> None:
@@ -1166,6 +1176,117 @@ def test_restore_device_x1s_keeps_restore_style_sequence(monkeypatch) -> None:
     monkeypatch.setattr(x1_proxy_module, "run_create_sequence", _run_create_sequence)
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
+        "device": {
+            "device_id": 11,
+            "name": "TV",
+            "brand": "Sony",
+            "device_class": "IR",
+            "device_class_code": 0x10,
+            "icon": 1,
+            "sort": 0,
+            "code_type": 0x10,
+            "device_type": 0x10,
+            "code_id_hex": "00 " * 15 + "00",
+            "hide": 0,
+            "input_flag": 0,
+            "channel": 0,
+            "power_state": 0,
+            "ip_address": None,
+            "poll_time": -1,
+            "input_mode": 1,
+            "inputs_configured": True,
+            "power_mode": 1,
+            "power_style": 3,
+            "power_configured": True,
+            "share_mode": 0,
+            "tail_marker": 1,
+            "extras": None,
+        },
+        "commands": [
+            {
+                "command_id": 18,
+                "name": "Input",
+                "restore_data": {
+                    "transport": "hub_code_record",
+                    "library_type": 0x0D,
+                    "button_code": 0,
+                    "data_hex": "00 01 02 03 04 05 06 07 08 09",
+                },
+            },
+        ],
+        "key_sort": {"msg_hex": "58 12"},
+        "input_record": {
+            "source_id_byte": 1,
+            "flag_a": 0,
+            "flag_b": 0,
+            "state_byte": 0,
+            "entries": [
+                {"command_id": 18, "input_index": 1, "fid": 0, "name": "Input"}
+            ],
+            "control_keys": {
+                "input_list": "",
+                "input_up": "",
+                "input_down": "",
+                "input_confirm": "",
+            },
+            "favorites": [],
+        },
+        "button_bindings": [],
+        "macros": [],
+    }
+
+    result = proxy.restore_device(backup)
+
+    assert result is not None
+    assert sequence_calls[0][0].payload[7] == 0x0B
+    post_families = [step.family for step in sequence_calls[1]]
+    assert post_families[0] == 0x41
+    assert 0x61 in post_families
+    assert 0x08 not in post_families
+    assert 0x64 not in post_families
+    assert post_families.index(0x61) < post_families.index(0x46)
+    assert all(step.timeout == 5.0 for step in sequence_calls[1] if step.family == 0x0E)
+
+
+def test_restore_device_x1s_preserves_input_record_trailing_region(monkeypatch) -> None:
+    """X1S/X2 restore must replay the captured family-0x46 trailing
+    region (navigation control keys + favorite/number-key rows) and the
+    captured source_id_byte, not collapse every configured device to a
+    bare direct-input entry list. ``inputModel`` is ``1`` for all
+    list-based switching styles, so the page contents -- not the device
+    tail -- are what distinguish menu / up-down / number-key / cycling
+    from direct.
+    """
+
+    proxy = X1Proxy(
+        "127.0.0.1",
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1S,
+    )
+
+    monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
+    monkeypatch.setattr(proxy, "reset_ack_queues", lambda: None)
+    monkeypatch.setattr(proxy, "_refresh_destination_catalog", lambda timeout=5.0: None)
+
+    sequence_calls: list[list[Any]] = []
+
+    def _run_create_sequence(_proxy, steps):
+        step_list = list(steps)
+        sequence_calls.append(step_list)
+        return types.SimpleNamespace(
+            success=True,
+            assigned_device_id=0x22,
+            failed_step=None,
+            failed_index=None,
+        )
+
+    monkeypatch.setattr(x1_proxy_module, "run_create_sequence", _run_create_sequence)
+    backup = {
+        "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 11,
             "name": "TV",
@@ -1206,6 +1327,23 @@ def test_restore_device_x1s_keeps_restore_style_sequence(monkeypatch) -> None:
         ],
         "key_sort": {"msg_hex": "58 12"},
         "inputs": [{"command_id": 18, "input_index": 1, "name": "Input"}],
+        "input_record": {
+            "device_id": 11,
+            "source_id_byte": 3,
+            "flag_a": 0,
+            "flag_b": 0,
+            "state_byte": 0x5A,
+            "entries": [
+                {"command_id": 18, "input_index": 1, "fid": 0x4E32, "name": "Input"}
+            ],
+            "control_keys": {
+                "input_list": "",
+                "input_up": "12 00 00 00 00 00 00 02 01",
+                "input_down": "",
+                "input_confirm": "13 00 00 00 00 00 00 01 00",
+            },
+            "favorites": ["21 00 00 00 00 00 00"],
+        },
         "button_bindings": [],
         "macros": [],
         "favorite_slots": [],
@@ -1214,14 +1352,24 @@ def test_restore_device_x1s_keeps_restore_style_sequence(monkeypatch) -> None:
     result = proxy.restore_device(backup)
 
     assert result is not None
-    assert sequence_calls[0][0].payload[7] == 0x0B
-    post_families = [step.family for step in sequence_calls[1]]
-    assert post_families[0] == 0x41
-    assert 0x61 in post_families
-    assert 0x08 not in post_families
-    assert 0x64 not in post_families
-    assert post_families.index(0x61) < post_families.index(0x46)
-    assert all(step.timeout == 5.0 for step in sequence_calls[1] if step.family == 0x0E)
+    inputs_step = next(step for step in sequence_calls[1] if step.family == 0x46)
+    # payload = 3B outer wrapper + body; body[4] (source_id_byte) at
+    # offset 7. One X1S entry is 48 bytes, so the trailing region starts
+    # at wrapper(3) + body header(8) + 48.
+    assert inputs_step.payload[7] == 0x03
+    trailing_start = 3 + 8 + 48
+    control_region = inputs_step.payload[trailing_start : trailing_start + 36]
+    assert control_region == (
+        b"\x00" * 9
+        + bytes.fromhex("12 00 00 00 00 00 00 02 01")
+        + b"\x00" * 9
+        + bytes.fromhex("13 00 00 00 00 00 00 01 00")
+    )
+    favorite_offset = trailing_start + 36
+    assert inputs_step.payload[favorite_offset : favorite_offset + 70] == (
+        bytes.fromhex("21 00 00 00 00 00 00") + b"\x00" * 63
+    )
+    assert inputs_step.payload[-2] == 0x5A
 
 
 def test_restore_device_input_mode_2_writes_source_type_zero(monkeypatch) -> None:
@@ -1265,6 +1413,7 @@ def test_restore_device_input_mode_2_writes_source_type_zero(monkeypatch) -> Non
 
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 6,
             "name": "Soundbar",
@@ -1330,6 +1479,7 @@ def test_restore_device_x1_device_type_7_still_emits_input_step(monkeypatch) -> 
 
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 1,
             "name": "JBL",
@@ -1374,6 +1524,7 @@ def test_restore_device_rejects_bluetooth_until_backup_metadata_exists(monkeypat
 
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 11,
             "name": "Speaker",
@@ -1422,6 +1573,7 @@ def test_restore_device_reports_class_specific_capability_gaps(
 
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 11,
             "name": "Device",
@@ -1469,6 +1621,7 @@ def test_restore_device_replays_hub_code_records(monkeypatch, device_class: str)
 
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 11,
             "name": "Speaker",
@@ -1552,6 +1705,7 @@ def test_restore_device_allocates_free_destination_device_id(monkeypatch) -> Non
 
     backup = {
         "kind": "device_backup",
+        "schema_version": 4,
         "device": {
             "device_id": 7,
             "name": "Speaker",
@@ -1917,8 +2071,18 @@ def test_create_wifi_device_x1s_can_assign_power_on_and_power_off_commands(monke
     family_41_payloads = [payload for opcode, payload in sent if (opcode & 0xFF) == 0x41]
     assert family_41_payloads == [bytes([0x09, 0x04]), bytes([0x09, 0x01])]
 
+    # X1S/X2 wifi-create now ends with a publish-finalize (0xD508 with
+    # the identity-commit body), in addition to the main-flow
+    # finalize-device-7b08 and the power-config-d508. The publish step
+    # is what flips the hub-side "configured" flag and must run on
+    # every variant create regardless of input/power configuration.
     payload_08 = [payload for opcode, payload in sent if (opcode & 0xFF) == 0x08]
-    assert len(payload_08) == 2
+    assert len(payload_08) == 3
+    publish_finalize = payload_08[-1]
+    assert len(publish_finalize) == 213
+    assert publish_finalize[7] == 0x09
+    assert publish_finalize[9] == 0x09
+    assert publish_finalize[10:12] == bytes.fromhex("1c 10")
 
     power_payloads = [payload for opcode, payload in sent if (opcode & 0xFF) == 0x12]
     assert len(power_payloads) == 2
@@ -4193,6 +4357,55 @@ def test_command_to_favorite_can_skip_refresh_after_write(monkeypatch) -> None:
     assert requested == []
 
 
+def test_command_to_favorite_x1_can_skip_existing_order_query(monkeypatch) -> None:
+    proxy = X1Proxy(
+        "127.0.0.1",
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1,
+    )
+
+    monkeypatch.setattr(proxy, "can_issue_commands", lambda: True)
+
+    sent: list[tuple[int, bytes]] = []
+    monkeypatch.setattr(proxy, "_send_cmd_frame", lambda opcode, payload: sent.append((opcode, payload)))
+
+    ack_calls: list[list[tuple[int, int | None]]] = []
+
+    def _wait_for_ack_any(
+        candidates: list[tuple[int, int | None]],
+        *,
+        timeout: float = 5.0,
+        not_before: float | None = None,
+    ) -> tuple[int, bytes] | None:
+        ack_calls.append(candidates)
+        first_opcode, _first_byte = candidates[0]
+        if first_opcode == 0x0103:
+            return first_opcode, b"\x00"
+        return first_opcode, b"\x04"
+
+    monkeypatch.setattr(proxy, "wait_for_ack_any", _wait_for_ack_any)
+    monkeypatch.setattr(proxy, "request_activity_mapping", lambda act_id: True)
+
+    result = proxy.command_to_favorite(0x65, 0x04, 0x02, slot_id=3, query_existing_order=False)
+
+    assert result == {
+        "activity_id": 0x65,
+        "device_id": 0x04,
+        "command_id": 0x02,
+        "slot_id": 0x03,
+        "fav_id": 4,
+        "status": "success",
+    }
+    assert [opcode & 0xFF for opcode, _payload in sent] == [0x3E, 0x61, 0x65]
+    assert ack_calls == [
+        [(0x013E, None), (0x0103, None)],
+        [(0x0103, None)],
+        [(0x0103, None)],
+    ]
+
+
 def test_delete_favorite_requires_explicit_fav_id(monkeypatch) -> None:
     proxy = X1Proxy("127.0.0.1", proxy_enabled=False, diag_dump=False, diag_parse=False)
 
@@ -5232,7 +5445,7 @@ def _make_activity_backup_payload() -> dict:
 
     return {
         "kind": "activity_backup",
-        "schema_version": 3,
+        "schema_version": 4,
         "device": {
             "device_id": 101,
             "entity_type": "activity",

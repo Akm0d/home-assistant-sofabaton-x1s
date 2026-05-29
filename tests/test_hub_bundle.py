@@ -77,7 +77,7 @@ def _device_payload(
 
     return {
         "kind": "device_backup",
-        "schema_version": 3,
+        "schema_version": 4,
         "device": {
             "device_id": source_device_id,
             "name": name,
@@ -100,7 +100,7 @@ def _activity_payload(
 
     return {
         "kind": "activity_backup",
-        "schema_version": 3,
+        "schema_version": 4,
         "device": {
             "entity_type": "activity",
             "device_id": source_activity_id,
@@ -178,7 +178,7 @@ def test_backup_hub_wraps_single_device_in_bundle(monkeypatch) -> None:
     result = _run(hub.async_backup_hub(device_ids=[7]))
 
     assert result["kind"] == "hub_bundle"
-    assert result["schema_version"] == 4
+    assert result["schema_version"] == 5
     assert len(result["devices"]) == 1
     assert result["activities"] == []
     assert backed_up == [7]
@@ -220,7 +220,7 @@ def test_backup_hub_rejects_out_of_range_device_id() -> None:
 
 
 def test_restore_bundle_schema_version_rejects_older() -> None:
-    """schema_version != 4 is rejected with no side effects."""
+    """schema_version != 5 is rejected with no side effects."""
 
     proxy = X1Proxy(
         "127.0.0.1",
@@ -229,8 +229,8 @@ def test_restore_bundle_schema_version_rejects_older() -> None:
         diag_parse=False,
         hub_version=HUB_VERSION_X1S,
     )
-    with pytest.raises(ValueError, match="schema_version must be 4"):
-        proxy.restore_hub_bundle({"kind": "hub_bundle", "schema_version": 3})
+    with pytest.raises(ValueError, match="schema_version must be 5"):
+        proxy.restore_hub_bundle({"kind": "hub_bundle", "schema_version": 4})
 
 
 def test_restore_bundle_rejects_non_bundle_kind() -> None:
@@ -268,7 +268,7 @@ def test_restore_bundle_devices_only_succeeds_and_returns_map(monkeypatch) -> No
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [
             _device_payload(source_device_id=7),
             _device_payload(source_device_id=8, name="AVR"),
@@ -313,7 +313,7 @@ def test_restore_bundle_partial_device_failure_returns_failed_at(monkeypatch) ->
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [
             _device_payload(source_device_id=7),
             _device_payload(source_device_id=8),
@@ -408,7 +408,7 @@ def test_restore_bundle_resolves_input_ordinals(monkeypatch) -> None:
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [
             _device_payload(
                 source_device_id=7,
@@ -501,7 +501,7 @@ def test_restore_bundle_logs_skipped_input_ordinal(monkeypatch, caplog) -> None:
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [
             _device_payload(
                 source_device_id=7,
@@ -806,7 +806,7 @@ def test_async_restore_backup_replace_mode_aborts_on_erase_failure() -> None:
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [],
         "activities": [{"kind": "activity_backup"}],
     }
@@ -848,7 +848,7 @@ def test_async_restore_backup_replace_mode_proceeds_when_erase_succeeds() -> Non
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [],
         "activities": [{"kind": "activity_backup"}],
     }
@@ -887,7 +887,7 @@ def test_async_restore_backup_replace_mode_restores_hub_name_from_bundle() -> No
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "hub": {"name": "Living Room Hub"},
         "devices": [],
         "activities": [{"kind": "activity_backup"}],
@@ -929,7 +929,7 @@ def test_async_restore_backup_replace_mode_restores_same_hub_name_without_identi
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "hub": {"name": "X1 - test"},
         "devices": [],
         "activities": [{"kind": "activity_backup"}],
@@ -979,7 +979,7 @@ def test_async_restore_backup_replace_mode_progress_counts_include_restored_step
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "hub": {"name": "Living Room Hub"},
         "devices": [{"device": {"device_id": 1}}],
         "activities": [],
@@ -1029,7 +1029,7 @@ def test_async_restore_backup_merge_mode_skips_hub_name_restore() -> None:
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "hub": {"name": "Living Room Hub"},
         "devices": [],
         "activities": [{"kind": "activity_backup"}],
@@ -1065,7 +1065,7 @@ def test_async_restore_backup_merge_mode_skips_erase_even_with_activities() -> N
 
     bundle = {
         "kind": "hub_bundle",
-        "schema_version": 4,
+        "schema_version": 5,
         "devices": [],
         "activities": [{"kind": "activity_backup"}],
     }

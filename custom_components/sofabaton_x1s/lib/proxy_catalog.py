@@ -360,7 +360,7 @@ class CatalogMixin:
         self._activity_retry_due_at = None
         if not is_retry:
             self._activity_retry_count = 0
-        self._reset_pending_activity_snapshot()
+        self._reset_pending_activity_snapshot(self._activity_request_inflight)
 
     def _schedule_activity_retry(self, *, now: float | None = None) -> None:
         if self.hub_version != HUB_VERSION_X2:

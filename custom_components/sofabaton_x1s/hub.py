@@ -17,6 +17,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     DOMAIN,
+    HUB_BUNDLE_SCHEMA_VERSION,
     CONF_HEX_LOGGING_ENABLED,
     CONF_MAC,
     CONF_NAME,
@@ -1518,42 +1519,26 @@ class SofabatonHub:
                 restore_data = self._build_hub_code_record_restore_data(blob_command)
                 if restore_data is not None:
                     row["restore_data"] = restore_data
-            else:
-                row["blob_hex"] = blob_command.get("command_blob")
+            # Device classes that produce neither a hub_code_record nor a
+            # raw dump are not restorable, so they carry no restore_data;
+            # the row keeps only command_id + name as an editable label.
             command_rows.append(row)
-
-        input_rows: list[dict[str, Any]] = []
-        if input_entries:
-            for entry in input_entries:
-                command_id = int(entry.get("command_id", 0)) & 0xFF
-                input_index = int(entry.get("input_index", 0)) & 0xFF
-                if command_id == 0 or input_index == 0:
-                    continue
-                input_rows.append(
-                    {
-                        "command_id": command_id,
-                        "input_index": input_index,
-                        "name": label_map.get(command_id),
-                    }
-                )
 
         button_details = self._proxy.state.button_details.get(dev_lo, {})
         button_rows: list[dict[str, Any]] = []
         for button_id in sorted(set(button_codes) | set(button_details)):
             details = button_details.get(button_id, {})
             command_id = int(details.get("command_id", 0)) & 0xFF
+            # Device-level bindings always target the device's own
+            # commands, so restore re-derives the device id and command
+            # code; only the button slot + command id (plus labels) are
+            # part of the editable contract.
             button_rows.append(
                 {
                     "button_id": button_id & 0xFF,
                     "button_name": BUTTONNAME_BY_CODE.get(button_id & 0xFF),
-                    "device_id": int(details.get("device_id", dev_lo)) & 0xFF,
                     "command_id": command_id,
                     "command_name": label_map.get(command_id),
-                    "long_press_device_id": (
-                        int(details["long_press_device_id"]) & 0xFF
-                        if details.get("long_press_device_id") is not None
-                        else None
-                    ),
                     "long_press_command_id": (
                         int(details["long_press_command_id"]) & 0xFF
                         if details.get("long_press_command_id") is not None
@@ -1567,36 +1552,21 @@ class SofabatonHub:
             partial(self._proxy.get_cached_macro_records, dev_lo)
         )
         for record in macro_records:
+            # Device-level macro steps target the device's own commands;
+            # restore re-derives the step device id and the 48-bit fid
+            # from the restored command, so neither is stored.
             macro_rows.append(
                 {
                     "button_id": record.key_id & 0xFF,
                     "name": record.label,
-                    "is_power_macro": str(record.label or "").upper().startswith("POWER_"),
                     "steps": [
                         {
-                            "device_id": entry.device_id & 0xFF,
                             "command_id": entry.key_id & 0xFF,
-                            "fid": entry.fid & 0xFF,
                             "duration": entry.duration & 0xFF,
                             "delay": entry.delay & 0xFF,
                         }
                         for entry in record.key_sequence
                     ],
-                }
-            )
-
-        favorite_rows: list[dict[str, Any]] = []
-        for slot in self._proxy.state.get_activity_favorite_slots(dev_lo):
-            if not isinstance(slot, dict):
-                continue
-            command_id = int(slot.get("command_id", 0)) & 0xFF
-            favorite_rows.append(
-                {
-                    "button_id": int(slot.get("button_id", 0)) & 0xFF,
-                    "device_id": int(slot.get("device_id", 0)) & 0xFF,
-                    "command_id": command_id,
-                    "name": label_map.get(command_id),
-                    "source": str(slot.get("source", "cache")),
                 }
             )
 
@@ -1616,30 +1586,14 @@ class SofabatonHub:
 
         result = {
             "kind": "device_backup",
-            "schema_version": 3,
+            "schema_version": 4,
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "complete": complete,
-            "completeness": {
-                "device": bool(device_block),
-                "commands": bool(commands_ready),
-                "buttons": bool(final_buttons_ready),
-                "macros": bool(final_macros_ready),
-                "inputs": input_entries is not None,
-                "blobs": bool(blobs_complete),
-                "key_sort": key_sort_row is not None,
-            },
-            "hub": {
-                "entry_id": self.entry_id,
-                "name": self.name,
-                "version": self.version,
-            },
             "device": device_block,
             "commands": command_rows,
             "key_sort": dict(key_sort_row) if isinstance(key_sort_row, dict) else None,
-            "inputs": input_rows,
             "input_record": input_record,
             "button_bindings": button_rows,
-            "favorite_slots": favorite_rows,
             "macros": macro_rows,
         }
         return result
@@ -1767,6 +1721,11 @@ class SofabatonHub:
             step_entries: list[dict[str, Any]] = []
             for entry in record.key_sequence:
                 step_device_id = entry.device_id & 0xFF
+                if step_device_id == 0xFF:
+                    # The hub can emit internal power-macro rows with
+                    # device_id=255. Those rows are rejected if replayed
+                    # during restore, so they must not be exported.
+                    continue
                 if step_device_id != 0:
                     referenced_source_device_ids.add(step_device_id)
                 step_entries.append(
@@ -1786,7 +1745,6 @@ class SofabatonHub:
                 {
                     "button_id": record.key_id & 0xFF,
                     "name": record.label,
-                    "is_power_macro": str(record.label or "").upper().startswith("POWER_"),
                     "steps": step_entries,
                 }
             )
@@ -1803,7 +1761,6 @@ class SofabatonHub:
                     "button_id": int(slot.get("button_id", 0)) & 0xFF,
                     "device_id": target_device_id,
                     "command_id": int(slot.get("command_id", 0)) & 0xFF,
-                    "source": str(slot.get("source", "cache")),
                 }
             )
 
@@ -1819,19 +1776,9 @@ class SofabatonHub:
 
         return {
             "kind": "activity_backup",
-            "schema_version": 3,
+            "schema_version": 4,
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "complete": complete,
-            "completeness": {
-                "activity": bool(activity_block),
-                "buttons": bool(final_buttons_ready),
-                "macros": bool(final_macros_ready),
-            },
-            "hub": {
-                "entry_id": self.entry_id,
-                "name": self.name,
-                "version": self.version,
-            },
             # Use the same "device" key as device_backup payloads so the
             # restore-side schema parser can be reused. ``entity_type``
             # marks this entry as an activity.
@@ -1867,7 +1814,7 @@ class SofabatonHub:
 
         def _progress(**payload: Any) -> None:
             if callable(progress_callback):
-                progress_callback(payload)
+                progress_callback(**payload)
 
         if device_ids is None:
             _progress(
@@ -1989,7 +1936,7 @@ class SofabatonHub:
 
         return {
             "kind": "hub_bundle",
-            "schema_version": 4,
+            "schema_version": 5,
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "complete": complete,
             "hub": {
@@ -2091,7 +2038,7 @@ class SofabatonHub:
 
         def _progress(**progress_payload: Any) -> None:
             if callable(progress_callback):
-                progress_callback(progress_payload)
+                progress_callback(**progress_payload)
 
         if not isinstance(payload, dict):
             raise ValueError("restore_backup expects a hub_bundle object")
@@ -2099,9 +2046,10 @@ class SofabatonHub:
             raise ValueError(
                 "restore_backup payload must declare kind == 'hub_bundle'"
             )
-        if int(payload.get("schema_version", 0)) != 4:
+        if int(payload.get("schema_version", 0)) != HUB_BUNDLE_SCHEMA_VERSION:
             raise ValueError(
-                "restore_backup payload schema_version must be 4 "
+                "restore_backup payload schema_version must be "
+                f"{HUB_BUNDLE_SCHEMA_VERSION} "
                 f"(got {payload.get('schema_version')!r}); older bundles are "
                 "rejected -- no migrator is provided"
             )
@@ -2175,6 +2123,10 @@ class SofabatonHub:
             # completed steps before any replace-mode tail work runs.
             completed_steps += len(result.get("restored_devices") or [])
             completed_steps += len(result.get("restored_activities") or [])
+            total_steps = (
+                completed_steps
+                + (1 if rename_after_replace else 0)
+            )
         if rename_after_replace and isinstance(result, dict) and result.get("status") == "success":
             _progress(
                 status="running",
@@ -2183,10 +2135,13 @@ class SofabatonHub:
                 completed_steps=completed_steps,
                 total_steps=total_steps,
             )
-            hub_name_restored = await self.async_set_hub_name(
-                bundle_hub_name,
-                sync_identity=sync_identity_after_replace,
-            )
+            if sync_identity_after_replace:
+                hub_name_restored = await self.async_set_hub_name(bundle_hub_name)
+            else:
+                hub_name_restored = await self.async_set_hub_name(
+                    bundle_hub_name,
+                    sync_identity=False,
+                )
             result = dict(result)
             result["hub_name"] = bundle_hub_name
             result["hub_name_restored"] = bool(hub_name_restored)
@@ -2257,7 +2212,6 @@ class SofabatonHub:
                 "inputs_configured": config.is_input_configured,
                 "power_mode": config.power_mode,
                 "power_style": config.power_style,
-                "power_configured": config.is_power_configured,
                 "share_mode": config.share_mode,
                 "tail_marker": config.tail_marker,
                 "extras": (

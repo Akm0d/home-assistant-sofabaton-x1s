@@ -2,6 +2,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// custom_components/sofabaton_x1s/www/src/shared/ha-context.ts
+var BACKUP_BUNDLE_SCHEMA_VERSION = 5;
+
 // node_modules/@lit-labs/ssr-dom-shim/lib/element-internals.js
 var ElementInternalsShim = class ElementInternals {
   get shadowRoot() {
@@ -1188,8 +1191,10 @@ function validateBackupBundle(raw) {
   if (String(bundle2.kind || "") !== "hub_bundle") {
     throw new Error("Backup file is not a Sofabaton hub bundle.");
   }
-  if (Number(bundle2.schema_version || 0) !== 4) {
-    throw new Error(`Backup file schema_version must be 4 (got ${String(bundle2.schema_version || "") || "unknown"}).`);
+  if (Number(bundle2.schema_version || 0) !== BACKUP_BUNDLE_SCHEMA_VERSION) {
+    throw new Error(
+      `Backup file schema_version must be ${BACKUP_BUNDLE_SCHEMA_VERSION} (got ${String(bundle2.schema_version || "") || "unknown"}).`
+    );
   }
   if (!Array.isArray(bundle2.devices) || !Array.isArray(bundle2.activities)) {
     throw new Error("Backup file is missing devices or activities arrays.");
@@ -1200,7 +1205,7 @@ function validateBackupBundle(raw) {
 // tests/frontend/backup-state.test.ts
 var bundle = {
   kind: "hub_bundle",
-  schema_version: 4,
+  schema_version: 5,
   devices: [
     { device: { device_id: 1, name: "TV", device_class: "ir" } },
     { device: { device_id: 2, name: "AVR", device_class: "ir" } },
@@ -1249,6 +1254,6 @@ test("pruneBackupBundle keeps only selected devices and activities", () => {
 });
 test("validateBackupBundle rejects wrong kinds and schemas", () => {
   assert.equal(validateBackupBundle(bundle).kind, "hub_bundle");
-  assert.throws(() => validateBackupBundle({ kind: "device_backup", schema_version: 4 }), /not a Sofabaton hub bundle/i);
-  assert.throws(() => validateBackupBundle({ kind: "hub_bundle", schema_version: 3, devices: [], activities: [] }), /schema_version must be 4/i);
+  assert.throws(() => validateBackupBundle({ kind: "device_backup", schema_version: 5 }), /not a Sofabaton hub bundle/i);
+  assert.throws(() => validateBackupBundle({ kind: "hub_bundle", schema_version: 4, devices: [], activities: [] }), /schema_version must be 5/i);
 });

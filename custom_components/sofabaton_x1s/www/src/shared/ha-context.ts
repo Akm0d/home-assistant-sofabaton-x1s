@@ -176,6 +176,8 @@ export interface BackupBundlePayload {
   activities: BackupBundleActivityPayload[];
 }
 
+export const BACKUP_BUNDLE_SCHEMA_VERSION = 5;
+
 export interface BackupOperationStartResponse {
   operation_id: string;
 }

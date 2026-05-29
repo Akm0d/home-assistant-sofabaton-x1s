@@ -10,7 +10,7 @@ import {
 
 const bundle = {
   kind: "hub_bundle",
-  schema_version: 4,
+  schema_version: 5,
   devices: [
     { device: { device_id: 1, name: "TV", device_class: "ir" } },
     { device: { device_id: 2, name: "AVR", device_class: "ir" } },
@@ -64,6 +64,6 @@ test("pruneBackupBundle keeps only selected devices and activities", () => {
 
 test("validateBackupBundle rejects wrong kinds and schemas", () => {
   assert.equal(validateBackupBundle(bundle).kind, "hub_bundle");
-  assert.throws(() => validateBackupBundle({ kind: "device_backup", schema_version: 4 }), /not a Sofabaton hub bundle/i);
-  assert.throws(() => validateBackupBundle({ kind: "hub_bundle", schema_version: 3, devices: [], activities: [] }), /schema_version must be 4/i);
+  assert.throws(() => validateBackupBundle({ kind: "device_backup", schema_version: 5 }), /not a Sofabaton hub bundle/i);
+  assert.throws(() => validateBackupBundle({ kind: "hub_bundle", schema_version: 4, devices: [], activities: [] }), /schema_version must be 5/i);
 });

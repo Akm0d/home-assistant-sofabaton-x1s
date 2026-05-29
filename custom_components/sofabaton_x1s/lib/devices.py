@@ -128,10 +128,11 @@ class DeviceConfig:
     #:   input style yet. The remote shows "Not configured" in its
     #:   device list and the hub rejects REQ_ACTIVITY_INPUTS with a
     #:   non-success STATUS_ACK.
-    #: - ``1`` direct / discrete inputs (each input is its own command)
-    #: - ``2`` no input switching needed -- the device has no inputs to
-    #:   switch (e.g. a soundbar with a fixed input). This is a real
-    #:   configured state, not unconfigured.
+    #: - ``1`` direct / discrete inputs (each input is its own command).
+    #: - ``2`` source-list style -- the device exposes a configured list
+    #:   of named sources (typical for WiFi-Roku and similar devices
+    #:   where the activity picker cycles through entries). The 0x46
+    #:   page carries real entries in this mode.
     #: - ``3`` not yet observed; the remaining configuration choice in
     #:   the app is between menu-based and next-input styles, one of
     #:   which is this value.
