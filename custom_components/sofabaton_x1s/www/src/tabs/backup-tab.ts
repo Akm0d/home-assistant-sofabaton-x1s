@@ -10,6 +10,7 @@ import type {
 import { ControlPanelApi } from "../shared/api/control-panel-api";
 import { formatError, hubIcon } from "../shared/utils/control-panel-selectors";
 import {
+  assertBackupBundleRestoreCompatible,
   backupDeviceOptions,
   bundleActivityOptions,
   bundleDeviceOptions,
@@ -221,6 +222,17 @@ class SofabatonBackupTab extends LitElement {
       padding: 0;
     }
     .backup-scope-option ha-radio { flex: 0 0 auto; }
+    .scope-form-label {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .compat-choice {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--primary-color);
+    }
 
     .backup-devices-head {
       display: flex;
@@ -465,8 +477,8 @@ class SofabatonBackupTab extends LitElement {
       position: relative;
       display: flex;
       flex-wrap: nowrap;
-      justify-content: space-between;
-      gap: 10px;
+      justify-content: center;
+      gap: 4px;
       align-items: center;
       min-height: 110px;
       min-width: 0;
@@ -481,10 +493,10 @@ class SofabatonBackupTab extends LitElement {
       background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);
       border: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
     }
-    .progress-node.home .progress-disc { color: #41bdf5; }
+    .progress-node.home .progress-disc { color: var(--primary-color); }
     .progress-node.hub .progress-disc { color: var(--primary-color); }
-    .progress-disc ha-icon { --mdc-icon-size: 40px; }
-    .progress-disc .progress-hub-svg { width: 48px; height: 48px; }
+    .progress-disc ha-icon { --mdc-icon-size: 50px; }
+    .progress-disc .progress-hub-svg { width: 60px; height: 60px; }
     .progress-node-label {
       color: var(--secondary-text-color);
       font-size: 11px;
@@ -492,7 +504,7 @@ class SofabatonBackupTab extends LitElement {
       text-transform: uppercase;
       white-space: nowrap;
     }
-    .progress-route { position: relative; flex: 1 1 auto; min-width: 84px; height: 42px; }
+    .progress-route { position: relative; flex: 0 1 68px; min-width: 68px; height: 42px; }
     .progress-route::before {
       content: "";
       position: absolute;
@@ -500,7 +512,7 @@ class SofabatonBackupTab extends LitElement {
       right: 0;
       top: 50%;
       height: 2px;
-      background: color-mix(in srgb, var(--divider-color) 75%, transparent);
+      background: color-mix(in srgb, var(--primary-color) 28%, transparent);
       transform: translateY(-50%);
     }
     .packet {
@@ -508,8 +520,8 @@ class SofabatonBackupTab extends LitElement {
       width: 12px;
       height: 12px;
       border-radius: 50%;
-      background: #5ff0a0;
-      box-shadow: 0 0 0 4px rgba(95,240,160,.12);
+      background: var(--primary-color);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 14%, transparent);
       animation: restoreMove 1.75s cubic-bezier(.55,0,.25,1) infinite;
     }
     .packet:nth-child(2) { animation-delay: .38s; opacity: .78; transform: scale(.82); }
@@ -537,7 +549,7 @@ class SofabatonBackupTab extends LitElement {
     .progress-bar-fill {
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, #41bdf5, #5ff0a0, #a78bfa);
+      background: var(--primary-color);
       transition: width 180ms ease;
     }
     .progress-meta {
@@ -572,8 +584,9 @@ class SofabatonBackupTab extends LitElement {
     }
     @media (max-width: 760px) {
       .progress-disc { width: 64px; height: 64px; }
-      .progress-disc .progress-hub-svg { width: 40px; height: 40px; }
-      .progress-route { min-width: 56px; }
+      .progress-disc ha-icon { --mdc-icon-size: 42px; }
+      .progress-disc .progress-hub-svg { width: 50px; height: 50px; }
+      .progress-route { flex-basis: 52px; min-width: 52px; }
     }
   `;
 
@@ -699,7 +712,7 @@ class SofabatonBackupTab extends LitElement {
                       <button class="primary-btn" ?disabled=${!this._backupProgress?.backup} @click=${this._downloadLatestBackup}>
                         Download backup
                       </button>
-                      <button class="secondary-btn" @click=${this._resetBackupComposer}>New backup</button>
+                      <button class="secondary-btn" @click=${this._resetBackupComposer}>Complete</button>
                     </div>
                   </div>
                 `
@@ -714,13 +727,12 @@ class SofabatonBackupTab extends LitElement {
                           this._setBackupScope("whole_hub");
                         }}
                       >
-                        <ha-formfield class="scope-form" label="Entire hub">
-                          <ha-radio
-                            name="backup-scope"
-                            .checked=${wholeHub}
-                            ?disabled=${this._backupLocked() || !this.cacheHub}
-                          ></ha-radio>
-                        </ha-formfield>
+                        ${this._renderScopeChoice({
+                          label: "Entire hub",
+                          name: "backup-scope",
+                          checked: wholeHub,
+                          disabled: this._backupLocked() || !this.cacheHub,
+                        })}
                       </label>
                       <label
                         class="backup-scope-option ${!wholeHub ? "selected" : ""}"
@@ -729,13 +741,12 @@ class SofabatonBackupTab extends LitElement {
                           this._setBackupScope("individual_devices");
                         }}
                       >
-                        <ha-formfield class="scope-form" label="Selected devices">
-                          <ha-radio
-                            name="backup-scope"
-                            .checked=${!wholeHub}
-                            ?disabled=${this._backupLocked() || !this.cacheHub}
-                          ></ha-radio>
-                        </ha-formfield>
+                        ${this._renderScopeChoice({
+                          label: "Selected devices",
+                          name: "backup-scope",
+                          checked: !wholeHub,
+                          disabled: this._backupLocked() || !this.cacheHub,
+                        })}
                       </label>
                     </div>
                   </div>
@@ -760,15 +771,11 @@ class SofabatonBackupTab extends LitElement {
                                   this._setBackupDevice(device.id, !selectedDeviceIds.includes(device.id));
                                 }}
                               >
-                                <ha-checkbox
-                                  .checked=${selectedDeviceIds.includes(device.id)}
-                                  ?disabled=${this._backupLocked() || !this.cacheHub}
-                                  @click=${(event: Event) => event.stopPropagation()}
-                                  @change=${(event: Event) => {
-                                    const target = event.currentTarget as { checked?: boolean };
-                                    this._setBackupDevice(device.id, !!target.checked);
-                                  }}
-                                ></ha-checkbox>
+                                ${this._renderCheckboxControl({
+                                  checked: selectedDeviceIds.includes(device.id),
+                                  disabled: this._backupLocked() || !this.cacheHub,
+                                  onChange: (checked) => this._setBackupDevice(device.id, checked),
+                                })}
                                 <span class="selection-main">
                                   <span class="selection-label">${device.label}</span>
                                 </span>
@@ -844,14 +851,12 @@ class SofabatonBackupTab extends LitElement {
                 <div class="selection-list">
                   ${activityOptions.length ? activityOptions.map((activity) => html`
                     <div class="selection-row">
-                      <ha-checkbox
-                        .checked=${this._restoreActivityIds.includes(activity.id)}
-                        ?disabled=${this._restoreLocked()}
-                        @change=${(event: Event) => {
-                          const target = event.currentTarget as { checked?: boolean };
-                          this._setRestoreActivity(activity.id, !!target.checked);
-                        }}
-                      ></ha-checkbox>
+                      ${this._renderCheckboxControl({
+                        checked: this._restoreActivityIds.includes(activity.id),
+                        disabled: this._restoreLocked(),
+                        onChange: (checked) => this._setRestoreActivity(activity.id, checked),
+                        stopClick: false,
+                      })}
                       <span class="selection-main">
                         <span class="selection-label">${activity.label}</span>
                         ${activity.meta ? html`<span class="selection-sub">${activity.meta}</span>` : nothing}
@@ -866,14 +871,12 @@ class SofabatonBackupTab extends LitElement {
                     const forced = restoreSelection.forcedDeviceIds.includes(device.id);
                     return html`
                       <div class="selection-row ${forced ? "locked" : ""}">
-                        <ha-checkbox
-                          .checked=${restoreSelection.selectedDeviceIds.includes(device.id)}
-                          ?disabled=${forced || this._restoreLocked()}
-                          @change=${(event: Event) => {
-                            const target = event.currentTarget as { checked?: boolean };
-                            this._setRestoreDevice(device.id, !!target.checked);
-                          }}
-                        ></ha-checkbox>
+                        ${this._renderCheckboxControl({
+                          checked: restoreSelection.selectedDeviceIds.includes(device.id),
+                          disabled: forced || this._restoreLocked(),
+                          onChange: (checked) => this._setRestoreDevice(device.id, checked),
+                          stopClick: false,
+                        })}
                         <span class="selection-main">
                           <span class="selection-label">${device.label}</span>
                           ${device.meta ? html`<span class="selection-sub">${forced ? `${device.meta} · required by selected activities` : device.meta}</span>` : nothing}
@@ -965,15 +968,11 @@ class SofabatonBackupTab extends LitElement {
                               this._setRestoreActivity(activity.id, !this._restoreActivityIds.includes(activity.id));
                             }}
                           >
-                            <ha-checkbox
-                              .checked=${this._restoreActivityIds.includes(activity.id)}
-                              ?disabled=${this._restoreLocked()}
-                              @click=${(event: Event) => event.stopPropagation()}
-                              @change=${(event: Event) => {
-                                const target = event.currentTarget as { checked?: boolean };
-                                this._setRestoreActivity(activity.id, !!target.checked);
-                              }}
-                            ></ha-checkbox>
+                            ${this._renderCheckboxControl({
+                              checked: this._restoreActivityIds.includes(activity.id),
+                              disabled: this._restoreLocked(),
+                              onChange: (checked) => this._setRestoreActivity(activity.id, checked),
+                            })}
                             <span class="selection-main">
                               <span class="selection-label">${activity.label}</span>
                             </span>
@@ -995,15 +994,11 @@ class SofabatonBackupTab extends LitElement {
                                 this._setRestoreDevice(device.id, !restoreSelection.selectedDeviceIds.includes(device.id));
                               }}
                             >
-                              <ha-checkbox
-                                .checked=${restoreSelection.selectedDeviceIds.includes(device.id)}
-                                ?disabled=${forced || this._restoreLocked()}
-                                @click=${(event: Event) => event.stopPropagation()}
-                                @change=${(event: Event) => {
-                                  const target = event.currentTarget as { checked?: boolean };
-                                  this._setRestoreDevice(device.id, !!target.checked);
-                                }}
-                              ></ha-checkbox>
+                              ${this._renderCheckboxControl({
+                                checked: restoreSelection.selectedDeviceIds.includes(device.id),
+                                disabled: forced || this._restoreLocked(),
+                                onChange: (checked) => this._setRestoreDevice(device.id, checked),
+                              })}
                               <span class="selection-main">
                                 <span class="selection-label">${device.label}</span>
                               </span>
@@ -1023,15 +1018,13 @@ class SofabatonBackupTab extends LitElement {
                       this._restoreMode = this._restoreMode === "replace" ? "merge" : "replace";
                     }}
                   >
-                    <ha-checkbox
-                      .checked=${this._restoreMode === "replace"}
-                      ?disabled=${this._restoreLocked()}
-                      @click=${(event: Event) => event.stopPropagation()}
-                      @change=${(event: Event) => {
-                        const target = event.currentTarget as { checked?: boolean };
-                        this._restoreMode = target.checked ? "replace" : "merge";
-                      }}
-                    ></ha-checkbox>
+                    ${this._renderCheckboxControl({
+                      checked: this._restoreMode === "replace",
+                      disabled: this._restoreLocked(),
+                      onChange: (checked) => {
+                        this._restoreMode = checked ? "replace" : "merge";
+                      },
+                    })}
                     <span class="selection-main">
                       <span class="selection-label">Erase existing Devices and Activities</span>
                     </span>
@@ -1059,6 +1052,91 @@ class SofabatonBackupTab extends LitElement {
         <span class="status-icon"><ha-icon icon=${icon}></ha-icon></span>
         <span>${message}</span>
       </div>
+    `;
+  }
+
+  private _renderScopeChoice(params: {
+    label: string;
+    name: string;
+    checked: boolean;
+    disabled: boolean;
+  }) {
+    if (customElements.get("ha-formfield") && customElements.get("ha-radio")) {
+      return html`
+        <ha-formfield class="scope-form" label=${params.label}>
+          <ha-radio
+            name=${params.name}
+            .checked=${params.checked}
+            ?disabled=${params.disabled}
+          ></ha-radio>
+        </ha-formfield>
+      `;
+    }
+    return html`
+      <span class="scope-form scope-form--fallback">
+        ${this._renderRadioControl(params)}
+        <span class="scope-form-label">${params.label}</span>
+      </span>
+    `;
+  }
+
+  private _renderCheckboxControl(params: {
+    checked: boolean;
+    disabled: boolean;
+    onChange: (checked: boolean) => void;
+    stopClick?: boolean;
+  }) {
+    const stopClick = params.stopClick !== false;
+    if (customElements.get("ha-checkbox")) {
+      return html`
+        <ha-checkbox
+          .checked=${params.checked}
+          ?disabled=${params.disabled}
+          @click=${stopClick ? ((event: Event) => event.stopPropagation()) : (() => {})}
+          @change=${(event: Event) => {
+            const target = event.currentTarget as { checked?: boolean };
+            params.onChange(!!target.checked);
+          }}
+        ></ha-checkbox>
+      `;
+    }
+    return html`
+      <input
+        class="compat-choice compat-choice--checkbox"
+        type="checkbox"
+        .checked=${params.checked}
+        ?disabled=${params.disabled}
+        @click=${stopClick ? ((event: Event) => event.stopPropagation()) : (() => {})}
+        @change=${(event: Event) => {
+          const target = event.currentTarget as HTMLInputElement;
+          params.onChange(!!target.checked);
+        }}
+      />
+    `;
+  }
+
+  private _renderRadioControl(params: {
+    checked: boolean;
+    disabled: boolean;
+    name: string;
+  }) {
+    if (customElements.get("ha-radio")) {
+      return html`
+        <ha-radio
+          name=${params.name}
+          .checked=${params.checked}
+          ?disabled=${params.disabled}
+        ></ha-radio>
+      `;
+    }
+    return html`
+      <input
+        class="compat-choice compat-choice--radio"
+        type="radio"
+        name=${params.name}
+        .checked=${params.checked}
+        ?disabled=${params.disabled}
+      />
     `;
   }
 
@@ -1278,6 +1356,7 @@ class SofabatonBackupTab extends LitElement {
     try {
       const text = await file.text();
       const bundle = validateBackupBundle(JSON.parse(text));
+      assertBackupBundleRestoreCompatible(bundle, this.hub?.version);
       this._restoreBundle = bundle;
       this._restoreFilename = file.name;
       this._restoreMode = "merge";

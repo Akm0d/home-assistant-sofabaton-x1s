@@ -66,6 +66,55 @@ Observed stable fields:
 - X1S/X2 labels are commonly UTF-16BE
 - X1 labels are commonly UTF-8 or ASCII-compatible
 
+### Device/activity write body (families `0x07`, `0x37`, `0x08`)
+
+Observed create/update writes reuse one fixed-size record body whose variant
+dimensions match the read-side device/activity record families.
+
+Observed wrapper:
+
+```
+payload[0]   = 0x01
+payload[1:3] = 1, big-endian
+payload[3:]  = fixed-size body
+```
+
+Observed body layout:
+
+| Offset | Meaning |
+|--------|---------|
+| `0` | body marker (`0x01`) |
+| `1:3` | total pages, big-endian (`1` in observed create/update traffic) |
+| `3` | record kind |
+| `4` | entity id (`0xFF` for create-new, existing id for update/finalize) |
+| `5` | icon id |
+| `6` | sort order |
+| `7` | code/source type |
+| `8` | device/activity type |
+| `9:25` | 16-byte opaque code id |
+| `25` | hide flag |
+| `26` | input flag |
+| `27` | channel / variant-specific selector |
+| `28` | power-state byte |
+| `29..` | fixed-width name slot |
+| after name slot | fixed-width brand slot |
+| after brand slot | fixed-width tail slot |
+| last byte | body checksum (`sum(body[:-1]) & 0xFF`) |
+
+Observed variant dimensions:
+- X1: 120-byte body, 30-byte name/brand/tail slots, ASCII labels
+- X1S/X2: 210-byte body, 60-byte name/brand/tail slots, UTF-16BE labels
+
+Observed tail-slot structure:
+- bytes `0..5`: optional IP marker + IPv4 bytes
+- bytes `6..8`: optional poll-time marker + 2-byte value
+- bytes `9..17`: input/power/share/tail-marker control region
+- bytes `18..21`: optional vendor-extension block on some captures
+
+The family-`0x37` activity-create body is layout-compatible with the family-`0x07`
+device-create body; the difference is the opcode family and the meaning of the
+assigned id returned by the create ack.
+
 ---
 
 ## Command list records (`REQ_COMMANDS`, family `0x5D`)
@@ -155,6 +204,42 @@ payload[76:]   = device-specific metadata, observed as IP/port + HTTP template
 This response is used as a readback/confirmation step after WiFi input
 configuration changes.
 
+### Command/code write pages (family `0x0E`, `A->H`)
+
+Observed command writes page one logical record body across one or more
+family-`0x0E` frames.
+
+Observed per-page wrapper:
+
+```
+payload[0]   = command_seq
+payload[1:3] = page number, big-endian
+payload[3:]  = body chunk
+```
+
+Observed body layout:
+
+| Offset | Meaning |
+|--------|---------|
+| `0` | burst-wide command count / size marker |
+| `1:3` | total pages for this one command record |
+| `3` | device id |
+| `4` | default button slot id |
+| `5` | library / codec type |
+| `6:12` | 6-byte canonical command code |
+| `12..` | fixed-width label slot |
+| after label slot | opaque library/blob bytes |
+| last byte | body checksum (`sum(body[:-1]) & 0xFF`) |
+
+Observed variant dimensions:
+- X1 label slot: 30-byte ASCII
+- X1S/X2 label slot: 60-byte UTF-16BE
+
+Observed ack behavior:
+- each page is acked independently via `0x0103`
+- `payload[0] == 0x00` means accepted
+- `payload[0] == 0x0C` is an observed explicit reject on malformed save pages
+
 ---
 
 ## Activity keymap and favorite rows (`REQ_BUTTONS`, family `0x3D`)
@@ -242,6 +327,28 @@ additional detail.
 Some rows for hard buttons bound to activity-local macros use a distinct subtype
 where the row refers back to the activity rather than to a device command.
 These should not be interpreted as normal `(device_id, command_id)` bindings.
+
+### Button-binding write (`family 0x3E`, `A->H`)
+
+Observed button-binding writes are fixed-size single-page payloads:
+
+```
+payload[0:3]   = 01 00 01
+body[0:3]      = 01 00 01
+body[3]        = target entity id
+body[4]        = button id being written
+body[5]        = short-press target device id
+body[6:12]     = short-press canonical command code
+body[12]       = short-press button id
+body[13]       = long-press target device id
+body[14:20]    = long-press canonical command code
+body[20]       = long-press button id
+body[21]       = body checksum
+```
+
+Observed ack:
+- reply opcode `0x013E`
+- `payload[0]` echoes the written button id
 
 ---
 
@@ -345,6 +452,39 @@ Observed paging behavior:
 - one macro record may span multiple fragments
 - record starts are identified by fragment metadata, but label decoding is
   safest after concatenating fragment bodies for the burst
+
+### Macro write (`family 0x12`, `A->H`)
+
+Observed macro writes use the same per-variant label-slot widths as the read-side
+macro records, but the write body carries an explicit step count and raw 10-byte
+step rows.
+
+Observed layout:
+
+```
+payload[0:3]   = 01 00 01
+body[0:3]      = 01 00 01
+body[3]        = entity id
+body[4]        = macro key id
+body[5]        = step count
+body[6..]      = step_count repeated 10-byte step rows
+...            = fixed-width label slot
+last byte      = body checksum
+```
+
+Observed 10-byte step-row layout:
+
+```
+byte 0        device id
+byte 1        command id / key id
+byte 2..7     6-byte fid / canonical command code
+byte 8        duration
+byte 9        delay
+```
+
+Observed ack:
+- reply opcode `0x0112`
+- `payload[0]` echoes the written macro key id
 
 ---
 

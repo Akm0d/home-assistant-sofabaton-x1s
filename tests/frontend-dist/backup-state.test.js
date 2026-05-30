@@ -1146,6 +1146,11 @@ o4?.({ LitElement: i3 });
 (s3.litElementVersions ??= []).push("4.2.2");
 
 // custom_components/sofabaton_x1s/www/src/tabs/backup-state.ts
+var HUB_VERSION_RANK = {
+  X1: 1,
+  X1S: 2,
+  X2: 3
+};
 function forcedRestoreDeviceIds(bundle2, selectedActivityIds) {
   const selected = new Set(selectedActivityIds.map((value) => Number(value)));
   const forced = /* @__PURE__ */ new Set();
@@ -1201,11 +1206,37 @@ function validateBackupBundle(raw) {
   }
   return bundle2;
 }
+function normalizeHubVersion(value) {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (!normalized) return null;
+  if (normalized.includes("X1S")) return "X1S";
+  if (normalized.includes("X2")) return "X2";
+  if (normalized.includes("X1")) return "X1";
+  return null;
+}
+function assertBackupBundleRestoreCompatible(bundle2, destinationHubVersion) {
+  const sourceVersion = normalizeHubVersion(bundle2?.hub?.version);
+  if (!sourceVersion) {
+    throw new Error("Backup file is missing its source hub model, so compatibility cannot be verified.");
+  }
+  const destinationVersion = normalizeHubVersion(destinationHubVersion);
+  if (!destinationVersion) {
+    throw new Error("The destination hub model is unknown, so restore compatibility cannot be verified.");
+  }
+  if (HUB_VERSION_RANK[destinationVersion] < HUB_VERSION_RANK[sourceVersion]) {
+    throw new Error(
+      `This backup was created on a Sofabaton ${sourceVersion} hub and cannot be restored onto a Sofabaton ${destinationVersion} hub.`
+    );
+  }
+}
 
 // tests/frontend/backup-state.test.ts
 var bundle = {
   kind: "hub_bundle",
   schema_version: 5,
+  hub: {
+    version: "X1"
+  },
   devices: [
     { device: { device_id: 1, name: "TV", device_class: "ir" } },
     { device: { device_id: 2, name: "AVR", device_class: "ir" } },
@@ -1256,4 +1287,33 @@ test("validateBackupBundle rejects wrong kinds and schemas", () => {
   assert.equal(validateBackupBundle(bundle).kind, "hub_bundle");
   assert.throws(() => validateBackupBundle({ kind: "device_backup", schema_version: 5 }), /not a Sofabaton hub bundle/i);
   assert.throws(() => validateBackupBundle({ kind: "hub_bundle", schema_version: 4, devices: [], activities: [] }), /schema_version must be 5/i);
+});
+test("normalizeHubVersion canonicalizes known hub model labels", () => {
+  assert.equal(normalizeHubVersion("x1"), "X1");
+  assert.equal(normalizeHubVersion("Sofabaton X1S"), "X1S");
+  assert.equal(normalizeHubVersion("x2 "), "X2");
+  assert.equal(normalizeHubVersion("unknown"), null);
+});
+test("assertBackupBundleRestoreCompatible allows upward-compatible restores only", () => {
+  assert.doesNotThrow(() => assertBackupBundleRestoreCompatible(bundle, "X1"));
+  assert.doesNotThrow(() => assertBackupBundleRestoreCompatible(bundle, "X1S"));
+  assert.doesNotThrow(() => assertBackupBundleRestoreCompatible(bundle, "X2"));
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible({ ...bundle, hub: { version: "X1S" } }, "X1"),
+    /cannot be restored onto a Sofabaton X1 hub/i
+  );
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible({ ...bundle, hub: { version: "X2" } }, "X1S"),
+    /cannot be restored onto a Sofabaton X1S hub/i
+  );
+});
+test("assertBackupBundleRestoreCompatible rejects missing source or destination hub models", () => {
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible({ ...bundle, hub: {} }, "X2"),
+    /missing its source hub model/i
+  );
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible(bundle, ""),
+    /destination hub model is unknown/i
+  );
 });

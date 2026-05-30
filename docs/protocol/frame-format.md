@@ -29,8 +29,8 @@ sync/opcode/checksum pattern.
 ### Sync bytes
 
 The two-byte sequence `0xA5 0x5A` marks the start of every frame. Frame boundaries
-are found by scanning for this pair in the byte stream; there is no explicit length
-field in the frame header.
+can be re-synchronized by scanning for this pair in the byte stream, but in normal
+aligned traffic the payload length is already known from `opcode_hi`.
 
 ### Opcode
 
@@ -72,13 +72,18 @@ the stream to actually be aligned at a frame boundary).
 ### Payload
 
 Arbitrary bytes specific to each opcode. Some frames have no payload (zero bytes
-between opcode and checksum). The payload length is determined by scanning for the
-next `0xA5 0x5A` sync pair in the byte stream.
+between opcode and checksum). In aligned traffic, payload length is:
+
+```
+payload_length = opcode_hi = byte[2]
+```
+
+Sync scanning is therefore a recovery strategy, not the primary length source.
 
 > **Note:** The hub does not prefix frames with an explicit payload-length field.
-> A deframer must scan the stream for sync bytes to locate frame boundaries. If
-> payload bytes happen to contain `0xA5 0x5A`, the framer must rely on checksum
-> validation to distinguish real sync markers from data.
+> The opcode high byte already gives the payload length. A deframer may still
+> use sync scanning plus checksum validation to recover from corruption or
+> desynchronization.
 
 ### Checksum
 
@@ -108,9 +113,8 @@ CALL_ME frame (UDP discovery, see [connection-flow.md](connection-flow.md)):
 ```
 A5 5A          ← sync
 0C C3          ← opcode 0x0CC3 (CALL_ME; opcode_hi 0x0C = 12 payload bytes)
-XX XX XX XX    ← client MAC (6 bytes; the official app puts its Wi-Fi MAC
-XX XX            here. The HA proxy currently writes zeros; the hub appears
-                 not to enforce the value — informational only.)
+00 00 00 00    ← reserved bytes (6 observed zeros in current third-party traffic)
+00 00
 ?? ?? ?? ??    ← local IP (4 bytes). Byte order is ambiguous:
                  - The HA proxy writes network byte order (e.g.
                    C0 A8 01 64 for 192.168.1.100, via socket.inet_aton).

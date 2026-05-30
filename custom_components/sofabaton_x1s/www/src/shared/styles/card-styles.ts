@@ -4,20 +4,55 @@ export const cardStyles = css`
   :host { display: block; }
   *, *::before, *::after { box-sizing: border-box; }
   .card-inner { height: var(--tools-card-height, 600px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--ha-card-border-radius, 12px); }
-  .card-bottom-dock { position: relative; flex-shrink: 0; display: flex; align-items: stretch; justify-content: space-between; gap: 12px; padding: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
-  .card-header-status { display: inline-flex; align-items: center; padding-left: 14px; }
-  .card-header-status .dock-seg { padding: 8px 10px; font-size: 11px; }
-  .card-header-status .dock-sep { margin: 6px 0; }
+  .card-topbar {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--divider-color) 82%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--primary-color) 8%, var(--ha-card-background, var(--card-background-color))),
+        color-mix(in srgb, var(--primary-color) 4%, var(--ha-card-background, var(--card-background-color)))
+      );
+  }
+  .card-brand {
+    min-width: 0;
+    flex: 1 1 auto;
+    color: color-mix(in srgb, var(--primary-text-color) 94%, var(--secondary-text-color));
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-header-status {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
   .card-title { font-size: 16px; font-weight: 700; }
   .card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; }
   .tab-panel.scrollable, .acc-body, .logs-console { overflow-y: auto; }
-  .hub-picker { position: relative; display: flex; flex-direction: column; align-items: flex-end; margin-left: auto; padding: 6px 10px 6px 0; }
-  .hub-picker-btn { display: inline-flex; align-items: center; gap: 8px; max-width: min(100%, 420px); border: 1px solid var(--divider-color); border-radius: 999px; padding: 0 14px 0 16px; background: var(--secondary-background-color, var(--ha-card-background)); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; user-select: none; -webkit-user-select: none; transition: border-color 120ms ease, background 120ms ease; }
+  .hub-picker { position: relative; display: flex; flex-direction: column; align-items: flex-start; }
+  .card-topbar > .hub-picker { flex: 0 0 auto; align-items: flex-end; margin-left: 2px; }
+  .hub-picker-btn { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 420px); min-height: 24px; border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent); border-radius: 999px; padding: 0 10px 0 9px; background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 80%, var(--primary-color) 6%); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; user-select: none; -webkit-user-select: none; transition: border-color 120ms ease, background 120ms ease; }
   .hub-picker-btn:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
-  .chip-name { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip-arrow { --mdc-icon-size: 16px; color: var(--secondary-text-color); flex-shrink: 0; }
-  .hub-picker-menu { position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; width: max-content; min-width: 160px; max-width: min(320px, calc(100vw - 24px)); margin: 0; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
+  .hub-picker-btn--static { cursor: default; }
+  .chip-prefix { font-size: 9px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, var(--primary-color) 62%, var(--secondary-text-color)); flex-shrink: 0; }
+  .chip-name { font-size: 11px; font-weight: 700; flex: 1; min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-arrow { --mdc-icon-size: 13px; color: var(--secondary-text-color); flex-shrink: 0; transform: rotate(180deg); }
+  .hub-picker-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; display: flex; flex-direction: column; width: max-content; min-width: 160px; max-width: min(320px, calc(100vw - 24px)); margin: 0; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
   .hub-option, .tab-menu-item { width: 100%; border: none; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer; user-select: none; -webkit-user-select: none; }
   .hub-option { padding: 10px 14px; font-size: 13px; }
   .hub-option:hover, .tab-menu-item:hover { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
@@ -88,14 +123,67 @@ export const cardStyles = css`
   .hub-tab-layout > .tab-panel { flex: 1; }
   .panel-sticky-footer { flex-shrink: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
   .bottom-dock-status { width: 100%; display: flex; align-items: stretch; justify-content: center; }
-  .dock-seg { display: inline-flex; align-items: center; gap: 5px; padding: 10px 14px; font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; }
-  .dock-sep { width: 1px; background: var(--divider-color); flex-shrink: 0; margin: 8px 0; }
-  .dock-seg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: currentColor; }
-  .dock-seg--hub-on { color: #48b851; }
-  .dock-seg--app-on { color: #67b7ff; }
-  .dock-seg--off { color: var(--secondary-text-color); opacity: 0.5; }
-  .dock-seg--version { color: var(--secondary-text-color); gap: 4px; }
-  .dock-version-icon { --mdc-icon-size: 13px; flex-shrink: 0; }
+  .dock-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent);
+    background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, transparent);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .dock-pill--hub-on {
+    color: #2f9f43;
+    border-color: color-mix(in srgb, #48b851 40%, var(--divider-color));
+    background: color-mix(in srgb, #48b851 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--hub-off {
+    color: #c13d3d;
+    border-color: color-mix(in srgb, #db4437 42%, var(--divider-color));
+    background: color-mix(in srgb, #db4437 10%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-on {
+    color: #2f80d8;
+    border-color: color-mix(in srgb, #67b7ff 42%, var(--divider-color));
+    background: color-mix(in srgb, #67b7ff 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-off {
+    color: color-mix(in srgb, var(--secondary-text-color) 78%, transparent);
+    border-color: color-mix(in srgb, var(--divider-color) 88%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+  }
+  .card-blocked-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 32px;
+    text-align: center;
+  }
+  .card-blocked-icon {
+    display: inline-flex;
+    color: color-mix(in srgb, var(--warning-color, var(--primary-color)) 75%, var(--secondary-text-color));
+  }
+  .card-blocked-icon ha-icon { --mdc-icon-size: 40px; }
+  .card-blocked-title {
+    color: var(--primary-text-color);
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .card-blocked-copy {
+    max-width: 360px;
+    color: var(--secondary-text-color);
+    font-size: 13px;
+    line-height: 1.6;
+  }
   .dock-status-value { font-weight: 700; font-family: "SF Mono", "Fira Code", Consolas, monospace; }
   .settings-list { border: 1px solid color-mix(in srgb, var(--primary-text-color) 14%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 4px); overflow: hidden; }
   .setting-tile { min-height: 52px; display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; background: var(--ha-card-background, var(--card-background-color, #fff)); border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color)); }
@@ -224,9 +312,11 @@ export const cardStyles = css`
     .hub-ident-name { font-size: 15px; }
     .hub-compact-stats { display: none; }
     .entity-chevron { display: none; }
+    .card-topbar { padding: 4px 8px; gap: 6px; }
     .hub-picker-btn { max-width: min(100vw - 32px, 320px); }
     .chip-name { max-width: 220px; }
-    .card-header-status { padding-left: 8px; }
-    .card-header-status .dock-seg { padding: 6px 6px; font-size: 10.5px; }
+    .card-header-status { gap: 4px; }
+    .dock-pill { min-height: 20px; padding: 0 6px; font-size: 9px; }
+    .card-brand { font-size: 9px; letter-spacing: 0.1em; }
   }
 `;

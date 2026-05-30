@@ -258,25 +258,23 @@ class SofabatonControlPanelCard extends LitElement {
     if (!hub) return null;
     const connected = hubConnected(this._snapshot.hass, hub);
     const proxyOn = proxyClientConnected(this._snapshot.hass, hub);
-    const integrationVersion = String(this._snapshot.toolsFrontendVersionExpected ?? "").trim() || "unknown";
     return html`
       <div class="card-header-status">
-        <div class="dock-seg ${connected ? "dock-seg--hub-on" : "dock-seg--off"}">
-          <span class="dock-seg-dot"></span>
-          <span>Hub ${connected ? "connected" : "not connected"}</span>
+        <div class="dock-pill ${connected ? "dock-pill--hub-on" : "dock-pill--hub-off"}">
+          <span>HUB</span>
         </div>
-        <div class="dock-sep"></div>
-        <div class="dock-seg ${proxyOn ? "dock-seg--app-on" : "dock-seg--off"}">
-          <span class="dock-seg-dot"></span>
-          <span>App ${proxyOn ? "connected" : "not connected"}</span>
-        </div>
-        <div class="dock-sep"></div>
-        <div class="dock-seg dock-seg--version">
-          <ha-icon class="dock-version-icon" icon="mdi:cog-outline"></ha-icon>
-          <span>v<span class="dock-status-value">${integrationVersion}</span></span>
+        <div class="dock-pill ${proxyOn ? "dock-pill--app-on" : "dock-pill--app-off"}">
+          <span>APP</span>
         </div>
       </div>
     `;
+  }
+
+  private renderBrandLabel() {
+    const version =
+      String(this._snapshot.toolsFrontendVersionExpected ?? this._snapshot.toolsFrontendVersionLoaded ?? "").trim()
+      || "unknown";
+    return html`<div class="card-brand">SOFABATON CONTROL PANEL - v${version}</div>`;
   }
 
   private renderBackendUnavailable(height: number) {
@@ -304,9 +302,6 @@ class SofabatonControlPanelCard extends LitElement {
     return html`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
-          <div class="card-header">
-            <span class="card-title">Sofabaton Control Panel</span>
-          </div>
           <div class="card-body">
             <div class="version-mismatch-state">
               <div class="version-mismatch-header">
@@ -334,12 +329,27 @@ class SofabatonControlPanelCard extends LitElement {
     `;
   }
 
+  private renderHubUnavailable() {
+    return html`
+      <div class="card-body">
+        <div class="card-blocked-state">
+          <div class="card-blocked-icon"><ha-icon icon="mdi:lan-disconnect"></ha-icon></div>
+          <div class="card-blocked-title">Hub unavailable</div>
+          <div class="card-blocked-copy">
+            This hub is not connected, so the control panel is unavailable until the hub reconnects.
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   protected render() {
     const hub = selectedHub(this._snapshot);
     const cacheHub = selectedHubCache(this._snapshot);
     const cacheEnabled = persistentCacheEnabled(this._snapshot);
     const hubs = this._snapshot.state?.hubs ?? [];
     const height = Number(this._config.card_height ?? 600);
+    const selectedHubConnected = !hub || hubConnected(this._snapshot.hass, hub);
     if (this._snapshot.toolsFrontendVersionMismatch) {
       return this.renderVersionMismatch(height);
     }
@@ -453,28 +463,32 @@ class SofabatonControlPanelCard extends LitElement {
     return html`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
+          <div class="card-topbar">
+            ${this.renderBrandLabel()}
+            ${this.renderHeaderStatus(hub)}
+            ${hubs.length > 1
+              ? renderHubPicker({
+                  interactive: true,
+                  open: this._hubPickerOpen,
+                  selectedLabel: hub?.name || hub?.entry_id || "",
+                  prefixLabel: "HUB",
+                  hubs,
+                  selectedEntryId: this._snapshot.selectedHubEntryId,
+                  onToggle: () => this.toggleHubPicker(),
+                  onSelect: (entryId) => {
+                    this._hubPickerOpen = false;
+                    this._store.selectHub(entryId);
+                  },
+                })
+              : null}
+          </div>
           ${renderTabBar({
             selectedTab: this._snapshot.selectedTab,
             toolsMenuOpen: this._toolsMenuOpen,
             onSelect: (tabId) => this.handleTabSelect(tabId),
             onToggleToolsMenu: () => this.toggleToolsMenu(),
           })}
-          <div class="card-body">${activeTab}</div>
-          <div class="card-bottom-dock">
-            ${this.renderHeaderStatus(hub)}
-            ${renderHubPicker({
-              visible: hubs.length > 1,
-              open: this._hubPickerOpen,
-              selectedLabel: hub?.name || hub?.entry_id || "",
-              hubs,
-              selectedEntryId: this._snapshot.selectedHubEntryId,
-              onToggle: () => this.toggleHubPicker(),
-              onSelect: (entryId) => {
-                this._hubPickerOpen = false;
-                this._store.selectHub(entryId);
-              },
-            })}
-          </div>
+          ${selectedHubConnected ? html`<div class="card-body">${activeTab}</div>` : this.renderHubUnavailable()}
         </div>
       </ha-card>
     `;

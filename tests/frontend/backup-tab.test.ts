@@ -72,3 +72,37 @@ test("backup tab rehydrates a stale running restore when the hub no longer repor
   assert.equal((element._restoreProgress as any)?.status, "success");
   assert.equal(element._restoreSuccess, "Restore completed.");
 });
+
+test("backup tab rejects restore files from newer hub generations", async () => {
+  const element = new BackupTabElement() as HTMLElement & Record<string, unknown>;
+  element.hub = {
+    entry_id: "hub-1",
+    version: "X1S",
+  };
+
+  const file = new File(
+    [
+      JSON.stringify({
+        kind: "hub_bundle",
+        schema_version: 5,
+        hub: { version: "X2" },
+        devices: [],
+        activities: [],
+      }),
+    ],
+    "x2-backup.json",
+    { type: "application/json" },
+  );
+
+  const input = {
+    files: [file],
+    value: "chosen",
+  } as unknown as HTMLInputElement;
+
+  await (element as any)._handleFilePicked({ currentTarget: input });
+
+  assert.equal(element._restoreBundle, null);
+  assert.equal(element._restoreFilename, "");
+  assert.match(String(element._restoreError || ""), /cannot be restored onto a Sofabaton X1S hub/i);
+  assert.equal(input.value, "");
+});

@@ -19,6 +19,8 @@ This document describes observed wire behavior. Implementation notes belong in
 |----------|------|---------------|--------------|---------|
 | `0x0001` | `REQ_BANNER` | none observed | All observed | Request family-`0x02` banner with model, batch, and hub firmware |
 | `0x000A` | `REQ_DEVICES` | none observed | All | Request device catalog |
+| `0x001D` | `ERASE_CONFIGURATION` | none observed | All observed | Wipe the hub configuration tables; see [erase.md](erase.md) |
+| `0x0030` | `SET_HUB_NAME` | variable text bytes | All observed | Set hub name; observed send-side encoding is GB2312-compatible |
 | `0x003A` | `REQ_ACTIVITIES` | none observed | All | Request activity catalog |
 | `0x023C` | `REQ_BUTTONS` | `[act_lo, 0xFF]` | All | Request activity keymap and favorite rows |
 | `0x025C` | `REQ_COMMANDS` | `[dev_lo, 0xFF]` or `[dev_lo, cmd_lo]` | All | Request full command list or one command label |
@@ -39,6 +41,22 @@ This document describes observed wire behavior. Implementation notes belong in
 | `0x0064` | `REMOTE_SYNC` | none observed | X1, X1S | Force remote/hub sync |
 | `0x012E` | `X2_REMOTE_LIST` | `[0x00]` | X2 observed | Request connected remote list |
 | `0x0464` | `X2_REMOTE_SYNC` | `[remote_id:3][0x01]` | X2 observed | Force sync for one remote |
+
+### Device / activity create and update writes
+
+These writes use opcode families whose high byte varies with payload length.
+
+| Opcode / family | Name | Payload shape | Hub versions | Purpose |
+|-----------------|------|---------------|--------------|---------|
+| family `0x07` | `DEVICE_CREATE` | fixed-size record body with outer page wrapper | All observed | Create one device and receive the assigned id |
+| family `0x37` | `ACTIVITY_CREATE` | fixed-size record body with outer page wrapper | All observed | Create one activity |
+| family `0x08` | `DEVICE_UPDATE` | fixed-size record body with outer page wrapper | All observed | Finalize or update an existing device record |
+| family `0x0E` | `COMMAND_WRITE` | paged command/code record | All observed | Write one command/blob/code record |
+| family `0x3E` | `BUTTON_BINDING_WRITE` | fixed 25-byte payload | All observed | Bind one hard button to short/long-press targets |
+| `0x0241` | `SET_IDLE_BEHAVIOR` | `[dev_lo, mode]` | All observed | Set device idle/power behavior |
+| family `0x12` | `MACRO_WRITE` | fixed or paged macro record | All observed | Write one macro definition |
+| family `0x46` | `INPUTS_WRITE` | single- or multi-page inputs body | All observed | Write one device's inputs page |
+| family `0x61` | `KEY_SORT_WRITE` | paged sort payload | All observed | Write one device's key ordering payload |
 
 ### IR blob playback (family `0x0F`)
 
@@ -252,6 +270,15 @@ Observed row classes include:
 - IP/WiFi
 - MQTT-style rows
 
+### Create-write acknowledgments
+
+| Opcode | Name | Notes |
+|--------|------|-------|
+| `0x0107` | `DEVICE_CREATE_ACK` | `payload[0] = assigned device id` |
+| `0x0137` | `ACTIVITY_CREATE_ACK` | `payload[0] = assigned activity id`; observed on X1 |
+| `0x013E` | `BUTTON_BINDING_ACK` | `payload[0] = echoed button id` |
+| `0x0112` | `MACRO_WRITE_ACK` | `payload[0] = echoed macro key id` |
+
 ### Macro labels and payloads (family `0x13`)
 
 Observed `REQ_MACRO_LABELS` replies use family `0x13`. The high byte tracks the
@@ -344,8 +371,8 @@ Observed page families:
 | `0x0160` | `ACK_READY` | `H->A` | Hub ready for next command |
 | `0x0242` | `PING2_ACK` | `H->A` | Keepalive reply on X1S/X2 |
 | family `0x02` | `BANNER` | `H->A` | Hub identity/banner; observed full opcodes include `0x1A02` (X1), `0x1D02` (X1S), `0x1502` (X2) |
+| family `0x31` | `HUB_NAME_REPLY` | `H->A` | Variable-length hub-name reply family, observed after both `0x0030` and `0x0032` |
 | `0x0032` | `REQ_HUB_NAME?` | `A->H` | Observed during discovery-driven hub switching; app appears to ask for the current hub name |
-| family `0x31` | `HUB_NAME?` | `H->A` | Observed reply to `0x0032`; payload is UTF-8 hub name plus checksum. Example X1 reply opcode: `0x0631` |
 | `0x0359` | `WIFI_FW` | `H->A` | WiFi firmware string |
 | `0x112F` | `INFO_BANNER` | `H->A` | Additional version/build data |
 
@@ -376,11 +403,19 @@ Observed `INFO_BANNER` (`0x112F`) semantics:
 
 | Low byte | Family | Examples |
 |----------|--------|----------|
+| `0x07` | Device-create writes | variable high byte; examples depend on payload width |
+| `0x08` | Device-update/finalize writes | variable high byte; examples depend on payload width |
 | `0x0B` | Device catalog | `0xD50B`, `0x7B0B` |
+| `0x12` | Macro writes | variable high byte; examples depend on payload width |
 | `0x3B` | Activity catalog | `0xD53B`, `0x7B3B` |
 | `0x13` | Macro fragments | variable high byte; examples include `0x6E13`, `0x5A13` |
+| `0x31` | Hub-name replies | variable high byte; example `0x0631` |
 | `0x3D` | Activity keymap / favorites | variable high byte; examples include `0xFA3D`, `0x543D`, `0x0C3D` |
+| `0x3E` | Button-binding writes | variable high byte; examples depend on payload width |
+| `0x37` | Activity-create writes | variable high byte; examples depend on payload width |
+| `0x46` | Inputs writes | variable high byte; examples depend on payload width |
 | `0x5D` | Command pages and single-command labels | variable high byte; examples include `0xD95D`, `0xD55D`, `0x4D5D` |
+| `0x61` | Device key-sort writes | variable high byte |
 | `0x6D` | Activity membership roster | `0x7B6D`, `0xD56D` |
 | `0x47` | Activity input candidates | `0xFA47`, `0xC947` |
 | `0x0D` | IP-command sync, input-refresh labels, and blob-dump pages | variable high byte; examples include `0x0DD3`, `0x0DAC`, `0xCD0D` |

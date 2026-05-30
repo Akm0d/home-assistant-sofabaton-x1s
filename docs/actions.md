@@ -373,8 +373,8 @@ one of those commands is triggered.
 | Parameter | Type | Required | Description |
 | --------- | ---- | :------: | ----------- |
 | `device` | HA Device | Yes | Your Sofabaton hub. |
-| `device_name` | string | Yes | Name for the Wifi Device as it will appear on the hub. Letters, numbers, and spaces only. Default `Home Assistant`. |
-| `commands` | list of string | Yes | 1-10 command names. Letters, numbers, and spaces only. |
+| `device_name` | string | Yes | Name for the Wifi Device as it will appear on the hub. Default `Home Assistant`. X1S and X2 hubs accept unicode names; older hubs are more restrictive. |
+| `commands` | list of string | Yes | 1-10 command names. X1S and X2 hubs accept unicode labels; older hubs are more restrictive. |
 | `power_on_command_id` | int (1-10) | No | 1-based position in `commands` to use as the device power-on command. Not a final hub command id. |
 | `power_off_command_id` | int (1-10) | No | 1-based position in `commands` to use as the device power-off command. Not a final hub command id. |
 | `input_command_ids` | list of int | No | Ordered list of 1-based positions in `commands` to register as input switchers. Not final hub command ids. |
@@ -472,7 +472,7 @@ data:
 Builds a single `hub_bundle` JSON payload covering either a subset of
 devices or the entire hub (every device plus every activity). The bundle
 is the only backup unit -- there is no standalone device or activity
-backup. See `docs/protocol/bundle-backup-plan.md` for the rationale.
+backup.
 
 | Parameter | Type | Required | Description |
 | --------- | ---- | :------: | ----------- |
@@ -484,7 +484,7 @@ backup. See `docs/protocol/bundle-backup-plan.md` for the rationale.
 | Field | Description |
 | ----- | ----------- |
 | `kind` | Always `"hub_bundle"`. |
-| `schema_version` | Always `4`. Older bundles are rejected on restore -- no migrator is provided. |
+| `schema_version` | Always `5`. Older bundles are rejected on restore -- no migrator is provided. |
 | `captured_at` | ISO 8601 timestamp. |
 | `complete` | `true` when every per-entity backup inside the bundle is complete. |
 | `hub` | `{entry_id, name, version}` of the source hub. |
@@ -503,7 +503,7 @@ response_variable: bundle
 
 ## `sofabaton_x1s.restore_backup`
 
-Restores a `hub_bundle` payload (schema_version 4) onto the live hub.
+Restores a `hub_bundle` payload (schema_version 5) onto the live hub.
 Devices are restored first; the action auto-builds the
 `source_device_id -> new_device_id` map. Activities are restored second
 using that map.
@@ -514,10 +514,10 @@ There are two modes, picked automatically from the bundle's contents:
   added alongside any pre-existing devices; existing content is left
   untouched.
 - **Replace mode** -- bundle has any activities. The hub must be erased
-  first so referenced device ids land predictably. Erase is not yet
-  implemented (see `docs/protocol/bundle-backup-plan.md` phases D/E);
-  until it ships, replace-mode restores fail fast with a clear
-  `hub_version`-specific error and no wire writes.
+  first so referenced device ids land predictably. The integration now
+  performs that erase automatically before restoring any devices or
+  activities. If the erase step fails, the restore aborts before any
+  bundle writes are issued.
 
 | Parameter | Type | Required | Description |
 | --------- | ---- | :------: | ----------- |
@@ -532,6 +532,8 @@ There are two modes, picked automatically from the bundle's contents:
 | `device_id_map` | Mapping from source device id (string) to assigned device id (int). |
 | `restored_devices` | Per-device summary (source_device_id, assigned device_id, restored_commands). |
 | `restored_activities` | Per-activity summary (source_activity_id, assigned activity_id, skipped_input_ordinals). |
+| `hub_name` | Present when replace mode also restores the bundle's saved hub name. |
+| `hub_name_restored` | `true` when that optional hub-name restore step succeeded. |
 | `failed_at` | When `status="failed"`, a `[kind, source_id]` pair pointing at the device or activity that didn't complete. No rollback is attempted; earlier entries remain on the hub. |
 
 ```yaml

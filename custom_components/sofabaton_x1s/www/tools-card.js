@@ -555,20 +555,55 @@ var cardStyles = i`
   :host { display: block; }
   *, *::before, *::after { box-sizing: border-box; }
   .card-inner { height: var(--tools-card-height, 600px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--ha-card-border-radius, 12px); }
-  .card-bottom-dock { position: relative; flex-shrink: 0; display: flex; align-items: stretch; justify-content: space-between; gap: 12px; padding: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
-  .card-header-status { display: inline-flex; align-items: center; padding-left: 14px; }
-  .card-header-status .dock-seg { padding: 8px 10px; font-size: 11px; }
-  .card-header-status .dock-sep { margin: 6px 0; }
+  .card-topbar {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--divider-color) 82%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--primary-color) 8%, var(--ha-card-background, var(--card-background-color))),
+        color-mix(in srgb, var(--primary-color) 4%, var(--ha-card-background, var(--card-background-color)))
+      );
+  }
+  .card-brand {
+    min-width: 0;
+    flex: 1 1 auto;
+    color: color-mix(in srgb, var(--primary-text-color) 94%, var(--secondary-text-color));
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-header-status {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
   .card-title { font-size: 16px; font-weight: 700; }
   .card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; }
   .tab-panel.scrollable, .acc-body, .logs-console { overflow-y: auto; }
-  .hub-picker { position: relative; display: flex; flex-direction: column; align-items: flex-end; margin-left: auto; padding: 6px 10px 6px 0; }
-  .hub-picker-btn { display: inline-flex; align-items: center; gap: 8px; max-width: min(100%, 420px); border: 1px solid var(--divider-color); border-radius: 999px; padding: 0 14px 0 16px; background: var(--secondary-background-color, var(--ha-card-background)); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; user-select: none; -webkit-user-select: none; transition: border-color 120ms ease, background 120ms ease; }
+  .hub-picker { position: relative; display: flex; flex-direction: column; align-items: flex-start; }
+  .card-topbar > .hub-picker { flex: 0 0 auto; align-items: flex-end; margin-left: 2px; }
+  .hub-picker-btn { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 420px); min-height: 24px; border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent); border-radius: 999px; padding: 0 10px 0 9px; background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 80%, var(--primary-color) 6%); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; user-select: none; -webkit-user-select: none; transition: border-color 120ms ease, background 120ms ease; }
   .hub-picker-btn:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
-  .chip-name { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip-arrow { --mdc-icon-size: 16px; color: var(--secondary-text-color); flex-shrink: 0; }
-  .hub-picker-menu { position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; width: max-content; min-width: 160px; max-width: min(320px, calc(100vw - 24px)); margin: 0; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
+  .hub-picker-btn--static { cursor: default; }
+  .chip-prefix { font-size: 9px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, var(--primary-color) 62%, var(--secondary-text-color)); flex-shrink: 0; }
+  .chip-name { font-size: 11px; font-weight: 700; flex: 1; min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-arrow { --mdc-icon-size: 13px; color: var(--secondary-text-color); flex-shrink: 0; transform: rotate(180deg); }
+  .hub-picker-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; display: flex; flex-direction: column; width: max-content; min-width: 160px; max-width: min(320px, calc(100vw - 24px)); margin: 0; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
   .hub-option, .tab-menu-item { width: 100%; border: none; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer; user-select: none; -webkit-user-select: none; }
   .hub-option { padding: 10px 14px; font-size: 13px; }
   .hub-option:hover, .tab-menu-item:hover { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
@@ -639,14 +674,67 @@ var cardStyles = i`
   .hub-tab-layout > .tab-panel { flex: 1; }
   .panel-sticky-footer { flex-shrink: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
   .bottom-dock-status { width: 100%; display: flex; align-items: stretch; justify-content: center; }
-  .dock-seg { display: inline-flex; align-items: center; gap: 5px; padding: 10px 14px; font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; }
-  .dock-sep { width: 1px; background: var(--divider-color); flex-shrink: 0; margin: 8px 0; }
-  .dock-seg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: currentColor; }
-  .dock-seg--hub-on { color: #48b851; }
-  .dock-seg--app-on { color: #67b7ff; }
-  .dock-seg--off { color: var(--secondary-text-color); opacity: 0.5; }
-  .dock-seg--version { color: var(--secondary-text-color); gap: 4px; }
-  .dock-version-icon { --mdc-icon-size: 13px; flex-shrink: 0; }
+  .dock-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent);
+    background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, transparent);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .dock-pill--hub-on {
+    color: #2f9f43;
+    border-color: color-mix(in srgb, #48b851 40%, var(--divider-color));
+    background: color-mix(in srgb, #48b851 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--hub-off {
+    color: #c13d3d;
+    border-color: color-mix(in srgb, #db4437 42%, var(--divider-color));
+    background: color-mix(in srgb, #db4437 10%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-on {
+    color: #2f80d8;
+    border-color: color-mix(in srgb, #67b7ff 42%, var(--divider-color));
+    background: color-mix(in srgb, #67b7ff 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-off {
+    color: color-mix(in srgb, var(--secondary-text-color) 78%, transparent);
+    border-color: color-mix(in srgb, var(--divider-color) 88%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+  }
+  .card-blocked-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 32px;
+    text-align: center;
+  }
+  .card-blocked-icon {
+    display: inline-flex;
+    color: color-mix(in srgb, var(--warning-color, var(--primary-color)) 75%, var(--secondary-text-color));
+  }
+  .card-blocked-icon ha-icon { --mdc-icon-size: 40px; }
+  .card-blocked-title {
+    color: var(--primary-text-color);
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .card-blocked-copy {
+    max-width: 360px;
+    color: var(--secondary-text-color);
+    font-size: 13px;
+    line-height: 1.6;
+  }
   .dock-status-value { font-weight: 700; font-family: "SF Mono", "Fira Code", Consolas, monospace; }
   .settings-list { border: 1px solid color-mix(in srgb, var(--primary-text-color) 14%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 4px); overflow: hidden; }
   .setting-tile { min-height: 52px; display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; background: var(--ha-card-background, var(--card-background-color, #fff)); border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color)); }
@@ -775,10 +863,12 @@ var cardStyles = i`
     .hub-ident-name { font-size: 15px; }
     .hub-compact-stats { display: none; }
     .entity-chevron { display: none; }
+    .card-topbar { padding: 4px 8px; gap: 6px; }
     .hub-picker-btn { max-width: min(100vw - 32px, 320px); }
     .chip-name { max-width: 220px; }
-    .card-header-status { padding-left: 8px; }
-    .card-header-status .dock-seg { padding: 6px 6px; font-size: 10.5px; }
+    .card-header-status { gap: 4px; }
+    .dock-pill { min-height: 20px; padding: 0 6px; font-size: 9px; }
+    .card-brand { font-size: 9px; letter-spacing: 0.1em; }
   }
 `;
 
@@ -1831,7 +1921,17 @@ var ControlPanelStore = class {
 
 // custom_components/sofabaton_x1s/www/src/components/hub-picker.ts
 function renderHubPicker(params) {
-  if (!params.visible) return null;
+  const prefix = params.prefixLabel ?? "HUB";
+  if (!params.interactive) {
+    return b2`
+      <div class="hub-picker hub-picker--static" id="hub-picker-root">
+        <div class="hub-picker-btn hub-picker-btn--static">
+          <span class="chip-prefix">${prefix}</span>
+          <span class="chip-name">${params.selectedLabel}</span>
+        </div>
+      </div>
+    `;
+  }
   return b2`
     <div class="hub-picker" id="hub-picker-root">
       <button
@@ -1842,6 +1942,7 @@ function renderHubPicker(params) {
         aria-expanded=${String(params.open)}
         @click=${params.onToggle}
       >
+        <span class="chip-prefix">${prefix}</span>
         <span class="chip-name">${params.selectedLabel}</span>
         <ha-icon class="chip-arrow" icon="mdi:chevron-up"></ha-icon>
       </button>
@@ -3761,7 +3862,7 @@ var SofabatonBackupTab = class extends i4 {
                       <button class="primary-btn" ?disabled=${!this._backupProgress?.backup} @click=${this._downloadLatestBackup}>
                         Download backup
                       </button>
-                      <button class="secondary-btn" @click=${this._resetBackupComposer}>New backup</button>
+                      <button class="secondary-btn" @click=${this._resetBackupComposer}>Complete</button>
                     </div>
                   </div>
                 ` : b2`
@@ -3775,13 +3876,12 @@ var SofabatonBackupTab = class extends i4 {
       this._setBackupScope("whole_hub");
     }}
                       >
-                        <ha-formfield class="scope-form" label="Entire hub">
-                          <ha-radio
-                            name="backup-scope"
-                            .checked=${wholeHub}
-                            ?disabled=${this._backupLocked() || !this.cacheHub}
-                          ></ha-radio>
-                        </ha-formfield>
+                        ${this._renderScopeChoice({
+      label: "Entire hub",
+      name: "backup-scope",
+      checked: wholeHub,
+      disabled: this._backupLocked() || !this.cacheHub
+    })}
                       </label>
                       <label
                         class="backup-scope-option ${!wholeHub ? "selected" : ""}"
@@ -3790,13 +3890,12 @@ var SofabatonBackupTab = class extends i4 {
       this._setBackupScope("individual_devices");
     }}
                       >
-                        <ha-formfield class="scope-form" label="Selected devices">
-                          <ha-radio
-                            name="backup-scope"
-                            .checked=${!wholeHub}
-                            ?disabled=${this._backupLocked() || !this.cacheHub}
-                          ></ha-radio>
-                        </ha-formfield>
+                        ${this._renderScopeChoice({
+      label: "Selected devices",
+      name: "backup-scope",
+      checked: !wholeHub,
+      disabled: this._backupLocked() || !this.cacheHub
+    })}
                       </label>
                     </div>
                   </div>
@@ -3820,15 +3919,11 @@ var SofabatonBackupTab = class extends i4 {
       this._setBackupDevice(device.id, !selectedDeviceIds.includes(device.id));
     }}
                               >
-                                <ha-checkbox
-                                  .checked=${selectedDeviceIds.includes(device.id)}
-                                  ?disabled=${this._backupLocked() || !this.cacheHub}
-                                  @click=${(event) => event.stopPropagation()}
-                                  @change=${(event) => {
-      const target = event.currentTarget;
-      this._setBackupDevice(device.id, !!target.checked);
-    }}
-                                ></ha-checkbox>
+                                ${this._renderCheckboxControl({
+      checked: selectedDeviceIds.includes(device.id),
+      disabled: this._backupLocked() || !this.cacheHub,
+      onChange: (checked) => this._setBackupDevice(device.id, checked)
+    })}
                                 <span class="selection-main">
                                   <span class="selection-label">${device.label}</span>
                                 </span>
@@ -3899,14 +3994,12 @@ var SofabatonBackupTab = class extends i4 {
                 <div class="selection-list">
                   ${activityOptions.length ? activityOptions.map((activity) => b2`
                     <div class="selection-row">
-                      <ha-checkbox
-                        .checked=${this._restoreActivityIds.includes(activity.id)}
-                        ?disabled=${this._restoreLocked()}
-                        @change=${(event) => {
-      const target = event.currentTarget;
-      this._setRestoreActivity(activity.id, !!target.checked);
-    }}
-                      ></ha-checkbox>
+                      ${this._renderCheckboxControl({
+      checked: this._restoreActivityIds.includes(activity.id),
+      disabled: this._restoreLocked(),
+      onChange: (checked) => this._setRestoreActivity(activity.id, checked),
+      stopClick: false
+    })}
                       <span class="selection-main">
                         <span class="selection-label">${activity.label}</span>
                         ${activity.meta ? b2`<span class="selection-sub">${activity.meta}</span>` : A}
@@ -3921,14 +4014,12 @@ var SofabatonBackupTab = class extends i4 {
       const forced = restoreSelection.forcedDeviceIds.includes(device.id);
       return b2`
                       <div class="selection-row ${forced ? "locked" : ""}">
-                        <ha-checkbox
-                          .checked=${restoreSelection.selectedDeviceIds.includes(device.id)}
-                          ?disabled=${forced || this._restoreLocked()}
-                          @change=${(event) => {
-        const target = event.currentTarget;
-        this._setRestoreDevice(device.id, !!target.checked);
-      }}
-                        ></ha-checkbox>
+                        ${this._renderCheckboxControl({
+        checked: restoreSelection.selectedDeviceIds.includes(device.id),
+        disabled: forced || this._restoreLocked(),
+        onChange: (checked) => this._setRestoreDevice(device.id, checked),
+        stopClick: false
+      })}
                         <span class="selection-main">
                           <span class="selection-label">${device.label}</span>
                           ${device.meta ? b2`<span class="selection-sub">${forced ? `${device.meta} \xB7 required by selected activities` : device.meta}</span>` : A}
@@ -4009,15 +4100,11 @@ var SofabatonBackupTab = class extends i4 {
       this._setRestoreActivity(activity.id, !this._restoreActivityIds.includes(activity.id));
     }}
                           >
-                            <ha-checkbox
-                              .checked=${this._restoreActivityIds.includes(activity.id)}
-                              ?disabled=${this._restoreLocked()}
-                              @click=${(event) => event.stopPropagation()}
-                              @change=${(event) => {
-      const target = event.currentTarget;
-      this._setRestoreActivity(activity.id, !!target.checked);
-    }}
-                            ></ha-checkbox>
+                            ${this._renderCheckboxControl({
+      checked: this._restoreActivityIds.includes(activity.id),
+      disabled: this._restoreLocked(),
+      onChange: (checked) => this._setRestoreActivity(activity.id, checked)
+    })}
                             <span class="selection-main">
                               <span class="selection-label">${activity.label}</span>
                             </span>
@@ -4037,15 +4124,11 @@ var SofabatonBackupTab = class extends i4 {
         this._setRestoreDevice(device.id, !restoreSelection.selectedDeviceIds.includes(device.id));
       }}
                             >
-                              <ha-checkbox
-                                .checked=${restoreSelection.selectedDeviceIds.includes(device.id)}
-                                ?disabled=${forced || this._restoreLocked()}
-                                @click=${(event) => event.stopPropagation()}
-                                @change=${(event) => {
-        const target = event.currentTarget;
-        this._setRestoreDevice(device.id, !!target.checked);
-      }}
-                              ></ha-checkbox>
+                              ${this._renderCheckboxControl({
+        checked: restoreSelection.selectedDeviceIds.includes(device.id),
+        disabled: forced || this._restoreLocked(),
+        onChange: (checked) => this._setRestoreDevice(device.id, checked)
+      })}
                               <span class="selection-main">
                                 <span class="selection-label">${device.label}</span>
                               </span>
@@ -4064,15 +4147,13 @@ var SofabatonBackupTab = class extends i4 {
       this._restoreMode = this._restoreMode === "replace" ? "merge" : "replace";
     }}
                   >
-                    <ha-checkbox
-                      .checked=${this._restoreMode === "replace"}
-                      ?disabled=${this._restoreLocked()}
-                      @click=${(event) => event.stopPropagation()}
-                      @change=${(event) => {
-      const target = event.currentTarget;
-      this._restoreMode = target.checked ? "replace" : "merge";
-    }}
-                    ></ha-checkbox>
+                    ${this._renderCheckboxControl({
+      checked: this._restoreMode === "replace",
+      disabled: this._restoreLocked(),
+      onChange: (checked) => {
+        this._restoreMode = checked ? "replace" : "merge";
+      }
+    })}
                     <span class="selection-main">
                       <span class="selection-label">Erase existing Devices and Activities</span>
                     </span>
@@ -4099,6 +4180,76 @@ var SofabatonBackupTab = class extends i4 {
         <span class="status-icon"><ha-icon icon=${icon}></ha-icon></span>
         <span>${message}</span>
       </div>
+    `;
+  }
+  _renderScopeChoice(params) {
+    if (customElements.get("ha-formfield") && customElements.get("ha-radio")) {
+      return b2`
+        <ha-formfield class="scope-form" label=${params.label}>
+          <ha-radio
+            name=${params.name}
+            .checked=${params.checked}
+            ?disabled=${params.disabled}
+          ></ha-radio>
+        </ha-formfield>
+      `;
+    }
+    return b2`
+      <span class="scope-form scope-form--fallback">
+        ${this._renderRadioControl(params)}
+        <span class="scope-form-label">${params.label}</span>
+      </span>
+    `;
+  }
+  _renderCheckboxControl(params) {
+    const stopClick = params.stopClick !== false;
+    if (customElements.get("ha-checkbox")) {
+      return b2`
+        <ha-checkbox
+          .checked=${params.checked}
+          ?disabled=${params.disabled}
+          @click=${stopClick ? ((event) => event.stopPropagation()) : (() => {
+      })}
+          @change=${(event) => {
+        const target = event.currentTarget;
+        params.onChange(!!target.checked);
+      }}
+        ></ha-checkbox>
+      `;
+    }
+    return b2`
+      <input
+        class="compat-choice compat-choice--checkbox"
+        type="checkbox"
+        .checked=${params.checked}
+        ?disabled=${params.disabled}
+        @click=${stopClick ? ((event) => event.stopPropagation()) : (() => {
+    })}
+        @change=${(event) => {
+      const target = event.currentTarget;
+      params.onChange(!!target.checked);
+    }}
+      />
+    `;
+  }
+  _renderRadioControl(params) {
+    if (customElements.get("ha-radio")) {
+      return b2`
+        <ha-radio
+          name=${params.name}
+          .checked=${params.checked}
+          ?disabled=${params.disabled}
+        ></ha-radio>
+      `;
+    }
+    return b2`
+      <input
+        class="compat-choice compat-choice--radio"
+        type="radio"
+        name=${params.name}
+        .checked=${params.checked}
+        ?disabled=${params.disabled}
+      />
     `;
   }
   _renderProgressCard(progress, mode) {
@@ -4563,6 +4714,17 @@ SofabatonBackupTab.styles = i`
       padding: 0;
     }
     .backup-scope-option ha-radio { flex: 0 0 auto; }
+    .scope-form-label {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .compat-choice {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--primary-color);
+    }
 
     .backup-devices-head {
       display: flex;
@@ -4807,8 +4969,8 @@ SofabatonBackupTab.styles = i`
       position: relative;
       display: flex;
       flex-wrap: nowrap;
-      justify-content: space-between;
-      gap: 10px;
+      justify-content: center;
+      gap: 4px;
       align-items: center;
       min-height: 110px;
       min-width: 0;
@@ -4823,10 +4985,10 @@ SofabatonBackupTab.styles = i`
       background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);
       border: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
     }
-    .progress-node.home .progress-disc { color: #41bdf5; }
+    .progress-node.home .progress-disc { color: var(--primary-color); }
     .progress-node.hub .progress-disc { color: var(--primary-color); }
-    .progress-disc ha-icon { --mdc-icon-size: 40px; }
-    .progress-disc .progress-hub-svg { width: 48px; height: 48px; }
+    .progress-disc ha-icon { --mdc-icon-size: 50px; }
+    .progress-disc .progress-hub-svg { width: 60px; height: 60px; }
     .progress-node-label {
       color: var(--secondary-text-color);
       font-size: 11px;
@@ -4834,7 +4996,7 @@ SofabatonBackupTab.styles = i`
       text-transform: uppercase;
       white-space: nowrap;
     }
-    .progress-route { position: relative; flex: 1 1 auto; min-width: 84px; height: 42px; }
+    .progress-route { position: relative; flex: 0 1 68px; min-width: 68px; height: 42px; }
     .progress-route::before {
       content: "";
       position: absolute;
@@ -4842,7 +5004,7 @@ SofabatonBackupTab.styles = i`
       right: 0;
       top: 50%;
       height: 2px;
-      background: color-mix(in srgb, var(--divider-color) 75%, transparent);
+      background: color-mix(in srgb, var(--primary-color) 28%, transparent);
       transform: translateY(-50%);
     }
     .packet {
@@ -4850,8 +5012,8 @@ SofabatonBackupTab.styles = i`
       width: 12px;
       height: 12px;
       border-radius: 50%;
-      background: #5ff0a0;
-      box-shadow: 0 0 0 4px rgba(95,240,160,.12);
+      background: var(--primary-color);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 14%, transparent);
       animation: restoreMove 1.75s cubic-bezier(.55,0,.25,1) infinite;
     }
     .packet:nth-child(2) { animation-delay: .38s; opacity: .78; transform: scale(.82); }
@@ -4879,7 +5041,7 @@ SofabatonBackupTab.styles = i`
     .progress-bar-fill {
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, #41bdf5, #5ff0a0, #a78bfa);
+      background: var(--primary-color);
       transition: width 180ms ease;
     }
     .progress-meta {
@@ -4914,8 +5076,9 @@ SofabatonBackupTab.styles = i`
     }
     @media (max-width: 760px) {
       .progress-disc { width: 64px; height: 64px; }
-      .progress-disc .progress-hub-svg { width: 40px; height: 40px; }
-      .progress-route { min-width: 56px; }
+      .progress-disc ha-icon { --mdc-icon-size: 42px; }
+      .progress-disc .progress-hub-svg { width: 50px; height: 50px; }
+      .progress-route { flex-basis: 52px; min-width: 52px; }
     }
   `;
 if (!customElements.get("sofabaton-backup-tab")) {
@@ -7640,25 +7803,20 @@ var SofabatonControlPanelCard = class extends i4 {
     if (!hub) return null;
     const connected = hubConnected(this._snapshot.hass, hub);
     const proxyOn = proxyClientConnected(this._snapshot.hass, hub);
-    const integrationVersion = String(this._snapshot.toolsFrontendVersionExpected ?? "").trim() || "unknown";
     return b2`
       <div class="card-header-status">
-        <div class="dock-seg ${connected ? "dock-seg--hub-on" : "dock-seg--off"}">
-          <span class="dock-seg-dot"></span>
-          <span>Hub ${connected ? "connected" : "not connected"}</span>
+        <div class="dock-pill ${connected ? "dock-pill--hub-on" : "dock-pill--hub-off"}">
+          <span>HUB</span>
         </div>
-        <div class="dock-sep"></div>
-        <div class="dock-seg ${proxyOn ? "dock-seg--app-on" : "dock-seg--off"}">
-          <span class="dock-seg-dot"></span>
-          <span>App ${proxyOn ? "connected" : "not connected"}</span>
-        </div>
-        <div class="dock-sep"></div>
-        <div class="dock-seg dock-seg--version">
-          <ha-icon class="dock-version-icon" icon="mdi:cog-outline"></ha-icon>
-          <span>v<span class="dock-status-value">${integrationVersion}</span></span>
+        <div class="dock-pill ${proxyOn ? "dock-pill--app-on" : "dock-pill--app-off"}">
+          <span>APP</span>
         </div>
       </div>
     `;
+  }
+  renderBrandLabel() {
+    const version = String(this._snapshot.toolsFrontendVersionExpected ?? this._snapshot.toolsFrontendVersionLoaded ?? "").trim() || "unknown";
+    return b2`<div class="card-brand">SOFABATON CONTROL PANEL - v${version}</div>`;
   }
   renderBackendUnavailable(height) {
     return b2`
@@ -7684,9 +7842,6 @@ var SofabatonControlPanelCard = class extends i4 {
     return b2`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
-          <div class="card-header">
-            <span class="card-title">Sofabaton Control Panel</span>
-          </div>
           <div class="card-body">
             <div class="version-mismatch-state">
               <div class="version-mismatch-header">
@@ -7713,12 +7868,26 @@ var SofabatonControlPanelCard = class extends i4 {
       </ha-card>
     `;
   }
+  renderHubUnavailable() {
+    return b2`
+      <div class="card-body">
+        <div class="card-blocked-state">
+          <div class="card-blocked-icon"><ha-icon icon="mdi:lan-disconnect"></ha-icon></div>
+          <div class="card-blocked-title">Hub unavailable</div>
+          <div class="card-blocked-copy">
+            This hub is not connected, so the control panel is unavailable until the hub reconnects.
+          </div>
+        </div>
+      </div>
+    `;
+  }
   render() {
     const hub = selectedHub(this._snapshot);
     const cacheHub = selectedHubCache(this._snapshot);
     const cacheEnabled = persistentCacheEnabled(this._snapshot);
     const hubs = this._snapshot.state?.hubs ?? [];
     const height = Number(this._config.card_height ?? 600);
+    const selectedHubConnected = !hub || hubConnected(this._snapshot.hass, hub);
     if (this._snapshot.toolsFrontendVersionMismatch) {
       return this.renderVersionMismatch(height);
     }
@@ -7822,19 +7991,14 @@ var SofabatonControlPanelCard = class extends i4 {
     return b2`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
-          ${renderTabBar({
-      selectedTab: this._snapshot.selectedTab,
-      toolsMenuOpen: this._toolsMenuOpen,
-      onSelect: (tabId) => this.handleTabSelect(tabId),
-      onToggleToolsMenu: () => this.toggleToolsMenu()
-    })}
-          <div class="card-body">${activeTab}</div>
-          <div class="card-bottom-dock">
+          <div class="card-topbar">
+            ${this.renderBrandLabel()}
             ${this.renderHeaderStatus(hub)}
-            ${renderHubPicker({
-      visible: hubs.length > 1,
+            ${hubs.length > 1 ? renderHubPicker({
+      interactive: true,
       open: this._hubPickerOpen,
       selectedLabel: hub?.name || hub?.entry_id || "",
+      prefixLabel: "HUB",
       hubs,
       selectedEntryId: this._snapshot.selectedHubEntryId,
       onToggle: () => this.toggleHubPicker(),
@@ -7842,8 +8006,15 @@ var SofabatonControlPanelCard = class extends i4 {
         this._hubPickerOpen = false;
         this._store.selectHub(entryId);
       }
-    })}
+    }) : null}
           </div>
+          ${renderTabBar({
+      selectedTab: this._snapshot.selectedTab,
+      toolsMenuOpen: this._toolsMenuOpen,
+      onSelect: (tabId) => this.handleTabSelect(tabId),
+      onToggleToolsMenu: () => this.toggleToolsMenu()
+    })}
+          ${selectedHubConnected ? b2`<div class="card-body">${activeTab}</div>` : this.renderHubUnavailable()}
         </div>
       </ha-card>
     `;

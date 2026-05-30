@@ -13,6 +13,12 @@ export interface RestoreSelectionState {
   selectedDeviceIds: number[];
 }
 
+const HUB_VERSION_RANK: Record<string, number> = {
+  X1: 1,
+  X1S: 2,
+  X2: 3,
+};
+
 export function backupActivityOptions(hub: CacheHubState | null): BackupSelectionOption[] {
   return hubActivities(hub).map((activity) => ({
     id: Number(activity.id),
@@ -125,4 +131,29 @@ export function validateBackupBundle(raw: unknown): BackupBundlePayload {
     throw new Error("Backup file is missing devices or activities arrays.");
   }
   return bundle;
+}
+
+export function normalizeHubVersion(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (!normalized) return null;
+  if (normalized.includes("X1S")) return "X1S";
+  if (normalized.includes("X2")) return "X2";
+  if (normalized.includes("X1")) return "X1";
+  return null;
+}
+
+export function assertBackupBundleRestoreCompatible(bundle: BackupBundlePayload, destinationHubVersion: unknown) {
+  const sourceVersion = normalizeHubVersion(bundle?.hub?.version);
+  if (!sourceVersion) {
+    throw new Error("Backup file is missing its source hub model, so compatibility cannot be verified.");
+  }
+  const destinationVersion = normalizeHubVersion(destinationHubVersion);
+  if (!destinationVersion) {
+    throw new Error("The destination hub model is unknown, so restore compatibility cannot be verified.");
+  }
+  if (HUB_VERSION_RANK[destinationVersion] < HUB_VERSION_RANK[sourceVersion]) {
+    throw new Error(
+      `This backup was created on a Sofabaton ${sourceVersion} hub and cannot be restored onto a Sofabaton ${destinationVersion} hub.`,
+    );
+  }
 }

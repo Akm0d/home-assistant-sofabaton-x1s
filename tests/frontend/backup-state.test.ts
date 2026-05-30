@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assertBackupBundleRestoreCompatible,
   backupUsesWholeHub,
   forcedRestoreDeviceIds,
+  normalizeHubVersion,
   pruneBackupBundle,
   reconcileRestoreSelection,
   validateBackupBundle,
@@ -11,6 +13,9 @@ import {
 const bundle = {
   kind: "hub_bundle",
   schema_version: 5,
+  hub: {
+    version: "X1",
+  },
   devices: [
     { device: { device_id: 1, name: "TV", device_class: "ir" } },
     { device: { device_id: 2, name: "AVR", device_class: "ir" } },
@@ -66,4 +71,36 @@ test("validateBackupBundle rejects wrong kinds and schemas", () => {
   assert.equal(validateBackupBundle(bundle).kind, "hub_bundle");
   assert.throws(() => validateBackupBundle({ kind: "device_backup", schema_version: 5 }), /not a Sofabaton hub bundle/i);
   assert.throws(() => validateBackupBundle({ kind: "hub_bundle", schema_version: 4, devices: [], activities: [] }), /schema_version must be 5/i);
+});
+
+test("normalizeHubVersion canonicalizes known hub model labels", () => {
+  assert.equal(normalizeHubVersion("x1"), "X1");
+  assert.equal(normalizeHubVersion("Sofabaton X1S"), "X1S");
+  assert.equal(normalizeHubVersion("x2 "), "X2");
+  assert.equal(normalizeHubVersion("unknown"), null);
+});
+
+test("assertBackupBundleRestoreCompatible allows upward-compatible restores only", () => {
+  assert.doesNotThrow(() => assertBackupBundleRestoreCompatible(bundle, "X1"));
+  assert.doesNotThrow(() => assertBackupBundleRestoreCompatible(bundle, "X1S"));
+  assert.doesNotThrow(() => assertBackupBundleRestoreCompatible(bundle, "X2"));
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible({ ...bundle, hub: { version: "X1S" } }, "X1"),
+    /cannot be restored onto a Sofabaton X1 hub/i,
+  );
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible({ ...bundle, hub: { version: "X2" } }, "X1S"),
+    /cannot be restored onto a Sofabaton X1S hub/i,
+  );
+});
+
+test("assertBackupBundleRestoreCompatible rejects missing source or destination hub models", () => {
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible({ ...bundle, hub: {} }, "X2"),
+    /missing its source hub model/i,
+  );
+  assert.throws(
+    () => assertBackupBundleRestoreCompatible(bundle, ""),
+    /destination hub model is unknown/i,
+  );
 });

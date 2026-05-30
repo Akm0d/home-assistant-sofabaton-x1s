@@ -39,6 +39,7 @@
       font-size: 17px;
       font-weight: 700;
       color: #212121;
+      display: none;
     }
 
     .harness-layout {
@@ -529,6 +530,114 @@
       }
     });
 
+    customElements.define("ha-checkbox", class extends HTMLElement {
+      _checked = false;
+      _disabled = false;
+      _input = null;
+
+      get checked() { return this._checked; }
+      set checked(v) { this._checked = Boolean(v); if (this._input) this._input.checked = this._checked; }
+      get disabled() { return this._disabled; }
+      set disabled(v) { this._disabled = Boolean(v); if (this._input) this._input.disabled = this._disabled; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: inline-flex; align-items: center; }
+            input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color, #03a9f4); }
+          </style>
+          <input type="checkbox">`;
+        this._input = s.querySelector("input");
+        this._input.checked = this._checked;
+        this._input.disabled = this._disabled;
+        this._input.addEventListener("click", (event) => event.stopPropagation());
+        this._input.addEventListener("change", () => {
+          this._checked = this._input.checked;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+    });
+
+    customElements.define("ha-radio", class extends HTMLElement {
+      _checked = false;
+      _disabled = false;
+      _name = "";
+      _input = null;
+
+      static get observedAttributes() { return ["name"]; }
+
+      get checked() { return this._checked; }
+      set checked(v) { this._checked = Boolean(v); if (this._input) this._input.checked = this._checked; }
+      get disabled() { return this._disabled; }
+      set disabled(v) { this._disabled = Boolean(v); if (this._input) this._input.disabled = this._disabled; }
+      get name() { return this._name; }
+      set name(v) { this._name = String(v ?? ""); if (this._input) this._input.name = this._name; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: inline-flex; align-items: center; }
+            input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color, #03a9f4); }
+          </style>
+          <input type="radio">`;
+        this._input = s.querySelector("input");
+        this._input.checked = this._checked;
+        this._input.disabled = this._disabled;
+        this._input.name = this._name;
+        this._input.addEventListener("click", (event) => event.stopPropagation());
+        this._input.addEventListener("change", () => {
+          this._checked = this._input.checked;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+
+      attributeChangedCallback(name, _oldValue, newValue) {
+        if (name === "name") this.name = newValue ?? "";
+      }
+    });
+
+    customElements.define("ha-formfield", class extends HTMLElement {
+      _label = "";
+      _labelEl = null;
+
+      static get observedAttributes() { return ["label"]; }
+
+      get label() { return this._label; }
+      set label(v) { this._label = String(v ?? ""); if (this._labelEl) this._labelEl.textContent = this._label; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; width: 100%; }
+            label {
+              width: 100%;
+              min-width: 0;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 10px 14px;
+              color: var(--primary-text-color, #212121);
+              cursor: inherit;
+            }
+            .label { min-width: 0; flex: 1 1 auto; }
+          </style>
+          <label><slot></slot><span class="label"></span></label>`;
+        this._labelEl = s.querySelector(".label");
+        this._labelEl.textContent = this._label;
+      }
+
+      attributeChangedCallback(name, _oldValue, newValue) {
+        if (name === "label") this.label = newValue ?? "";
+      }
+    });
+
     // ── ha-selector ──────────────────────────────────────────────────────────────
     // Minimal stub — shadow DOM only, so Lit's light-DOM Parts are never touched.
     // Renders a functional <select> for "select" type, a placeholder for others
@@ -747,6 +856,67 @@
           "103": [{ command_id: 20, label: "Bar Power" }, { command_id: 77, label: "Play" }],
         },
       }],
+    };
+
+    const SAMPLE_BACKUP_BUNDLE = {
+      kind: "hub_bundle",
+      schema_version: 5,
+      devices: [
+        { device: { device_id: 1, name: "TV", device_class: "ir" } },
+        { device: { device_id: 2, name: "AVR", device_class: "ir" } },
+        { device: { device_id: 3, name: "Streamer", device_class: "wifi_ip" } },
+      ],
+      activities: [
+        { device: { device_id: 101, name: "Watch TV", entity_type: "activity" }, referenced_source_device_ids: [1, 2] },
+        { device: { device_id: 102, name: "Game Mode", entity_type: "activity" }, referenced_source_device_ids: [2, 3] },
+      ],
+    };
+
+    const BACKUP_PROGRESS_RUNNING = {
+      operation_id: "backup-1",
+      kind: "backup_export",
+      entry_id: "hub-1",
+      status: "running",
+      phase: "devices",
+      message: "Backing up devices…",
+      completed_steps: 2,
+      total_steps: 4,
+    };
+
+    const BACKUP_PROGRESS_SUCCESS = {
+      operation_id: "backup-2",
+      kind: "backup_export",
+      entry_id: "hub-1",
+      status: "success",
+      phase: "completed",
+      message: "Backup completed.",
+      completed_steps: 4,
+      total_steps: 4,
+      filename: "living-room-backup.json",
+      backup_downloaded: false,
+      backup: SAMPLE_BACKUP_BUNDLE,
+    };
+
+    const RESTORE_PROGRESS_RUNNING = {
+      operation_id: "restore-1",
+      kind: "backup_restore",
+      entry_id: "hub-1",
+      status: "running",
+      phase: "activities",
+      message: "Restoring activities…",
+      completed_steps: 3,
+      total_steps: 5,
+    };
+
+    const RESTORE_PROGRESS_SUCCESS = {
+      operation_id: "restore-2",
+      kind: "backup_restore",
+      entry_id: "hub-1",
+      status: "success",
+      phase: "completed",
+      message: "Restore completed.",
+      completed_steps: 5,
+      total_steps: 5,
     };
 
     // ── WiFi Commands mock data ──────────────────────────────────────────────────
@@ -1144,6 +1314,38 @@
 
     // ── Scenarios ─────────────────────────────────────────────────────────────────
 
+    function backupTab(card) {
+      return card.shadowRoot.querySelector("sofabaton-backup-tab");
+    }
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    async function openBackupTab(card, section = "make") {
+      await clickTab(card, "Backup");
+      await new Promise(r => setTimeout(r, 80));
+      const tab = backupTab(card);
+      if (!tab) { console.warn("openBackupTab: backup tab not found"); return null; }
+      tab.openSection = section;
+      tab.requestUpdate();
+      await tab.updateComplete;
+      return tab;
+    }
+
+    async function seedRestoreBundle(tab, mode = "merge") {
+      tab._restoreBundle = clone(SAMPLE_BACKUP_BUNDLE);
+      tab._restoreFilename = "living-room-backup.json";
+      tab._restoreMode = mode;
+      tab._restoreActivityIds = SAMPLE_BACKUP_BUNDLE.activities.map((activity) => activity.device.device_id);
+      tab._restoreManualDeviceIds = SAMPLE_BACKUP_BUNDLE.devices.map((device) => device.device.device_id);
+      tab._restoreError = null;
+      tab._restoreSuccess = null;
+      tab._restoreProgress = null;
+      tab.requestUpdate();
+      await tab.updateComplete;
+    }
+
     const SCENARIOS = [
 
       // ── A: Hub Status (in Settings) ────────────────────────────────────────────
@@ -1343,6 +1545,84 @@
       // The branch redesign adds a device-list layer: you first see a list of
       // WifiDeviceSummary cards, then navigate into one to edit its command slots.
 
+      {
+        id: "backup-compose", group: "Backup / Restore",
+        label: "Backup composer",
+        states: STATES_CONNECTED,
+        postLoad: card => openBackupTab(card, "make"),
+      },
+      {
+        id: "backup-progress", group: "Backup / Restore",
+        label: "Backup progress",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, active_backup_operation: { ...BACKUP_PROGRESS_RUNNING } }],
+        },
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "make");
+          if (!tab) return;
+          tab._backupProgress = clone(BACKUP_PROGRESS_RUNNING);
+          tab._backupError = null;
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: "backup-complete", group: "Backup / Restore",
+        label: "Backup complete",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "make");
+          if (!tab) return;
+          tab._backupProgress = clone(BACKUP_PROGRESS_SUCCESS);
+          tab._backupError = null;
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: "restore-selection", group: "Backup / Restore",
+        label: "Restore selection",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "restore");
+          if (!tab) return;
+          await seedRestoreBundle(tab, "merge");
+        },
+      },
+      {
+        id: "restore-progress", group: "Backup / Restore",
+        label: "Restore progress",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, active_backup_operation: { ...RESTORE_PROGRESS_RUNNING } }],
+        },
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "restore");
+          if (!tab) return;
+          await seedRestoreBundle(tab, "replace");
+          tab._restoreProgress = clone(RESTORE_PROGRESS_RUNNING);
+          tab._restoreSuccess = null;
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: "restore-complete", group: "Backup / Restore",
+        label: "Restore complete",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "restore");
+          if (!tab) return;
+          await seedRestoreBundle(tab, "replace");
+          tab._restoreProgress = clone(RESTORE_PROGRESS_SUCCESS);
+          tab._restoreSuccess = "Restore completed.";
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
       {
         id: 18, group: "WiFi Commands",
         label: "18. Device list — 2 devices",
