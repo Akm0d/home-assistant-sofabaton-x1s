@@ -1,4 +1,4 @@
-// ../../../node_modules/@lit/reactive-element/css-tag.js
+// node_modules/@lit/reactive-element/css-tag.js
 var t = globalThis;
 var e = t.ShadowRoot && (void 0 === t.ShadyCSS || t.ShadyCSS.nativeShadow) && "adoptedStyleSheets" in Document.prototype && "replace" in CSSStyleSheet.prototype;
 var s = /* @__PURE__ */ Symbol();
@@ -43,7 +43,7 @@ var c = e ? (t4) => t4 : (t4) => t4 instanceof CSSStyleSheet ? ((t5) => {
   return r(e5);
 })(t4) : t4;
 
-// ../../../node_modules/@lit/reactive-element/reactive-element.js
+// node_modules/@lit/reactive-element/reactive-element.js
 var { is: i2, defineProperty: e2, getOwnPropertyDescriptor: h, getOwnPropertyNames: r2, getOwnPropertySymbols: o2, getPrototypeOf: n2 } = Object;
 var a = globalThis;
 var c2 = a.trustedTypes;
@@ -265,7 +265,7 @@ var y = class extends HTMLElement {
 };
 y.elementStyles = [], y.shadowRootOptions = { mode: "open" }, y[d("elementProperties")] = /* @__PURE__ */ new Map(), y[d("finalized")] = /* @__PURE__ */ new Map(), p?.({ ReactiveElement: y }), (a.reactiveElementVersions ?? (a.reactiveElementVersions = [])).push("2.1.2");
 
-// ../../../node_modules/lit-html/lit-html.js
+// node_modules/lit-html/lit-html.js
 var t2 = globalThis;
 var i3 = (t4) => t4;
 var s2 = t2.trustedTypes;
@@ -520,7 +520,7 @@ var D = (t4, i7, s4) => {
   return h3._$AI(t4), h3;
 };
 
-// ../../../node_modules/lit-element/lit-element.js
+// node_modules/lit-element/lit-element.js
 var s3 = globalThis;
 var i4 = class extends y {
   constructor() {
@@ -555,28 +555,80 @@ var cardStyles = i`
   :host { display: block; }
   *, *::before, *::after { box-sizing: border-box; }
   .card-inner { height: var(--tools-card-height, 600px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--ha-card-border-radius, 12px); }
-  .card-header { flex-shrink: 0; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px 8px; }
+  .card-topbar {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--divider-color) 82%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--primary-color) 8%, var(--ha-card-background, var(--card-background-color))),
+        color-mix(in srgb, var(--primary-color) 4%, var(--ha-card-background, var(--card-background-color)))
+      );
+  }
+  .card-brand {
+    min-width: 0;
+    flex: 1 1 auto;
+    color: color-mix(in srgb, var(--primary-text-color) 94%, var(--secondary-text-color));
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-header-status {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
   .card-title { font-size: 16px; font-weight: 700; }
   .card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; }
   .tab-panel.scrollable, .acc-body, .logs-console { overflow-y: auto; }
-  .hub-picker-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--divider-color); border-radius: 999px; padding: 4px 10px; background: var(--secondary-background-color, var(--ha-card-background)); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; }
-  .chip-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--secondary-text-color); }
-  .chip-name { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip-arrow { font-size: 10px; color: var(--secondary-text-color); }
-  .hub-picker-dialog { position: fixed; margin: 0; padding: 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18); min-width: 160px; overflow: hidden; }
-  .hub-picker-dialog::backdrop { background: transparent; }
-  .hub-option { padding: 9px 14px; font-size: 13px; cursor: pointer; }
-  .hub-option.selected { font-weight: 600; color: var(--primary-color); }
-  .tabs { flex-shrink: 0; display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--divider-color); }
-  .tab-btn { position: relative; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--secondary-text-color); font: inherit; font-size: 14px; font-weight: 700; padding: 12px 16px 11px; cursor: pointer; }
+  .hub-picker { position: relative; display: flex; flex-direction: column; align-items: flex-start; }
+  .card-topbar > .hub-picker { flex: 0 0 auto; align-items: flex-end; margin-left: 2px; }
+  .hub-picker-btn { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 420px); min-height: 24px; border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent); border-radius: 999px; padding: 0 10px 0 9px; background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 80%, var(--primary-color) 6%); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; user-select: none; -webkit-user-select: none; transition: border-color 120ms ease, background 120ms ease; }
+  .hub-picker-btn:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
+  .hub-picker-btn--static { cursor: default; }
+  .chip-prefix { font-size: 9px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, var(--primary-color) 62%, var(--secondary-text-color)); flex-shrink: 0; }
+  .chip-name { font-size: 11px; font-weight: 700; flex: 1; min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-arrow { --mdc-icon-size: 13px; color: var(--secondary-text-color); flex-shrink: 0; transform: rotate(180deg); }
+  .hub-picker-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; display: flex; flex-direction: column; width: max-content; min-width: 160px; max-width: min(320px, calc(100vw - 24px)); margin: 0; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
+  .hub-option, .tab-menu-item { width: 100%; border: none; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer; user-select: none; -webkit-user-select: none; }
+  .hub-option { padding: 10px 14px; font-size: 13px; }
+  .hub-option:hover, .tab-menu-item:hover { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
+  .hub-option.selected, .tab-menu-item.active { font-weight: 700; color: var(--primary-color); }
+  .tabs { flex-shrink: 0; display: flex; align-items: stretch; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--divider-color); }
+  .tabs-scroll { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; }
+  .tab-btn { position: relative; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--secondary-text-color); font: inherit; font-size: 14px; font-weight: 700; padding: 12px 16px 11px; cursor: pointer; user-select: none; -webkit-user-select: none; }
   .tab-btn--push-right { margin-left: auto; }
+  .tab-btn--menu { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; }
+  .tab-btn--menu.is-open { color: var(--primary-color); }
+  .tab-btn-menu-icon { --mdc-icon-size: 16px; }
+  .tab-btn-menu-caret { --mdc-icon-size: 18px; margin-right: -2px; }
   .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
   .tab-btn.tab-disabled { color: var(--disabled-text-color, var(--secondary-text-color)); opacity: 0.45; cursor: default; }
   .tab-btn-label-short { display: none; }
+  .tab-menu { position: relative; display: flex; }
+  .tab-menu--push-right { margin-left: auto; }
+  .tab-menu-dropdown { position: absolute; top: calc(100% + 1px); right: 0; z-index: 15; display: flex; flex-direction: column; min-width: 150px; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: calc(var(--ha-card-border-radius, 12px) - 2px); background: var(--card-background-color, var(--ha-card-background, white)); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
+  .tab-menu-item { padding: 10px 14px; font-size: 13px; }
   .logs-panel { gap: 10px; }
   .logs-header, .hub-hero { display: grid; }
   .logs-header { gap: 4px; }
+  .logs-title-row { display: flex; align-items: center; gap: 10px; }
+  .logs-title-row .acc-header-icon { color: var(--primary-color); display: inline-flex; flex: 0 0 auto; }
+  .logs-title-row .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
   .logs-subtitle, .logs-empty, .cache-state, .entity-count, .refresh-list-label, .stale-banner { color: var(--secondary-text-color); }
   .logs-console { flex: 1; min-height: 0; border: 1px solid color-mix(in srgb, var(--primary-text-color) 14%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 2px); background: radial-gradient(circle at top, color-mix(in srgb, var(--primary-color) 6%, transparent), transparent 45%), color-mix(in srgb, #05070b 92%, var(--card-background-color, #fff)); font-family: "SF Mono", "Fira Code", Consolas, monospace; padding: 10px 0; user-select: text; -webkit-user-select: text; }
   .logs-empty { padding: 12px 14px; font-size: 12px; }
@@ -622,14 +674,67 @@ var cardStyles = i`
   .hub-tab-layout > .tab-panel { flex: 1; }
   .panel-sticky-footer { flex-shrink: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
   .bottom-dock-status { width: 100%; display: flex; align-items: stretch; justify-content: center; }
-  .dock-seg { display: inline-flex; align-items: center; gap: 5px; padding: 10px 14px; font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; }
-  .dock-sep { width: 1px; background: var(--divider-color); flex-shrink: 0; margin: 8px 0; }
-  .dock-seg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: currentColor; }
-  .dock-seg--hub-on { color: #48b851; }
-  .dock-seg--app-on { color: #67b7ff; }
-  .dock-seg--off { color: var(--secondary-text-color); opacity: 0.5; }
-  .dock-seg--version { color: var(--secondary-text-color); gap: 4px; }
-  .dock-version-icon { --mdc-icon-size: 13px; flex-shrink: 0; }
+  .dock-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent);
+    background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, transparent);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .dock-pill--hub-on {
+    color: #2f9f43;
+    border-color: color-mix(in srgb, #48b851 40%, var(--divider-color));
+    background: color-mix(in srgb, #48b851 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--hub-off {
+    color: #c13d3d;
+    border-color: color-mix(in srgb, #db4437 42%, var(--divider-color));
+    background: color-mix(in srgb, #db4437 10%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-on {
+    color: #2f80d8;
+    border-color: color-mix(in srgb, #67b7ff 42%, var(--divider-color));
+    background: color-mix(in srgb, #67b7ff 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-off {
+    color: color-mix(in srgb, var(--secondary-text-color) 78%, transparent);
+    border-color: color-mix(in srgb, var(--divider-color) 88%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+  }
+  .card-blocked-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 32px;
+    text-align: center;
+  }
+  .card-blocked-icon {
+    display: inline-flex;
+    color: color-mix(in srgb, var(--warning-color, var(--primary-color)) 75%, var(--secondary-text-color));
+  }
+  .card-blocked-icon ha-icon { --mdc-icon-size: 40px; }
+  .card-blocked-title {
+    color: var(--primary-text-color);
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .card-blocked-copy {
+    max-width: 360px;
+    color: var(--secondary-text-color);
+    font-size: 13px;
+    line-height: 1.6;
+  }
   .dock-status-value { font-weight: 700; font-family: "SF Mono", "Fira Code", Consolas, monospace; }
   .settings-list { border: 1px solid color-mix(in srgb, var(--primary-text-color) 14%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 4px); overflow: hidden; }
   .setting-tile { min-height: 52px; display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; background: var(--ha-card-background, var(--card-background-color, #fff)); border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color)); }
@@ -648,8 +753,11 @@ var cardStyles = i`
   .accordion-section { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--divider-color); }
   .accordion-section:first-child { border-top: none; }
   .accordion-section.open { flex: 1; }
-  .acc-header { flex-shrink: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; cursor: pointer; user-select: none; transition: background-color 120ms ease; }
+  .acc-header { flex-shrink: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; cursor: pointer; user-select: none; transition: background-color 120ms ease; }
   .acc-header:hover { background: color-mix(in srgb, var(--primary-color) 6%, var(--ha-card-background, var(--card-background-color))); }
+  .acc-header-icon { color: var(--secondary-text-color); display: inline-flex; flex: 0 0 auto; transition: color 120ms ease; }
+  .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
+  .accordion-section.open .acc-header-icon { color: var(--primary-color); }
   .acc-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--secondary-text-color); }
   .badge, .id-badge { border: 1px solid var(--divider-color); border-radius: 999px; }
   .badge { font-size: 11px; padding: 1px 7px; }
@@ -668,7 +776,10 @@ var cardStyles = i`
   .entity-summary { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px; cursor: pointer; user-select: none; border-radius: var(--ha-card-border-radius, 12px); transition: background-color 120ms ease; }
   .entity-summary:hover { background: color-mix(in srgb, var(--primary-color) 5%, var(--secondary-background-color, var(--ha-card-background))); }
   .entity-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-  .entity-name { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entity-name { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .entity-name-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--state-icon-color, var(--secondary-text-color)); flex-shrink: 0; }
+  .entity-name-icon ha-icon { --mdc-icon-size: 16px; }
+  .entity-name-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entity-body { display: none; }
   .entity-block.open .entity-body { display: block; }
   .entity-block.open > .entity-summary { position: sticky; top: 0; z-index: 2; background: var(--secondary-background-color, var(--ha-card-background)); border-bottom: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; }
@@ -689,6 +800,16 @@ var cardStyles = i`
   .cache-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px 16px; text-align: center; font-size: 13px; line-height: 1.6; }
   .cache-state-icon { font-size: 32px; line-height: 1; margin-bottom: 4px; }
   .cache-state-sub { font-size: 12px; line-height: 1.5; max-width: 260px; }
+  .cache-enable-state { gap: 14px; max-width: 360px; margin: 0 auto; }
+  .cache-enable-state .cache-state-title { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+  .cache-enable-state .cache-state-sub { font-size: 13px; color: var(--secondary-text-color); max-width: 320px; }
+  .cache-enable-icon { width: 64px; height: 64px; display: grid; place-items: center; border-radius: var(--ha-card-border-radius, 12px); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); margin-bottom: 4px; }
+  .cache-enable-icon ha-icon { --mdc-icon-size: 34px; }
+  .cache-enable-btn { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 12px 22px; border-radius: var(--ha-card-border-radius, 12px); border: 1px solid color-mix(in srgb, var(--primary-color) 60%, var(--divider-color)); background: color-mix(in srgb, var(--primary-color) 22%, var(--ha-card-background, var(--card-background-color))); color: var(--primary-text-color); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease; box-shadow: 0 4px 14px color-mix(in srgb, var(--primary-color) 22%, transparent); }
+  .cache-enable-btn:hover:not(:disabled) { transform: translateY(-1px); background: color-mix(in srgb, var(--primary-color) 28%, var(--ha-card-background, var(--card-background-color))); border-color: var(--primary-color); box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 28%, transparent); }
+  .cache-enable-btn:active:not(:disabled) { transform: translateY(0); }
+  .cache-enable-btn:disabled { opacity: 0.55; cursor: default; transform: none; box-shadow: none; }
+  .cache-enable-btn ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
   .version-mismatch-state { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; padding: 24px 32px 40px; }
   .version-mismatch-header { display: flex; align-items: flex-start; gap: 14px; }
   .version-mismatch-icon { flex-shrink: 0; display: inline-flex; padding-top: 3px; color: var(--warning-color, #ff9800); }
@@ -732,6 +853,8 @@ var cardStyles = i`
   .hub-compact-stat-label { font-size: 11px; color: var(--secondary-text-color); font-weight: 500; }
   .hub-compact-divider { width: 1px; height: 36px; background: color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color)); flex-shrink: 0; }
   @media (max-width: 640px) {
+    .tabs-scroll { overflow-x: auto; scrollbar-width: none; }
+    .tabs-scroll::-webkit-scrollbar { display: none; }
     .tab-btn-label-short { display: inline; }
     .tab-btn--has-short-label .tab-btn-label { display: none; }
     .hub-connection-strip { grid-template-columns: auto minmax(14px, 1fr) auto minmax(14px, 1fr) auto; gap: 6px; padding: 8px 10px; }
@@ -740,6 +863,12 @@ var cardStyles = i`
     .hub-ident-name { font-size: 15px; }
     .hub-compact-stats { display: none; }
     .entity-chevron { display: none; }
+    .card-topbar { padding: 4px 8px; gap: 6px; }
+    .hub-picker-btn { max-width: min(100vw - 32px, 320px); }
+    .chip-name { max-width: 220px; }
+    .card-header-status { gap: 4px; }
+    .dock-pill { min-height: 20px; padding: 0 6px; font-size: 9px; }
+    .card-brand { font-size: 9px; letter-spacing: 0.1em; }
   }
 `;
 
@@ -771,6 +900,66 @@ var ControlPanelApi = class {
       type: "sofabaton_x1s/control_panel/run_action",
       entry_id: entryId,
       action
+    });
+  }
+  fetchBlob(entryId, deviceId, commandId) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/blobs/fetch",
+      entry_id: entryId,
+      device_id: deviceId,
+      ...commandId != null ? { command_id: commandId } : {}
+    });
+  }
+  playIrBlob(entryId, blob) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/blobs/play",
+      entry_id: entryId,
+      blob
+    });
+  }
+  persistIrBlob(entryId, deviceId, commandName, blob) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/blobs/persist",
+      entry_id: entryId,
+      device_id: deviceId,
+      command_name: commandName,
+      blob
+    });
+  }
+  startBackupExport(entryId, deviceIds) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/export",
+      entry_id: entryId,
+      ...deviceIds?.length ? { device_ids: deviceIds } : {}
+    });
+  }
+  startBackupRestore(entryId, backup, mode) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/restore",
+      entry_id: entryId,
+      backup,
+      mode
+    });
+  }
+  subscribeBackupProgress(operationId, onMessage) {
+    if (!this.hass.connection?.subscribeMessage) {
+      return Promise.reject(new Error("Backup progress is unavailable without a websocket connection"));
+    }
+    return this.hass.connection.subscribeMessage(
+      onMessage,
+      { type: "sofabaton_x1s/backup/progress_subscribe", operation_id: operationId }
+    );
+  }
+  getBackupState(entryId) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/state",
+      entry_id: entryId
+    });
+  }
+  clearBackupResult(operationId) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/clear_result",
+      operation_id: operationId
     });
   }
   refreshCatalog(entryId, kind) {
@@ -866,6 +1055,21 @@ function hubActivities(hub) {
 }
 function hubDevices(hub) {
   return sortByName(hub?.devices_list ?? []);
+}
+function deviceClassIcon(deviceClass) {
+  switch (String(deviceClass || "").trim().toLowerCase()) {
+    case "ir":
+      return "mdi:remote";
+    case "bluetooth":
+      return "mdi:bluetooth";
+    case "wifi_roku":
+    case "wifi_hue":
+    case "wifi_mqtt":
+    case "wifi_ip":
+      return "mdi:wifi";
+    default:
+      return "mdi:radio-tower";
+  }
 }
 function activityFavorites(hub, activityId) {
   const rows = hub?.activity_favorites?.[String(activityId)] ?? [];
@@ -1015,7 +1219,7 @@ function hubIcon(kind, classes = "") {
   }
   const icon = {
     activities: "mdi:play-circle-outline",
-    devices: "mdi:remote",
+    devices: "mdi:audio-video",
     ip: "mdi:router-wireless",
     version: "mdi:cog-outline"
   }[kind];
@@ -1026,7 +1230,10 @@ function hubIcon(kind, classes = "") {
 var BACKEND_RETRY_MIN_MS = 2e3;
 var BACKEND_RETRY_MAX_MS = 1e4;
 var VIEW_STATE_STORAGE_KEY = "sofabaton_x1s:tools_card:view_state:v1";
-var VALID_TABS = /* @__PURE__ */ new Set(["settings", "wifi_commands", "cache", "logs"]);
+var VALID_TABS = /* @__PURE__ */ new Set(["settings", "wifi_commands", "blobs", "backup", "cache", "logs"]);
+var VALID_CACHE_SECTIONS = /* @__PURE__ */ new Set(["activities", "devices"]);
+var VALID_BACKUP_SECTIONS = /* @__PURE__ */ new Set(["make", "restore"]);
+var VALID_BLOBS_SECTIONS = /* @__PURE__ */ new Set(["fetch", "test", "save"]);
 function viewStateStorage() {
   try {
     if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
@@ -1041,9 +1248,15 @@ function readPersistedViewState() {
     const parsed = JSON.parse(storage.getItem(VIEW_STATE_STORAGE_KEY) || "{}");
     const selectedHubEntryId = String(parsed?.selectedHubEntryId ?? "").trim() || null;
     const selectedTab = VALID_TABS.has(parsed?.selectedTab) ? parsed.selectedTab : void 0;
+    const openSection = VALID_CACHE_SECTIONS.has(parsed?.openSection) ? parsed.openSection : parsed?.openSection === null ? null : void 0;
+    const openBackupSection = VALID_BACKUP_SECTIONS.has(parsed?.openBackupSection) ? parsed.openBackupSection : void 0;
+    const openBlobsSection = VALID_BLOBS_SECTIONS.has(parsed?.openBlobsSection) ? parsed.openBlobsSection : parsed?.openBlobsSection === null ? null : void 0;
     return {
       selectedHubEntryId,
-      ...selectedTab ? { selectedTab } : {}
+      ...selectedTab ? { selectedTab } : {},
+      ...openSection !== void 0 ? { openSection } : {},
+      ...openBackupSection ? { openBackupSection } : {},
+      ...openBlobsSection !== void 0 ? { openBlobsSection } : {}
     };
   } catch (_error) {
     return {};
@@ -1068,8 +1281,10 @@ var INITIAL_SNAPSHOT = {
   loadError: null,
   backendUnavailable: false,
   selectedHubEntryId: null,
-  selectedTab: "settings",
+  selectedTab: "cache",
   openSection: "activities",
+  openBackupSection: "make",
+  openBlobsSection: "fetch",
   openEntity: null,
   staleData: false,
   refreshBusy: false,
@@ -1103,6 +1318,9 @@ var ControlPanelStore = class {
     this._lastConnectionFingerprint = "";
     this._backendRetryTimer = null;
     this._backendRetryDelay = BACKEND_RETRY_MIN_MS;
+    this._backupOpUnsub = null;
+    this._backupOpEntryId = null;
+    this._backupOpId = null;
     this._loadedFrontendVersion = normalizeLoadedFrontendVersion(options.loadedFrontendVersion);
     this._snapshot = {
       ...INITIAL_SNAPSHOT,
@@ -1120,6 +1338,7 @@ var ControlPanelStore = class {
     } else if (this._snapshot.backendUnavailable) {
       this._scheduleBackendRetry();
     }
+    void this._syncBackupOperationFeed();
     if (this._snapshot.selectedTab === "logs") {
       void this.syncLogsFeed();
     }
@@ -1132,6 +1351,7 @@ var ControlPanelStore = class {
       externalHubCommandLabel: null
     };
     this._clearBackendRetry();
+    void this._teardownBackupOperationFeed();
     void this.unsubscribeLogs();
   }
   _clearBackendRetry() {
@@ -1214,21 +1434,22 @@ var ControlPanelStore = class {
     this.persistViewState();
     this.emit();
     void (async () => {
+      await this._teardownBackupOperationFeed();
       await this.unsubscribeLogs();
       await this.loadControlPanelState();
+      await this._syncBackupOperationFeed();
       if (this._snapshot.selectedTab === "logs") await this.syncLogsFeed();
     })();
   }
   selectTab(tabId) {
-    const nextTab = tabId === "cache" && !persistentCacheEnabled(this._snapshot) ? "settings" : tabId;
     this._snapshot = {
       ...this._snapshot,
-      selectedTab: nextTab,
-      logsStickToBottom: nextTab === "logs" ? true : this._snapshot.logsStickToBottom,
-      logsScrollBehavior: nextTab === "logs" ? "auto" : this._snapshot.logsScrollBehavior
+      selectedTab: tabId,
+      logsStickToBottom: tabId === "logs" ? true : this._snapshot.logsStickToBottom,
+      logsScrollBehavior: tabId === "logs" ? "auto" : this._snapshot.logsScrollBehavior
     };
     this.persistViewState();
-    if (nextTab === "logs") void this.syncLogsFeed();
+    if (tabId === "logs") void this.syncLogsFeed();
     else void this.unsubscribeLogs();
     this.emit();
   }
@@ -1238,6 +1459,20 @@ var ControlPanelStore = class {
       openSection: this._snapshot.openSection === sectionId ? null : sectionId,
       openEntity: null
     };
+    this.persistViewState();
+    this.emit();
+  }
+  setBackupSection(sectionId) {
+    if (this._snapshot.openBackupSection === sectionId) return;
+    this._snapshot = { ...this._snapshot, openBackupSection: sectionId };
+    this.persistViewState();
+    this.emit();
+  }
+  toggleBlobsSection(sectionId) {
+    const next = this._snapshot.openBlobsSection === sectionId ? null : sectionId;
+    if (this._snapshot.openBlobsSection === next) return;
+    this._snapshot = { ...this._snapshot, openBlobsSection: next };
+    this.persistViewState();
     this.emit();
   }
   toggleEntity(key) {
@@ -1276,6 +1511,7 @@ var ControlPanelStore = class {
         this._snapshot = { ...this._snapshot, contents };
         this.syncSelection();
         this._clearBackendUnavailable();
+        await this._syncBackupOperationFeed();
       } catch (error) {
         if (isBackendUnavailableError(error, this._snapshot.hass)) {
           this._markBackendUnavailable();
@@ -1299,6 +1535,7 @@ var ControlPanelStore = class {
       this.applyControlPanelState(state);
       this.syncSelection();
       this._clearBackendUnavailable();
+      await this._syncBackupOperationFeed();
       this.emit();
     } catch (error) {
       if (isBackendUnavailableError(error, this._snapshot.hass)) {
@@ -1323,18 +1560,10 @@ var ControlPanelStore = class {
     try {
       await this.api().setSetting(hub.entry_id, setting, enabled);
       if (setting === "persistent_cache") {
-        if (!enabled && this._snapshot.selectedTab === "cache") {
-          this._snapshot = { ...this._snapshot, selectedTab: "settings" };
-          await this.loadState();
-          return;
-        }
         if (enabled) await this.loadCacheContents();
         else await this.loadControlPanelState();
       } else {
         await this.loadControlPanelState();
-      }
-      if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
-        this._snapshot = { ...this._snapshot, selectedTab: "settings" };
       }
     } catch (_error) {
       this.applyOptimisticSetting(
@@ -1588,9 +1817,6 @@ var ControlPanelStore = class {
     if (!hubs.some((hub) => hub.entry_id === this._snapshot.selectedHubEntryId)) {
       this._snapshot = { ...this._snapshot, selectedHubEntryId: hubs[0].entry_id };
     }
-    if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
-      this._snapshot = { ...this._snapshot, selectedTab: "settings" };
-    }
     this.persistViewState();
   }
   api() {
@@ -1605,16 +1831,88 @@ var ControlPanelStore = class {
         VIEW_STATE_STORAGE_KEY,
         JSON.stringify({
           selectedHubEntryId: this._snapshot.selectedHubEntryId,
-          selectedTab: this._snapshot.selectedTab
+          selectedTab: this._snapshot.selectedTab,
+          openSection: this._snapshot.openSection,
+          openBackupSection: this._snapshot.openBackupSection,
+          openBlobsSection: this._snapshot.openBlobsSection
         })
       );
     } catch (_error) {
     }
   }
   _isHubCommandBusy() {
+    const hub = selectedHub(this._snapshot);
+    const activeBackupOperation = hub?.active_backup_operation;
+    const backupBusy = !!activeBackupOperation && ["pending", "running"].includes(String(activeBackupOperation.status || ""));
     return Boolean(
-      this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey
+      this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey || backupBusy
     );
+  }
+  async _syncBackupOperationFeed() {
+    const hub = selectedHub(this._snapshot);
+    const active = hub?.active_backup_operation;
+    const entryId = String(hub?.entry_id || "").trim() || null;
+    const operationId = active && ["pending", "running"].includes(String(active.status || "")) ? String(active.operation_id || "").trim() || null : null;
+    if (!this._isConnected || !entryId || !operationId || !this._snapshot.hass) {
+      await this._teardownBackupOperationFeed();
+      return;
+    }
+    if (this._backupOpEntryId === entryId && this._backupOpId === operationId && this._backupOpUnsub) {
+      return;
+    }
+    await this._teardownBackupOperationFeed();
+    this._backupOpEntryId = entryId;
+    this._backupOpId = operationId;
+    try {
+      const unsubscribe = await this.api().subscribeBackupProgress(operationId, (payload) => {
+        if (this._backupOpId !== operationId || this._backupOpEntryId !== entryId) return;
+        this._applyBackupProgressToSnapshot(entryId, payload);
+        if (!["pending", "running"].includes(String(payload.status || ""))) {
+          void this._teardownBackupOperationFeed();
+        }
+      });
+      if (this._backupOpId !== operationId || this._backupOpEntryId !== entryId) {
+        try {
+          unsubscribe();
+        } catch {
+        }
+        return;
+      }
+      this._backupOpUnsub = unsubscribe;
+    } catch {
+      this._backupOpEntryId = null;
+      this._backupOpId = null;
+      this._backupOpUnsub = null;
+    }
+  }
+  _applyBackupProgressToSnapshot(entryId, payload) {
+    if (!this._snapshot.state) return;
+    const isRunning = ["pending", "running"].includes(String(payload.status || ""));
+    const hubs = this._snapshot.state.hubs.map(
+      (hub) => hub.entry_id === entryId ? {
+        ...hub,
+        active_backup_operation: isRunning ? payload : null
+      } : hub
+    );
+    this._snapshot = {
+      ...this._snapshot,
+      state: {
+        ...this._snapshot.state,
+        hubs
+      }
+    };
+    this.emit();
+  }
+  async _teardownBackupOperationFeed() {
+    const unsub = this._backupOpUnsub;
+    this._backupOpUnsub = null;
+    this._backupOpEntryId = null;
+    this._backupOpId = null;
+    if (!unsub) return;
+    try {
+      await unsub();
+    } catch {
+    }
   }
   emit() {
     this.onChange(this._snapshot);
@@ -1623,50 +1921,113 @@ var ControlPanelStore = class {
 
 // custom_components/sofabaton_x1s/www/src/components/hub-picker.ts
 function renderHubPicker(params) {
-  if (!params.visible) return null;
+  const prefix = params.prefixLabel ?? "HUB";
+  if (!params.interactive) {
+    return b2`
+      <div class="hub-picker hub-picker--static" id="hub-picker-root">
+        <div class="hub-picker-btn hub-picker-btn--static">
+          <span class="chip-prefix">${prefix}</span>
+          <span class="chip-name">${params.selectedLabel}</span>
+        </div>
+      </div>
+    `;
+  }
   return b2`
-    <button class="hub-picker-btn" id="hub-picker-btn" @click=${params.onOpen}>
-      <span class="chip-label">Hub</span>
-      <span class="chip-name">${params.selectedLabel}</span>
-      <span class="chip-arrow">▼</span>
-    </button>
-    <dialog id="hub-picker-dialog" class="hub-picker-dialog">
-      ${params.hubs.map(
+    <div class="hub-picker" id="hub-picker-root">
+      <button
+        class="hub-picker-btn${params.open ? " is-open" : ""}"
+        id="hub-picker-btn"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded=${String(params.open)}
+        @click=${params.onToggle}
+      >
+        <span class="chip-prefix">${prefix}</span>
+        <span class="chip-name">${params.selectedLabel}</span>
+        <ha-icon class="chip-arrow" icon="mdi:chevron-up"></ha-icon>
+      </button>
+      ${params.open ? b2`
+            <div id="hub-picker-menu" class="hub-picker-menu" role="menu">
+              ${params.hubs.map(
     (hub) => b2`
-          <div
-            class="hub-option${hub.entry_id === params.selectedEntryId ? " selected" : ""}"
-            @click=${() => params.onSelect(hub.entry_id)}
-          >
-            ${hub.name || hub.entry_id}
-          </div>
-        `
+                  <button
+                    class="hub-option${hub.entry_id === params.selectedEntryId ? " selected" : ""}"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked=${String(hub.entry_id === params.selectedEntryId)}
+                    @click=${() => params.onSelect(hub.entry_id)}
+                  >
+                    ${hub.name || hub.entry_id}
+                  </button>
+                `
   )}
-    </dialog>
+            </div>
+          ` : null}
+    </div>
   `;
 }
 
 // custom_components/sofabaton_x1s/www/src/components/tab-bar.ts
 function renderTabBar(params) {
   const tabs = [
-    { id: "settings", label: "Hub", disabled: false },
+    { id: "cache", label: "Cache", disabled: false },
     { id: "wifi_commands", label: "Wifi Commands", shortLabel: "Wifi", disabled: false },
-    { id: "cache", label: "Cache", disabled: !params.persistentCacheEnabled },
-    { id: "logs", label: "Logs", disabled: false, pushRight: true }
+    { id: "backup", label: "Backup", disabled: false },
+    { id: "blobs", label: "Blobs", disabled: false }
   ];
+  const toolsMenuActive = params.selectedTab === "settings" || params.selectedTab === "logs";
   return b2`
     <div class="tabs">
-      ${tabs.map(
+      <div class="tabs-scroll">
+        ${tabs.map(
     (tab) => b2`
-          <button
-            class="tab-btn${tab.pushRight ? " tab-btn--push-right" : ""}${tab.shortLabel ? " tab-btn--has-short-label" : ""}${params.selectedTab === tab.id ? " active" : ""}${tab.disabled ? " tab-disabled" : ""}"
-            ?disabled=${tab.disabled}
-            @click=${() => params.onSelect(tab.id)}
-          >
-            <span class="tab-btn-label">${tab.label}</span>
-            ${tab.shortLabel ? b2`<span class="tab-btn-label-short">${tab.shortLabel}</span>` : null}
-          </button>
-        `
+            <button
+              class="tab-btn${tab.shortLabel ? " tab-btn--has-short-label" : ""}${params.selectedTab === tab.id ? " active" : ""}${tab.disabled ? " tab-disabled" : ""}"
+              type="button"
+              ?disabled=${tab.disabled}
+              @click=${() => params.onSelect(tab.id)}
+            >
+              <span class="tab-btn-label">${tab.label}</span>
+              ${tab.shortLabel ? b2`<span class="tab-btn-label-short">${tab.shortLabel}</span>` : null}
+            </button>
+          `
   )}
+      </div>
+      <div class="tab-menu" id="tools-tab-menu-root">
+        <button
+          class="tab-btn tab-btn--menu${toolsMenuActive ? " active" : ""}${params.toolsMenuOpen ? " is-open" : ""}"
+          id="tools-tab-menu-btn"
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded=${String(params.toolsMenuOpen)}
+          @click=${params.onToggleToolsMenu}
+        >
+          <ha-icon class="tab-btn-menu-icon" icon="mdi:cog-outline"></ha-icon>
+          <ha-icon class="tab-btn-menu-caret" icon="mdi:chevron-down"></ha-icon>
+        </button>
+        ${params.toolsMenuOpen ? b2`
+              <div class="tab-menu-dropdown" id="tools-tab-menu-dropdown" role="menu">
+                <button
+                  class="tab-menu-item${params.selectedTab === "settings" ? " active" : ""}"
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked=${String(params.selectedTab === "settings")}
+                  @click=${() => params.onSelect("settings")}
+                >
+                  Settings
+                </button>
+                <button
+                  class="tab-menu-item${params.selectedTab === "logs" ? " active" : ""}"
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked=${String(params.selectedTab === "logs")}
+                  @click=${() => params.onSelect("logs")}
+                >
+                  Logs
+                </button>
+              </div>
+            ` : null}
+      </div>
     </div>
   `;
 }
@@ -1712,7 +2073,6 @@ function renderSettingsTab(params) {
   const hub = params.hub;
   const connected = hubConnected(params.hass, hub);
   const proxyOn = proxyClientConnected(params.hass, hub);
-  const integrationVersion = String(params.integrationVersion ?? "").trim() || "unknown";
   const hubVersion = String(hub.version ?? "").trim();
   const firmwareVersion = hub.firmware_version != null ? `FW: v${hub.firmware_version}` : "";
   const versionLine = [hubVersion ? `Sofabaton ${hubVersion}` : "", firmwareVersion].filter(Boolean).join(" / ");
@@ -1816,24 +2176,6 @@ function renderSettingsTab(params) {
           </div>
         </div>
       </div>
-      <div class="panel-sticky-footer">
-        <div class="bottom-dock-status">
-          <div class="dock-seg ${connected ? "dock-seg--hub-on" : "dock-seg--off"}">
-            <span class="dock-seg-dot"></span>
-            <span>Hub ${connected ? "connected" : "not connected"}</span>
-          </div>
-          <div class="dock-sep"></div>
-          <div class="dock-seg ${proxyOn ? "dock-seg--app-on" : "dock-seg--off"}">
-            <span class="dock-seg-dot"></span>
-            <span>App ${proxyOn ? "connected" : "not connected"}</span>
-          </div>
-          <div class="dock-sep"></div>
-          <div class="dock-seg dock-seg--version">
-            <ha-icon class="dock-version-icon" icon="mdi:cog-outline"></ha-icon>
-            <span>v<span class="dock-status-value">${integrationVersion}</span></span>
-          </div>
-        </div>
-      </div>
     </div>
   `;
 }
@@ -1843,6 +2185,7 @@ function renderAccordionSection(params) {
   return b2`
     <div class="accordion-section${params.isOpen ? " open" : ""}" id=${`acc-${params.sectionId}`}>
       <div class="acc-header" @click=${params.onToggle}>
+        ${params.icon ? b2`<span class="acc-header-icon"><ha-icon icon=${params.icon}></ha-icon></span>` : null}
         <span class="acc-title">${params.title}</span>
         <span class="badge">${params.count}</span>
         <span class="flex-spacer"></span>
@@ -1867,7 +2210,23 @@ function badge(type, value) {
 function renderCacheTab(params) {
   if (params.loading) return b2`<div class="cache-state">Loading…</div>`;
   if (params.error) return b2`<div class="cache-state error">${params.error}</div>`;
-  if (!params.persistentCacheEnabled) return b2`<div class="cache-state"><div class="cache-state-icon">💾</div><div class="cache-state-title">Persistent cache is off</div><div class="cache-state-sub">Enable it from the Settings tab to browse cached activities and devices.</div></div>`;
+  if (!params.persistentCacheEnabled) {
+    return b2`
+      <div class="cache-state cache-enable-state">
+        <div class="cache-enable-icon"><ha-icon icon="mdi:database-cog-outline"></ha-icon></div>
+        <div class="cache-state-title">Persistent cache is off</div>
+        <div class="cache-state-sub">Turn it on to browse cached activities and devices, and to unlock Backup and Blobs workflows that depend on it.</div>
+        <button
+          class="cache-enable-btn"
+          ?disabled=${params.enablingPersistentCache || params.hubCommandBusy}
+          @click=${params.onEnablePersistentCache}
+        >
+          <ha-icon icon="mdi:database-check-outline"></ha-icon>
+          <span>${params.enablingPersistentCache ? "Enabling\u2026" : "Enable persistent cache"}</span>
+        </button>
+      </div>
+    `;
+  }
   if (!params.hub) return b2`<div class="cache-state">No hubs found.</div>`;
   const renderActivity = (activity) => {
     const id = Number(activity.id);
@@ -1908,10 +2267,14 @@ function renderCacheTab(params) {
     const locked = params.hubCommandBusy || params.selectedHubProxyConnected;
     const isSpinning = params.refreshBusy && params.activeRefreshLabel === key;
     const commands = deviceCommands(params.hub, id);
+    const icon = deviceClassIcon(device.device_class);
     return b2`
       <div class="entity-block${isOpen ? " open" : ""}" id=${`entity-${key}`}>
         <div class="entity-summary" @click=${() => params.onToggleEntity(key)}>
-          <span class="entity-name">${device.name || `Device ${id}`}</span>
+          <span class="entity-name">
+            <span class="entity-name-icon"><ha-icon icon=${icon}></ha-icon></span>
+            <span class="entity-name-label">${device.name || `Device ${id}`}</span>
+          </span>
           <span class="entity-meta">
             ${badge("DevID", id)}
             <span class="entity-count">${Number(device.command_count || 0)} cmds</span>
@@ -1932,8 +2295,8 @@ function renderCacheTab(params) {
     <div class="tab-panel">
       ${params.staleData ? b2`<div class="stale-banner"><span class="stale-banner-text">Cache was updated externally. Refresh to see latest data.</span><button class="stale-banner-btn" @click=${params.onRefreshStale}>Refresh</button></div>` : null}
       <div class="cache-panel">
-        ${renderAccordionSection({ sectionId: "activities", title: "Activities", count: activities.length, isOpen: params.openSection === "activities", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("activities"), onRefresh: () => params.onRefreshSection("activities"), body: activities.map(renderActivity) })}
-        ${renderAccordionSection({ sectionId: "devices", title: "Devices", count: devices.length, isOpen: params.openSection === "devices", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("devices"), onRefresh: () => params.onRefreshSection("devices"), body: devices.map(renderDevice) })}
+        ${renderAccordionSection({ sectionId: "activities", title: "Activities", icon: "mdi:play-circle-outline", count: activities.length, isOpen: params.openSection === "activities", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("activities"), onRefresh: () => params.onRefreshSection("activities"), body: activities.map(renderActivity) })}
+        ${renderAccordionSection({ sectionId: "devices", title: "Devices", icon: "mdi:audio-video", count: devices.length, isOpen: params.openSection === "devices", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("devices"), onRefresh: () => params.onRefreshSection("devices"), body: devices.map(renderDevice) })}
       </div>
     </div>
   `;
@@ -1950,7 +2313,10 @@ function renderLogConsole(params) {
   return b2`
     <div class="tab-panel logs-panel">
       <div class="logs-header">
-        <div class="acc-title">Live Console</div>
+        <div class="logs-title-row">
+          <span class="acc-header-icon"><ha-icon icon="mdi:console-line"></ha-icon></span>
+          <div class="acc-title">Live Console</div>
+        </div>
       </div>
       <div class="logs-console" id="logs-console">${body}</div>
     </div>
@@ -1966,7 +2332,2760 @@ function renderLogsTab(params) {
   });
 }
 
-// ../../../node_modules/lit-html/directive.js
+// custom_components/sofabaton_x1s/www/src/tabs/blobs-state.ts
+function blobDeviceOptions(hub) {
+  return [...hub?.devices_list ?? []].map((device) => ({
+    value: String(Number(device.id)),
+    label: String(device.name || `Device ${Number(device.id)}`),
+    deviceClass: String(device.device_class || ""),
+    commandCount: Number(device.command_count || 0)
+  })).sort((left, right) => left.label.localeCompare(right.label));
+}
+function blobCommandOptions(hub, deviceId) {
+  if (!hub || !Number.isInteger(deviceId)) return [];
+  const commands = hub.commands?.[String(deviceId)] ?? {};
+  return Object.entries(commands).map(([id, label]) => ({
+    value: String(Number(id)),
+    label: String(label || `Command ${id}`)
+  })).sort((left, right) => left.label.localeCompare(right.label));
+}
+function blobFetchBlockedReason(params) {
+  if (!params.persistentCacheEnabled) return "cache_disabled";
+  if (Number.isInteger(params.selectedDeviceId) && params.commandCount <= 0) return "no_commands";
+  return null;
+}
+
+// custom_components/sofabaton_x1s/www/src/tabs/blobs-tab.ts
+var SofabatonBlobsTab = class extends i4 {
+  constructor() {
+    super(...arguments);
+    this.hass = null;
+    this.hub = null;
+    this.cacheHub = null;
+    this.setHubCommandBusy = null;
+    this.refreshControlPanelState = null;
+    this.hubCommandBusy = false;
+    this.hubCommandBusyLabel = null;
+    this.loading = false;
+    this.error = null;
+    this.persistentCacheEnabled = false;
+    this._selectedDeviceId = null;
+    this._selectedCommandId = null;
+    this._fetchLoading = false;
+    this._fetchError = "";
+    this._fetchResponse = null;
+    this._testBlobInput = "";
+    this._testLoading = false;
+    this._testError = "";
+    this._testSuccess = "";
+    this._saveDeviceIdInput = "";
+    this._saveCommandName = "";
+    this._saveBlobInput = "";
+    this._saveLoading = false;
+    this._saveError = "";
+    this._saveSuccess = "";
+    this._saveResult = null;
+    this._loadedEntryId = "";
+    this.openSection = "fetch";
+    this.toggleOpenSection = () => {
+    };
+    this._testFlash = false;
+    this._saveFlash = false;
+    this._copyFlashKey = null;
+    this._resultViewMode = {};
+    this._testFlashTimer = null;
+    this._saveFlashTimer = null;
+    this._copyFlashTimer = null;
+    this._runFetch = async () => {
+      const entryId = String(this.hub?.entry_id || "").trim();
+      if (!entryId || this._selectedDeviceId == null || this._selectedCommandId == null || this._busy()) return;
+      this._fetchLoading = true;
+      this._fetchError = "";
+      this._fetchResponse = null;
+      this._setSharedBusy(true, "Fetching blob\u2026");
+      try {
+        this._fetchResponse = await this._api().fetchBlob(entryId, this._selectedDeviceId, this._selectedCommandId);
+      } catch (error) {
+        this._fetchError = formatError(error);
+      } finally {
+        this._fetchLoading = false;
+        this._setSharedBusy(false);
+      }
+    };
+    this._runTest = async () => {
+      const entryId = String(this.hub?.entry_id || "").trim();
+      if (!entryId || this._busy() || proxyClientConnected(this.hass, this.hub)) return;
+      if (!String(this._testBlobInput || "").trim()) return;
+      this._testLoading = true;
+      this._testError = "";
+      this._testSuccess = "";
+      this._setSharedBusy(true, "Testing blob\u2026");
+      try {
+        await this._api().playIrBlob(entryId, this._testBlobInput);
+        this._testSuccess = "Blob sent to the hub for one-shot playback.";
+        this._scheduleSuccessRevert("test");
+      } catch (error) {
+        this._testError = formatError(error);
+      } finally {
+        this._testLoading = false;
+        this._setSharedBusy(false);
+      }
+    };
+    this._runSave = async () => {
+      const entryId = String(this.hub?.entry_id || "").trim();
+      const deviceId = Number.parseInt(String(this._saveDeviceIdInput || "").trim(), 10);
+      if (!entryId || this._busy() || proxyClientConnected(this.hass, this.hub)) return;
+      if (!Number.isInteger(deviceId) || deviceId < 1 || deviceId > 255) return;
+      if (!String(this._saveCommandName || "").trim() || !String(this._saveBlobInput || "").trim()) return;
+      this._saveLoading = true;
+      this._saveError = "";
+      this._saveSuccess = "";
+      this._saveResult = null;
+      this._setSharedBusy(true, "Saving blob\u2026");
+      try {
+        this._saveResult = await this._api().persistIrBlob(
+          entryId,
+          deviceId,
+          this._saveCommandName,
+          this._saveBlobInput
+        );
+        await this._refreshControlPanelState();
+        this._saveSuccess = `Saved command ${this._saveResult.command_name} as id ${this._saveResult.command_id} on device ${this._saveResult.device_id}.`;
+        this._scheduleSuccessRevert("save");
+      } catch (error) {
+        this._saveError = formatError(error);
+      } finally {
+        this._saveLoading = false;
+        this._setSharedBusy(false);
+      }
+    };
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._testFlashTimer) {
+      clearTimeout(this._testFlashTimer);
+      this._testFlashTimer = null;
+    }
+    if (this._saveFlashTimer) {
+      clearTimeout(this._saveFlashTimer);
+      this._saveFlashTimer = null;
+    }
+    if (this._copyFlashTimer) {
+      clearTimeout(this._copyFlashTimer);
+      this._copyFlashTimer = null;
+    }
+  }
+  _useLegacyTextField() {
+    return Boolean(customElements.get("ha-textfield")) && !customElements.get("ha-input");
+  }
+  /** Uppercase hub model — mirrors wifi-commands-tab's _hubVersion(). */
+  _hubVersion() {
+    return String(remoteAttrsForHub(this.hass, this.hub)?.hub_version || this.hub?.version || "").toUpperCase();
+  }
+  /** Descriptor parsing (P:Sony12 R:... strings) is X2-only on the hub side. */
+  _supportsDescriptors() {
+    return this._hubVersion().includes("X2");
+  }
+  /** Unicode command names (and the extended punctuation set) are X1S/X2 only. */
+  _supportsUnicodeCommandNames() {
+    const v2 = this._hubVersion();
+    return v2.includes("X2") || v2.includes("X1S");
+  }
+  /**
+   * Sanitize a command name input. Pattern + length matches wifi-commands-tab's
+   * _sanitizeCommandName so the user gets the same character allow-list as the
+   * Wifi Commands tab uses for renaming command slots.
+   */
+  _sanitizeCommandName(value) {
+    const pattern = this._supportsUnicodeCommandNames() ? /[^\p{L}\p{N}\p{M} +&.'()_-]+/gu : /[^A-Za-z0-9 ]+/g;
+    return String(value ?? "").replace(pattern, "").slice(0, 20);
+  }
+  _blobInputPlaceholder() {
+    return this._supportsDescriptors() ? "Paste blob hex here, or enter a descriptor such as P:Sony12 R:40000 D:1 F:18 MUL:2" : "Paste blob hex here.";
+  }
+  /**
+   * Subtitle templates per drawer. Two-line layout: descriptive copy on top,
+   * an IR-only warning (with icon) below. The "descriptive protocol string"
+   * sentence is X2-only since descriptor parsing is unsupported on X1/X1S.
+   */
+  _renderSubtitleBlock(args) {
+    const descriptorSentence = args.descriptor && this._supportsDescriptors() ? " Blobs may be raw hex or a descriptive protocol string." : "";
+    return b2`
+      <div class="blob-section-subtitle">
+        <span>${args.lead}${descriptorSentence}</span>
+        <span class="subtitle-warning">
+          <ha-icon icon="mdi:alert-outline"></ha-icon>
+          <span>${args.warning}</span>
+        </span>
+      </div>
+    `;
+  }
+  _fetchSubtitle() {
+    return this._renderSubtitleBlock({
+      lead: "Retrieve and view a Blob from the hub. Ensure that the cache for your devices and their commands is up to date.",
+      warning: "Only Blobs from IR devices can be Tested and Saved."
+    });
+  }
+  _testSubtitle() {
+    return this._renderSubtitleBlock({
+      lead: "Play a Blob on the hub without saving it.",
+      descriptor: true,
+      warning: "Only Blobs from IR devices can be Tested."
+    });
+  }
+  _saveSubtitle() {
+    return this._renderSubtitleBlock({
+      lead: "Add a new command to an existing IR device by saving a Blob to the hub.",
+      descriptor: true,
+      warning: "Only Blobs from IR devices can be Saved."
+    });
+  }
+  _buttonState(args) {
+    if (args.busy) return "busy";
+    if (args.success) return "success";
+    if (args.error) return "error";
+    if (!args.canSubmit) return "disabled";
+    return "idle";
+  }
+  _renderActionButton(args) {
+    const { label, busyLabel, state, idleIcon, onClick } = args;
+    const interactive = state === "idle" || state === "success" || state === "error";
+    let leadingIcon = A;
+    if (state === "busy") {
+      leadingIcon = b2`<span class="blob-action-spinner" aria-hidden="true"></span>`;
+    } else if (state === "success") {
+      leadingIcon = b2`<ha-icon icon="mdi:check-circle-outline"></ha-icon>`;
+    } else if (state === "error") {
+      leadingIcon = b2`<ha-icon icon="mdi:alert-circle-outline"></ha-icon>`;
+    } else if ((state === "idle" || state === "disabled") && idleIcon) {
+      leadingIcon = b2`<ha-icon icon=${idleIcon}></ha-icon>`;
+    }
+    const text = state === "busy" ? busyLabel : label;
+    return b2`
+      <button
+        class="blob-action-btn"
+        data-state=${state}
+        aria-busy=${state === "busy" ? "true" : "false"}
+        ?disabled=${!interactive}
+        @click=${onClick}
+      >
+        ${leadingIcon}
+        <span>${text}</span>
+      </button>
+    `;
+  }
+  _scheduleSuccessRevert(which) {
+    if (which === "test") {
+      this._testFlash = true;
+      if (this._testFlashTimer) clearTimeout(this._testFlashTimer);
+      this._testFlashTimer = setTimeout(() => {
+        this._testFlash = false;
+        this._testFlashTimer = null;
+      }, 1800);
+    } else {
+      this._saveFlash = true;
+      if (this._saveFlashTimer) clearTimeout(this._saveFlashTimer);
+      this._saveFlashTimer = setTimeout(() => {
+        this._saveFlash = false;
+        this._saveSuccess = "";
+        this._saveFlashTimer = null;
+      }, 3e3);
+    }
+  }
+  updated(changed) {
+    if (changed.has("hub")) this._handleHubChanged();
+    if (changed.has("cacheHub")) this._normalizeSelections();
+  }
+  render() {
+    if (this.loading) return b2`<div class="state">Loading…</div>`;
+    if (this.error) return b2`<div class="state error">${this.error}</div>`;
+    if (!this.hub) return b2`<div class="state">No hubs found.</div>`;
+    if (proxyClientConnected(this.hass, this.hub)) {
+      return b2`
+        <div class="tab-panel">
+          <div class="blocked-state">
+            <div class="blocked-state-title">Blobs unavailable</div>
+            <div class="blocked-state-sub">Blobs cannot be used while the Sofabaton app is connected to the hub through the proxy.</div>
+          </div>
+        </div>
+      `;
+    }
+    return b2`
+      <div class="tab-panel">
+        <div class="blob-panel">
+          ${this._renderFetchSection(this.openSection === "fetch")}
+          ${this._renderTestSection(this.openSection === "test")}
+          ${this._renderSaveSection(this.openSection === "save")}
+        </div>
+      </div>
+    `;
+  }
+  _renderFetchSection(isOpen) {
+    const deviceOptions = this._deviceOptions();
+    const commandOptions = this._commandOptions();
+    const fetchBlocked = blobFetchBlockedReason({
+      persistentCacheEnabled: this.persistentCacheEnabled,
+      selectedDeviceId: this._selectedDeviceId,
+      commandCount: commandOptions.length
+    });
+    const disabled = this._busy() || !this.persistentCacheEnabled;
+    return b2`
+      <div class="accordion-section${isOpen ? " open" : ""}" id="acc-fetch">
+        <div class="acc-header" @click=${() => this.toggleOpenSection("fetch")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:cloud-download-outline"></ha-icon></span>
+          <span class="acc-title">Fetch From Hub</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? b2`
+        <div class="acc-body" id="acc-body-fetch">
+          <div class="blob-section-content">
+          ${this._fetchSubtitle()}
+          ${fetchBlocked === "cache_disabled" ? this._renderStatus(
+      "warning",
+      "mdi:database-off-outline",
+      "Enable persistent cache in the Hub tab before using Fetch."
+    ) : A}
+          <div class="control-grid">
+            <ha-selector
+              .hass=${this.hass}
+              .selector=${{ select: { mode: "dropdown", options: [{ value: "__none__", label: "Select one" }, ...deviceOptions.map((option) => ({ value: option.value, label: option.label }))] } }}
+              .label=${"Device"}
+              .value=${this._selectedDeviceId == null ? "__none__" : String(this._selectedDeviceId)}
+              .disabled=${disabled}
+              @value-changed=${(event) => this._handleDeviceChanged(event)}
+            ></ha-selector>
+            <ha-selector
+              .hass=${this.hass}
+              .selector=${{ select: { mode: "dropdown", options: [{ value: "__none__", label: "Select one" }, ...commandOptions.map((option) => ({ value: option.value, label: option.label }))] } }}
+              .label=${"Command"}
+              .value=${this._selectedCommandId == null ? "__none__" : String(this._selectedCommandId)}
+              .disabled=${disabled || this._selectedDeviceId == null || fetchBlocked === "no_commands"}
+              @value-changed=${(event) => this._handleCommandChanged(event)}
+            ></ha-selector>
+          </div>
+          ${fetchBlocked === "no_commands" ? this._renderStatus(
+      "warning",
+      "mdi:refresh-circle",
+      "This device has no cached commands yet. Refresh that device from the Cache tab first."
+    ) : A}
+          ${this._fetchError ? this._renderStatus("error", "mdi:alert-circle-outline", this._fetchError) : A}
+          ${this._fetchResponse ? this._renderFetchResults() : A}
+          </div>
+        </div>
+        ` : A}
+      </div>
+    `;
+  }
+  _renderFetchResults() {
+    const commands = this._fetchResponse?.commands ?? [];
+    if (!commands.length) {
+      return this._renderStatus(
+        "warning",
+        "mdi:file-search-outline",
+        "The hub returned no blob records for this request."
+      );
+    }
+    return b2`
+      <div class="results-list">
+        ${commands.map((command) => {
+      const cmdKey = `cmd-${command.device_id ?? "?"}-${command.command_id ?? "?"}`;
+      const copied = this._copyFlashKey === cmdKey;
+      const descriptor = String(command.parsed_blob ?? "").trim();
+      const rawBlob = String(command.command_blob ?? "");
+      const hasDescriptor = descriptor !== "";
+      const mode = hasDescriptor ? this._resultViewMode[cmdKey] ?? "descriptor" : "hex";
+      const shownText = mode === "descriptor" ? descriptor : rawBlob;
+      const copyTarget = mode === "descriptor" ? descriptor : rawBlob;
+      return b2`
+          <article class="result-card">
+            <div class="result-head">
+              <div class="result-title">${String(command.command_label || `Command ${command.command_id ?? "unknown"}`)}</div>
+              <div class="result-badges">
+                <span class="result-badge">${this._deviceClassLabel(command.device_class)}</span>
+                <span class="result-badge">Cmd ${String(command.command_id ?? "?")}</span>
+              </div>
+            </div>
+            <div class="result-block">
+              <div class="result-block-head">
+                ${hasDescriptor ? b2`
+                      <div
+                        class="view-toggle"
+                        role="tablist"
+                        aria-label="Blob view mode"
+                      >
+                        <button
+                          class="view-toggle-btn${mode === "descriptor" ? " active" : ""}"
+                          role="tab"
+                          aria-selected=${mode === "descriptor" ? "true" : "false"}
+                          @click=${() => this._setResultViewMode(cmdKey, "descriptor")}
+                        >Descriptor</button>
+                        <button
+                          class="view-toggle-btn${mode === "hex" ? " active" : ""}"
+                          role="tab"
+                          aria-selected=${mode === "hex" ? "true" : "false"}
+                          @click=${() => this._setResultViewMode(cmdKey, "hex")}
+                        >Hex</button>
+                      </div>
+                    ` : b2`<div class="result-label">Raw Blob</div>`}
+                <button
+                  class="copy-btn"
+                  data-state=${copied ? "success" : "idle"}
+                  aria-live="polite"
+                  @click=${() => void this._copyText(copyTarget, cmdKey)}
+                >
+                  <ha-icon icon=${copied ? "mdi:check" : "mdi:content-copy"}></ha-icon>
+                  <span>${copied ? "Copied" : "Copy"}</span>
+                </button>
+              </div>
+              <pre class="result-pre result-pre--scrollable">${shownText}</pre>
+            </div>
+          </article>
+        `;
+    })}
+      </div>
+    `;
+  }
+  _renderTestSection(isOpen) {
+    const proxyConnected = proxyClientConnected(this.hass, this.hub);
+    const busy = this._busy();
+    const canSubmit = !busy && !proxyConnected && String(this._testBlobInput || "").trim() !== "";
+    return b2`
+      <div class="accordion-section${isOpen ? " open" : ""}" id="acc-test">
+        <div class="acc-header" @click=${() => this.toggleOpenSection("test")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:flash-outline"></ha-icon></span>
+          <span class="acc-title">Test A Blob</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? b2`
+        <div class="acc-body" id="acc-body-test">
+          <div class="blob-section-content">
+          ${this._testSubtitle()}
+          ${this._renderBlobTextarea({
+      value: this._testBlobInput,
+      disabled: busy || proxyConnected,
+      placeholder: this._blobInputPlaceholder(),
+      onInput: (value) => {
+        this._testBlobInput = value;
+        this._testError = "";
+        this._testSuccess = "";
+        this._testFlash = false;
+      }
+    })}
+          <div class="action-row">
+            ${this._renderActionButton({
+      label: "Test",
+      busyLabel: "Testing\u2026",
+      idleIcon: "mdi:flash-outline",
+      state: this._buttonState({
+        busy: this._testLoading,
+        error: Boolean(this._testError),
+        success: this._testFlash && Boolean(this._testSuccess),
+        canSubmit
+      }),
+      onClick: () => void this._runTest()
+    })}
+          </div>
+          ${this._testError ? this._renderStatus("error", "mdi:alert-circle-outline", this._testError) : A}
+          </div>
+        </div>
+        ` : A}
+      </div>
+    `;
+  }
+  _renderSaveSection(isOpen) {
+    const proxyConnected = proxyClientConnected(this.hass, this.hub);
+    const busy = this._busy();
+    const parsedDeviceId = Number.parseInt(String(this._saveDeviceIdInput || "").trim(), 10);
+    const deviceIdValid = Number.isInteger(parsedDeviceId) && parsedDeviceId >= 1 && parsedDeviceId <= 255;
+    const irDeviceOptions = this._deviceOptions().filter(
+      (option) => String(option.deviceClass || "").trim().toLowerCase() === "ir"
+    );
+    const canSubmit = !busy && !proxyConnected && deviceIdValid && String(this._saveCommandName || "").trim() !== "" && String(this._saveBlobInput || "").trim() !== "";
+    return b2`
+      <div class="accordion-section${isOpen ? " open" : ""}" id="acc-save">
+        <div class="acc-header" @click=${() => this.toggleOpenSection("save")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:content-save-outline"></ha-icon></span>
+          <span class="acc-title">Save To Hub</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? b2`
+        <div class="acc-body" id="acc-body-save">
+          <div class="blob-section-content">
+          ${this._saveSubtitle()}
+          ${irDeviceOptions.length === 0 && !proxyConnected ? this._renderStatus(
+      "warning",
+      "mdi:refresh-circle",
+      "No IR devices found in the cache. Refresh devices from the Cache tab first."
+    ) : A}
+          <div class="control-grid">
+            <div class="blob-input-host">
+              <ha-selector
+                .hass=${this.hass}
+                .selector=${{ select: { mode: "dropdown", options: [{ value: "__none__", label: "Select one" }, ...irDeviceOptions.map((option) => ({ value: option.value, label: option.label }))] } }}
+                .label=${"IR device"}
+                .value=${this._saveDeviceIdInput && this._saveDeviceIdInput !== "__none__" ? this._saveDeviceIdInput : "__none__"}
+                .disabled=${busy || proxyConnected || irDeviceOptions.length === 0}
+                @value-changed=${(event) => {
+      const raw = String(event.detail?.value ?? "");
+      this._saveDeviceIdInput = raw && raw !== "__none__" ? raw : "";
+      this._saveError = "";
+      this._saveSuccess = "";
+      this._saveResult = null;
+      this._saveFlash = false;
+    }}
+              ></ha-selector>
+            </div>
+            ${this._renderCommandNameInput(busy, proxyConnected)}
+          </div>
+          ${this._renderBlobTextarea({
+      value: this._saveBlobInput,
+      disabled: busy || proxyConnected,
+      placeholder: this._blobInputPlaceholder(),
+      onInput: (value) => {
+        this._saveBlobInput = value;
+        this._saveError = "";
+        this._saveSuccess = "";
+        this._saveResult = null;
+        this._saveFlash = false;
+      }
+    })}
+          <div class="action-row">
+            ${this._renderActionButton({
+      label: "Save",
+      busyLabel: "Saving\u2026",
+      idleIcon: "mdi:content-save-outline",
+      state: this._buttonState({
+        busy: this._saveLoading,
+        error: Boolean(this._saveError),
+        success: this._saveFlash && Boolean(this._saveSuccess),
+        canSubmit
+      }),
+      onClick: () => void this._runSave()
+    })}
+            ${this._saveSuccess ? b2`
+                  <div class="section-status success inline-status" role="status" aria-live="polite">
+                    <span class="status-icon"><ha-icon icon="mdi:check-circle-outline"></ha-icon></span>
+                    <span>${this._saveSuccess}</span>
+                  </div>
+                ` : A}
+          </div>
+          ${this._saveError ? this._renderStatus("error", "mdi:alert-circle-outline", this._saveError) : A}
+          </div>
+        </div>
+        ` : A}
+      </div>
+    `;
+  }
+  /**
+     * Command-name input that matches the Wifi Commands tab character allow-list
+     * and length cap exactly:
+     *   - X1S/X2: Unicode letters/numbers/marks + ` +&.'()_-`
+     *   - X1:    `[A-Za-z0-9 ]`
+     *   - Max 20 chars
+     * Pattern follows wifi-commands-tab._sanitizeCommandName via shared logic.
+     *
+     * The @input handler only rewrites the live DOM value (no state update) to
+     * avoid a state-driven re-render every keystroke (which would reset cursor
+     * position). State commits on @change.
+     */
+  _renderCommandNameInput(busy, proxyConnected) {
+    const onInputLive = (event) => {
+      const input = event.currentTarget;
+      const value = this._sanitizeCommandName(input.value);
+      if (input.value !== value) input.value = value;
+    };
+    const onCommit = (event) => {
+      const input = event.currentTarget;
+      const value = this._sanitizeCommandName(input.value);
+      input.value = value;
+      this._saveCommandName = value;
+      this._saveError = "";
+      this._saveSuccess = "";
+      this._saveResult = null;
+      this._saveFlash = false;
+    };
+    const disabled = busy || proxyConnected;
+    if (this._useLegacyTextField()) {
+      return b2`
+        <div class="blob-input-host">
+          <ha-textfield
+            .label=${"Command name"}
+            .maxLength=${20}
+            .value=${this._saveCommandName}
+            .disabled=${disabled}
+            @input=${onInputLive}
+            @change=${onCommit}
+          ></ha-textfield>
+        </div>
+      `;
+    }
+    if (customElements.get("ha-input")) {
+      return b2`
+        <div class="blob-input-host">
+          <ha-input
+            type="text"
+            .label=${"Command name"}
+            .maxlength=${20}
+            .value=${this._saveCommandName}
+            .disabled=${disabled}
+            @input=${onInputLive}
+            @change=${onCommit}
+          ></ha-input>
+        </div>
+      `;
+    }
+    return b2`
+      <input
+        class="text-input"
+        type="text"
+        maxlength="20"
+        .value=${this._saveCommandName}
+        .disabled=${disabled}
+        placeholder="Command name"
+        @input=${onInputLive}
+        @change=${onCommit}
+      />
+    `;
+  }
+  _renderSingleLineInput(args) {
+    const { kind, label, value, disabled, placeholder, min, max, onInput } = args;
+    const handleInputEvent = (event) => {
+      const target = event.currentTarget;
+      onInput(String(target?.value ?? ""));
+    };
+    if (this._useLegacyTextField()) {
+      return b2`
+        <div class="blob-input-host">
+          <ha-textfield
+            type=${kind}
+            .label=${label}
+            .value=${value}
+            .disabled=${disabled}
+            .placeholder=${placeholder}
+            min=${min ?? A}
+            max=${max ?? A}
+            @input=${handleInputEvent}
+            @change=${handleInputEvent}
+          ></ha-textfield>
+        </div>
+      `;
+    }
+    if (customElements.get("ha-input")) {
+      return b2`
+        <div class="blob-input-host">
+          <ha-input
+            type=${kind}
+            .label=${label}
+            .value=${value}
+            .disabled=${disabled}
+            .placeholder=${placeholder}
+            min=${min ?? A}
+            max=${max ?? A}
+            @input=${handleInputEvent}
+            @change=${handleInputEvent}
+          ></ha-input>
+        </div>
+      `;
+    }
+    return b2`
+      <input
+        class="text-input"
+        type=${kind}
+        .value=${value}
+        .disabled=${disabled}
+        placeholder=${placeholder}
+        min=${min ?? A}
+        max=${max ?? A}
+        @input=${handleInputEvent}
+      />
+    `;
+  }
+  /**
+   * Blob hex / descriptor textarea. Always rendered as a native textarea
+   * styled to look like the result console (.result-pre) — dark monospace
+   * surface, light text — since this is a code-editor field, not a form
+   * label field. Using ha-textarea here would fight HA's light-surface
+   * theming and break the console look.
+   */
+  _renderBlobTextarea(args) {
+    const { value, disabled, placeholder, onInput } = args;
+    const handleInputEvent = (event) => {
+      const target = event.currentTarget;
+      onInput(String(target?.value ?? ""));
+    };
+    return b2`
+      <textarea
+        class="test-textarea"
+        .value=${value}
+        .disabled=${disabled}
+        placeholder=${placeholder}
+        spellcheck="false"
+        autocapitalize="off"
+        autocorrect="off"
+        @input=${handleInputEvent}
+      ></textarea>
+    `;
+  }
+  _renderStatus(tone, icon, message) {
+    return b2`
+      <div class="section-status ${tone}">
+        <span class="status-icon"><ha-icon icon=${icon}></ha-icon></span>
+        <span>${message}</span>
+      </div>
+    `;
+  }
+  _handleHubChanged() {
+    const nextEntryId = String(this.hub?.entry_id || "").trim();
+    if (nextEntryId === this._loadedEntryId) return;
+    this._loadedEntryId = nextEntryId;
+    this._selectedDeviceId = null;
+    this._selectedCommandId = null;
+    this._fetchLoading = false;
+    this._fetchError = "";
+    this._fetchResponse = null;
+    this._testBlobInput = "";
+    this._testLoading = false;
+    this._testError = "";
+    this._testSuccess = "";
+    this._saveDeviceIdInput = "";
+    this._saveCommandName = "";
+    this._saveBlobInput = "";
+    this._saveLoading = false;
+    this._saveError = "";
+    this._saveSuccess = "";
+    this._saveResult = null;
+    this._testFlash = false;
+    this._saveFlash = false;
+    if (this._testFlashTimer) {
+      clearTimeout(this._testFlashTimer);
+      this._testFlashTimer = null;
+    }
+    if (this._saveFlashTimer) {
+      clearTimeout(this._saveFlashTimer);
+      this._saveFlashTimer = null;
+    }
+  }
+  _normalizeSelections() {
+    const deviceOptions = this._deviceOptions();
+    if (this._selectedDeviceId != null && !deviceOptions.some((option) => Number(option.value) === this._selectedDeviceId)) {
+      this._selectedDeviceId = null;
+      this._selectedCommandId = null;
+      this._fetchResponse = null;
+      this._fetchError = "";
+      return;
+    }
+    const commandOptions = this._commandOptions();
+    if (this._selectedCommandId != null && !commandOptions.some((option) => Number(option.value) === this._selectedCommandId)) {
+      this._selectedCommandId = null;
+      this._fetchResponse = null;
+      this._fetchError = "";
+    }
+  }
+  _handleDeviceChanged(event) {
+    const value = String(event.detail?.value ?? "");
+    this._selectedDeviceId = value && value !== "__none__" ? Number(value) : null;
+    this._selectedCommandId = null;
+    this._fetchResponse = null;
+    this._fetchError = "";
+  }
+  _handleCommandChanged(event) {
+    const value = String(event.detail?.value ?? "");
+    this._selectedCommandId = value && value !== "__none__" ? Number(value) : null;
+    this._fetchResponse = null;
+    this._fetchError = "";
+    if (this._selectedDeviceId != null && this._selectedCommandId != null) void this._runFetch();
+  }
+  _deviceOptions() {
+    return blobDeviceOptions(this.cacheHub);
+  }
+  _commandOptions() {
+    return blobCommandOptions(this.cacheHub, this._selectedDeviceId);
+  }
+  _selectedDevice() {
+    return this._deviceOptions().find((option) => Number(option.value) === this._selectedDeviceId) ?? null;
+  }
+  _deviceClassLabel(deviceClass) {
+    const normalized = String(deviceClass || "").trim();
+    return normalized || "Unknown class";
+  }
+  _setResultViewMode(cmdKey, mode) {
+    if (this._resultViewMode[cmdKey] === mode) return;
+    this._resultViewMode = { ...this._resultViewMode, [cmdKey]: mode };
+  }
+  async _copyText(value, flashKey) {
+    const text = String(value || "");
+    if (!text) return;
+    let copied = false;
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {
+      }
+    }
+    if (!copied) {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "absolute";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch {
+        copied = false;
+      }
+    }
+    if (!copied) return;
+    this._copyFlashKey = flashKey;
+    if (this._copyFlashTimer) clearTimeout(this._copyFlashTimer);
+    this._copyFlashTimer = setTimeout(() => {
+      this._copyFlashKey = null;
+      this._copyFlashTimer = null;
+    }, 1500);
+  }
+  _busy() {
+    return Boolean(this.hubCommandBusy || this._fetchLoading || this._testLoading || this._saveLoading);
+  }
+  _api() {
+    if (!this.hass) throw new Error("Home Assistant context is unavailable");
+    return new ControlPanelApi(this.hass);
+  }
+  _setSharedBusy(busy, label) {
+    this.setHubCommandBusy?.(busy, label ?? null);
+  }
+  async _refreshControlPanelState() {
+    await this.refreshControlPanelState?.();
+  }
+};
+SofabatonBlobsTab.properties = {
+  hass: { attribute: false },
+  hub: { attribute: false },
+  cacheHub: { attribute: false },
+  setHubCommandBusy: { attribute: false },
+  refreshControlPanelState: { attribute: false },
+  hubCommandBusy: { type: Boolean },
+  hubCommandBusyLabel: { type: String },
+  loading: { type: Boolean },
+  error: { type: String },
+  persistentCacheEnabled: { type: Boolean },
+  _selectedDeviceId: { state: true },
+  _selectedCommandId: { state: true },
+  _fetchLoading: { state: true },
+  _fetchError: { state: true },
+  _fetchResponse: { state: true },
+  _testBlobInput: { state: true },
+  _testLoading: { state: true },
+  _testError: { state: true },
+  _testSuccess: { state: true },
+  _saveDeviceIdInput: { state: true },
+  _saveCommandName: { state: true },
+  _saveBlobInput: { state: true },
+  _saveLoading: { state: true },
+  _saveError: { state: true },
+  _saveSuccess: { state: true },
+  _saveResult: { state: true },
+  _loadedEntryId: { state: true },
+  openSection: { attribute: false },
+  toggleOpenSection: { attribute: false },
+  _testFlash: { state: true },
+  _saveFlash: { state: true },
+  _copyFlashKey: { state: true },
+  _resultViewMode: { state: true }
+};
+SofabatonBlobsTab.styles = i`
+    :host { display: flex; flex: 1; min-height: 0; }
+    .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; overflow-y: auto; }
+    .state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--secondary-text-color); }
+    .state.error { color: var(--error-color, #db4437); }
+    .blocked-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--secondary-text-color);
+      line-height: 1.6;
+    }
+    .blocked-state-title {
+      color: var(--primary-text-color);
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .blocked-state-sub {
+      max-width: 340px;
+      font-size: 13px;
+    }
+    .blob-panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      margin: -16px;
+      /* Container query target — control-grid collapses to single column
+         based on this element's width, not the viewport's. Lets a narrow
+         card on a wide dashboard collapse without dragging single-column
+         layout across wide cards. */
+      container-type: inline-size;
+      container-name: blob-panel;
+    }
+    .accordion-section { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--divider-color); }
+    .accordion-section:first-child { border-top: none; }
+    .accordion-section.open { flex: 1; }
+    .acc-header { flex-shrink: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; cursor: pointer; user-select: none; transition: background-color 120ms ease; }
+    .acc-header-icon { color: var(--secondary-text-color); display: inline-flex; flex: 0 0 auto; }
+    .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
+    .accordion-section.open .acc-header-icon { color: var(--primary-color); }
+    .acc-header:hover { background: color-mix(in srgb, var(--primary-color) 6%, var(--ha-card-background, var(--card-background-color))); }
+    .acc-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--secondary-text-color); }
+    .flex-spacer { flex: 1; }
+    .chevron { font-size: 9px; color: var(--secondary-text-color); transition: transform 150ms; }
+    .accordion-section.open .chevron { transform: rotate(180deg); }
+    .acc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 12px; display: grid; gap: 6px; align-content: start; }
+    .blob-section-content { display: flex; flex-direction: column; gap: 14px; padding-top: 0; min-width: 0; }
+    .blob-section-subtitle {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--secondary-text-color);
+    }
+    .subtitle-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: color-mix(in srgb, var(--warning-color, #f59e0b) 70%, var(--primary-text-color));
+      font-weight: 600;
+    }
+    .subtitle-warning ha-icon {
+      --mdc-icon-size: 16px;
+      color: var(--warning-color, #f59e0b);
+      flex: 0 0 auto;
+    }
+    .section-status {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--divider-color);
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--secondary-text-color);
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 80%, transparent);
+    }
+    .section-status.error {
+      color: var(--error-color, #db4437);
+      border-color: color-mix(in srgb, var(--error-color, #db4437) 30%, var(--divider-color));
+      background: color-mix(in srgb, var(--error-color, #db4437) 5%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .section-status.success {
+      color: #2e7d32;
+      border-color: color-mix(in srgb, #2e7d32 30%, var(--divider-color));
+      background: color-mix(in srgb, #2e7d32 5%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .section-status.inline-status {
+      padding: 6px 12px;
+      font-size: 12px;
+      animation: blobInlineStatusIn 180ms ease-out;
+    }
+    @keyframes blobInlineStatusIn {
+      from { opacity: 0; transform: translateX(-6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .section-status.warning {
+      border-color: color-mix(in srgb, var(--warning-color, #f59e0b) 35%, var(--divider-color));
+      background: color-mix(in srgb, var(--warning-color, #f59e0b) 5%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .status-icon { color: inherit; display: inline-flex; flex: 0 0 auto; }
+    .status-icon ha-icon { --mdc-icon-size: 18px; }
+    .control-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+      align-items: end;
+    }
+    .control-grid ha-selector {
+      width: 100%;
+      min-width: 0;
+    }
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--divider-color);
+      border-radius: var(--ha-card-border-radius, 10px);
+      background: transparent;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 10px;
+      cursor: pointer;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .copy-btn ha-icon {
+      --mdc-icon-size: 15px;
+      display: inline-flex;
+    }
+    .copy-btn:hover:not([data-state="success"]) {
+      border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color));
+      color: var(--primary-color);
+    }
+    .copy-btn:disabled {
+      opacity: 0.46;
+      cursor: default;
+      border-color: color-mix(in srgb, var(--divider-color) 88%, transparent);
+    }
+    .view-toggle {
+      display: inline-flex;
+      border: 1px solid var(--divider-color);
+      border-radius: 999px;
+      padding: 2px;
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 80%, transparent);
+    }
+    .view-toggle-btn {
+      border: none;
+      background: transparent;
+      color: var(--secondary-text-color);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 140ms ease, color 140ms ease;
+    }
+    .view-toggle-btn:hover:not(.active) {
+      color: var(--primary-text-color);
+    }
+    .view-toggle-btn.active {
+      background: var(--primary-color);
+      color: var(--text-primary-color, #fff);
+    }
+    .copy-btn[data-state="success"] {
+      background: #2e7d32;
+      border-color: #2e7d32;
+      color: #ffffff;
+    }
+    .action-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    /* Primary action button. Visual base matches the Wifi Commands modal
+       Save/Cancel buttons:
+         .dialog-btn        — outlined neutral
+         .dialog-btn-primary — outlined primary (1px primary border + 18%
+                              primary-tinted fill + primary-text-color text)
+       wifi-commands-tab.ts:374–377. Each blob action keeps that base and
+       swaps the tint hue for busy/success/error states.
+
+       Border-radius adapts via --ha-card-border-radius for theme parity. */
+    .blob-action-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 14px;
+      border-radius: var(--ha-card-border-radius, 10px);
+      border: 1px solid var(--primary-color);
+      background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 80ms ease;
+    }
+    .blob-action-btn:hover:not([data-state="busy"]):not([data-state="disabled"]) {
+      border-color: color-mix(in srgb, var(--primary-color) 80%, var(--primary-text-color));
+      background: color-mix(in srgb, var(--primary-color) 26%, transparent);
+    }
+    .blob-action-btn:active:not([data-state="busy"]):not([data-state="disabled"]) {
+      transform: translateY(1px);
+    }
+    .blob-action-btn:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--primary-color) 60%, transparent);
+      outline-offset: 2px;
+    }
+    .blob-action-btn[data-state="busy"] {
+      cursor: progress;
+      border-color: color-mix(in srgb, var(--primary-color) 70%, var(--divider-color));
+      background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    }
+    .blob-action-btn[data-state="success"] {
+      border-color: #2e7d32;
+      background: color-mix(in srgb, #2e7d32 18%, transparent);
+      color: #2e7d32;
+    }
+    .blob-action-btn[data-state="error"] {
+      border-color: var(--error-color, #db4437);
+      background: color-mix(in srgb, var(--error-color, #db4437) 18%, transparent);
+      color: var(--error-color, #db4437);
+    }
+    .blob-action-btn[data-state="disabled"] {
+      cursor: default;
+      border-color: var(--divider-color);
+      background: transparent;
+      color: color-mix(in srgb, var(--primary-text-color) 45%, transparent);
+    }
+    .blob-action-btn ha-icon {
+      --mdc-icon-size: 16px;
+      display: inline-flex;
+    }
+    .blob-action-spinner {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid color-mix(in srgb, var(--primary-color) 35%, transparent);
+      border-top-color: var(--primary-color);
+      animation: blobActionSpin 720ms linear infinite;
+    }
+    @keyframes blobActionSpin {
+      to { transform: rotate(360deg); }
+    }
+    .blob-input-host {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      width: 100%;
+      min-width: 0;
+    }
+    .blob-input-host ha-textfield,
+    .blob-input-host ha-input,
+    .blob-input-host ha-textarea,
+    .blob-input-host ha-selector {
+      display: block;
+      width: 100%;
+    }
+    /* ha-input ships with a built-in --ha-input-padding-bottom (default
+       var(--ha-space-2), ~8px) that pushes the field above its baseline.
+       ha-select has no equivalent, so the two controls otherwise sit at
+       different bottoms in the same row. Zero it out here so the row
+       bottom-aligns. */
+    .blob-input-host ha-input {
+      --ha-input-padding-bottom: 0px;
+      --ha-input-padding-top: 0px;
+    }
+    .blob-input-host ha-textarea {
+      --ha-textarea-resize: vertical;
+    }
+    .control-grid .blob-input-host {
+      /* Pin the actual input controls to the row's baseline so a select and a
+         textfield with different label heights still bottom-align. */
+      align-self: end;
+    }
+    .results-list {
+      display: grid;
+      gap: 12px;
+    }
+    .result-card {
+      border: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color));
+      border-radius: var(--ha-card-border-radius, 14px);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 78%, transparent);
+    }
+    .result-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .result-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--primary-text-color);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .result-badges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .result-badge {
+      border: 1px solid var(--divider-color);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--secondary-text-color);
+      background: var(--ha-card-background, var(--card-background-color));
+    }
+    .result-block {
+      display: grid;
+      gap: 6px;
+    }
+    .result-block-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .result-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--secondary-text-color);
+    }
+    .result-pre {
+      margin: 0;
+      border: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color));
+      border-radius: var(--ha-card-border-radius, 12px);
+      background: color-mix(in srgb, #05070b 94%, var(--card-background-color, #fff));
+      color: #e7edf6;
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .result-pre--scrollable {
+      height: calc((12px * 1.55 * 4) + 20px);
+      overflow: auto;
+    }
+    /* Console-styled blob input. Visual sibling of .result-pre so the user
+       sees the same dark monospace surface whether they're entering or viewing
+       a blob hex / descriptor string. */
+    .test-textarea {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      min-height: 132px;
+      resize: vertical;
+      margin: 0;
+      border: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color));
+      border-radius: var(--ha-card-border-radius, 12px);
+      background: color-mix(in srgb, #05070b 94%, var(--card-background-color, #fff));
+      color: #e7edf6;
+      caret-color: #e7edf6;
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .test-textarea::placeholder {
+      color: color-mix(in srgb, #e7edf6 45%, transparent);
+    }
+    .test-textarea:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--primary-color) 65%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 35%, transparent),
+                  inset 0 0 0 1px color-mix(in srgb, #05070b 100%, transparent);
+    }
+    .test-textarea:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .text-input {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid var(--divider-color);
+      border-radius: 14px;
+      background: var(--ha-card-background, var(--card-background-color));
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      line-height: 1.4;
+      padding: 12px 14px;
+    }
+    .text-input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 35%, transparent);
+    }
+    .text-input:disabled {
+      opacity: 0.7;
+      cursor: default;
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 80%, transparent);
+    }
+    @media (max-width: 760px) {
+      .chevron { display: none; }
+    }
+    @container blob-panel (max-width: 420px) {
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  `;
+if (!customElements.get("sofabaton-blobs-tab")) {
+  customElements.define("sofabaton-blobs-tab", SofabatonBlobsTab);
+}
+
+// custom_components/sofabaton_x1s/www/src/shared/ha-context.ts
+var BACKUP_BUNDLE_SCHEMA_VERSION = 5;
+
+// custom_components/sofabaton_x1s/www/src/tabs/backup-state.ts
+function backupDeviceOptions(hub) {
+  return hubDevices(hub).map((device) => ({
+    id: Number(device.id),
+    label: String(device.name || `Device ${device.id}`),
+    meta: String(device.device_class || "").trim() || void 0
+  }));
+}
+function bundleActivityOptions(bundle) {
+  return [...bundle?.activities ?? []].map((activity) => {
+    const block = activity?.device || {};
+    const id = Number(block.device_id || 0);
+    return {
+      id,
+      label: String(block.name || `Activity ${id}`),
+      meta: `${(activity?.referenced_source_device_ids ?? []).length} linked devices`
+    };
+  }).filter((option) => option.id > 0).sort((left, right) => left.label.localeCompare(right.label));
+}
+function bundleDeviceOptions(bundle) {
+  return [...bundle?.devices ?? []].map((device) => {
+    const block = device?.device || {};
+    const id = Number(block.device_id || 0);
+    return {
+      id,
+      label: String(block.name || `Device ${id}`),
+      meta: String(block.device_class || "").trim() || void 0
+    };
+  }).filter((option) => option.id > 0).sort((left, right) => left.label.localeCompare(right.label));
+}
+function forcedRestoreDeviceIds(bundle, selectedActivityIds) {
+  const selected = new Set(selectedActivityIds.map((value) => Number(value)));
+  const forced = /* @__PURE__ */ new Set();
+  for (const activity of bundle?.activities ?? []) {
+    const activityId = Number(activity?.device?.device_id || 0);
+    if (!selected.has(activityId)) continue;
+    for (const deviceId of activity?.referenced_source_device_ids ?? []) {
+      const normalized = Number(deviceId);
+      if (normalized > 0) forced.add(normalized);
+    }
+  }
+  return [...forced].sort((left, right) => left - right);
+}
+function reconcileRestoreSelection(params) {
+  const forcedDeviceIds = forcedRestoreDeviceIds(params.bundle, params.selectedActivityIds);
+  const selected = new Set(forcedDeviceIds);
+  for (const deviceId of params.manualSelectedDeviceIds ?? []) {
+    const normalized = Number(deviceId);
+    if (normalized > 0) selected.add(normalized);
+  }
+  return {
+    forcedDeviceIds,
+    selectedDeviceIds: [...selected].sort((left, right) => left - right)
+  };
+}
+function pruneBackupBundle(params) {
+  const selectedActivityIds = new Set((params.selectedActivityIds ?? []).map((value) => Number(value)));
+  const selectedDeviceIds = new Set((params.selectedDeviceIds ?? []).map((value) => Number(value)));
+  return {
+    ...params.bundle,
+    devices: (params.bundle.devices ?? []).filter((device) => selectedDeviceIds.has(Number(device?.device?.device_id || 0))),
+    activities: (params.bundle.activities ?? []).filter((activity) => selectedActivityIds.has(Number(activity?.device?.device_id || 0)))
+  };
+}
+function validateBackupBundle(raw) {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Backup file must contain a JSON object.");
+  }
+  const bundle = raw;
+  if (String(bundle.kind || "") !== "hub_bundle") {
+    throw new Error("Backup file is not a Sofabaton hub bundle.");
+  }
+  if (Number(bundle.schema_version || 0) !== BACKUP_BUNDLE_SCHEMA_VERSION) {
+    throw new Error(
+      `Backup file schema_version must be ${BACKUP_BUNDLE_SCHEMA_VERSION} (got ${String(bundle.schema_version || "") || "unknown"}).`
+    );
+  }
+  if (!Array.isArray(bundle.devices) || !Array.isArray(bundle.activities)) {
+    throw new Error("Backup file is missing devices or activities arrays.");
+  }
+  return bundle;
+}
+
+// custom_components/sofabaton_x1s/www/src/tabs/backup-tab.ts
+var SofabatonBackupTab = class extends i4 {
+  constructor() {
+    super(...arguments);
+    this.hass = null;
+    this.hub = null;
+    this.cacheHub = null;
+    this.hubCommandBusy = false;
+    this.hubCommandBusyLabel = null;
+    this.loading = false;
+    this.error = null;
+    this.persistentCacheEnabled = false;
+    this.selectedHubProxyConnected = false;
+    this.openSection = "make";
+    this.setOpenSection = () => {
+    };
+    this._backupScope = "whole_hub";
+    this._backupDeviceIds = [];
+    this._backupError = null;
+    this._backupProgress = null;
+    this._restoreError = null;
+    this._restoreSuccess = null;
+    this._restoreProgress = null;
+    this._restoreMode = "merge";
+    this._restoreBundle = null;
+    this._restoreFilename = "";
+    this._restoreActivityIds = [];
+    this._restoreManualDeviceIds = [];
+    this._progressUnsub = null;
+    this._downloadUrl = null;
+    this._loadedBackupEntryId = "";
+    this._backupHydrating = false;
+    this._toggleAllBackupDevices = () => {
+      const devices = backupDeviceOptions(this.cacheHub);
+      const allIds = devices.map((device) => device.id);
+      this._backupDeviceIds = this._backupDeviceIds.length === allIds.length ? [] : allIds;
+    };
+    this._selectAllRestoreItems = () => {
+      const activities = bundleActivityOptions(this._restoreBundle).map((activity) => activity.id);
+      const devices = bundleDeviceOptions(this._restoreBundle).map((device) => device.id);
+      this._restoreActivityIds = activities;
+      this._restoreManualDeviceIds = devices;
+    };
+    this._clearRestoreSelection = () => {
+      this._restoreActivityIds = [];
+      this._restoreManualDeviceIds = [];
+    };
+    this._resetBackupComposer = () => {
+      this._backupError = null;
+      this._backupProgress = null;
+      this._backupScope = "whole_hub";
+      this._backupDeviceIds = backupDeviceOptions(this.cacheHub).map((device) => device.id);
+      this._revokeDownloadUrl();
+    };
+    this._resetRestoreComposer = () => {
+      this._restoreError = null;
+      this._restoreSuccess = null;
+      this._restoreProgress = null;
+      this._restoreMode = "merge";
+    };
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._teardownProgressSubscription();
+    this._revokeDownloadUrl();
+  }
+  updated(changed) {
+    if (changed.has("hub")) {
+      void this._syncBackupOperationState();
+    }
+    if (changed.has("cacheHub") && this.cacheHub && !this._backupDeviceIds.length) {
+      this._backupDeviceIds = backupDeviceOptions(this.cacheHub).map((device) => device.id);
+    }
+  }
+  render() {
+    if (this.loading) {
+      return b2`<div class="tab-panel"><div class="state">Loading backup tools…</div></div>`;
+    }
+    if (this.error) {
+      return b2`<div class="tab-panel"><div class="state error">${this.error}</div></div>`;
+    }
+    if (!this.hub || !this.hass) {
+      return b2`<div class="tab-panel"><div class="state">Select a hub to manage backups.</div></div>`;
+    }
+    if (this.selectedHubProxyConnected) {
+      return b2`
+        <div class="tab-panel">
+          <div class="blocked-state">
+            <div class="blocked-state-title">Backup unavailable</div>
+            <div class="blocked-state-sub">Backup cannot be used while the Sofabaton app is connected to the hub through the proxy.</div>
+          </div>
+        </div>
+      `;
+    }
+    return b2`
+      <div class="tab-panel">
+        <div class="backup-panel">
+          ${this._renderBackupSection()}
+          ${this._renderRestoreSection()}
+        </div>
+      </div>
+    `;
+  }
+  _renderBackupSection() {
+    const isOpen = this.openSection === "make";
+    const devices = backupDeviceOptions(this.cacheHub);
+    const wholeHub = this._backupScope === "whole_hub";
+    const selectedDeviceIds = wholeHub ? devices.map((device) => device.id) : this._backupDeviceIds;
+    const isRunning = this._isProgressRunning(this._backupProgress);
+    const isSuccess = String(this._backupProgress?.status || "") === "success";
+    const allDevicesSelected = devices.length > 0 && this._backupDeviceIds.length === devices.length;
+    const summary = this._backupResultSummary(this._backupProgress?.backup);
+    return b2`
+      <div class="accordion-section ${isOpen ? "open" : ""}">
+        <div class="acc-header" @click=${() => this.setOpenSection("make")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:content-save-move-outline"></ha-icon></span>
+          <span class="acc-title">Make A Backup</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? b2`
+          <div class="acc-body backup-body">
+            <div class="backup-drawer-sub">
+              ${isRunning ? "The hub is creating your backup." : isSuccess ? "Your backup is ready." : "Choose what to include in this backup."}
+            </div>
+            ${!this.persistentCacheEnabled || !this.cacheHub ? this._renderStatus("warning", "mdi:database-off-outline", "Enable persistent cache to choose backup contents from the card.") : A}
+            ${this._backupError ? this._renderStatus("error", "mdi:alert-circle-outline", this._backupError) : A}
+            ${isRunning && this._backupProgress ? this._renderProgressCard(this._backupProgress, "backup") : isSuccess ? b2`
+                  <div class="backup-complete-card">
+                    <div class="backup-complete-icon"><ha-icon icon="mdi:check-decagram-outline"></ha-icon></div>
+                    <div class="backup-complete-title">Backup completed</div>
+                    <div class="backup-complete-sub">${summary}</div>
+                    <div class="action-row">
+                      <button class="primary-btn" ?disabled=${!this._backupProgress?.backup} @click=${this._downloadLatestBackup}>
+                        Download backup
+                      </button>
+                      <button class="secondary-btn" @click=${this._resetBackupComposer}>Complete</button>
+                    </div>
+                  </div>
+                ` : b2`
+                  <div class="backup-config-view">
+                  <div class="backup-scope-group">
+                    <div class="backup-scope-options">
+                      <label
+                        class="backup-scope-option ${wholeHub ? "selected" : ""}"
+                        @click=${() => {
+      if (this._backupLocked() || !this.cacheHub) return;
+      this._setBackupScope("whole_hub");
+    }}
+                      >
+                        ${this._renderScopeChoice({
+      label: "Entire hub",
+      name: "backup-scope",
+      checked: wholeHub,
+      disabled: this._backupLocked() || !this.cacheHub
+    })}
+                      </label>
+                      <label
+                        class="backup-scope-option ${!wholeHub ? "selected" : ""}"
+                        @click=${() => {
+      if (this._backupLocked() || !this.cacheHub) return;
+      this._setBackupScope("individual_devices");
+    }}
+                      >
+                        ${this._renderScopeChoice({
+      label: "Selected devices",
+      name: "backup-scope",
+      checked: !wholeHub,
+      disabled: this._backupLocked() || !this.cacheHub
+    })}
+                      </label>
+                    </div>
+                  </div>
+                  ${!wholeHub ? b2`
+                    <div class="backup-devices-head">
+                      <div class="backup-devices-head-main">
+                        <div class="backup-section-title">Devices to include</div>
+                        <div class="backup-selected-count">${this._backupDeviceIds.length} selected</div>
+                      </div>
+                      <button class="backup-link-btn" ?disabled=${this._backupLocked() || !this.cacheHub} @click=${this._toggleAllBackupDevices}>
+                        ${allDevicesSelected ? "Deselect all" : "Select all"}
+                      </button>
+                    </div>
+                    <div class="selection-card">
+                      <div class="selection-list">
+                        ${devices.length ? devices.map((device) => b2`
+                              <div
+                                class="selection-row"
+                                @click=${() => {
+      if (this._backupLocked() || !this.cacheHub) return;
+      this._setBackupDevice(device.id, !selectedDeviceIds.includes(device.id));
+    }}
+                              >
+                                ${this._renderCheckboxControl({
+      checked: selectedDeviceIds.includes(device.id),
+      disabled: this._backupLocked() || !this.cacheHub,
+      onChange: (checked) => this._setBackupDevice(device.id, checked)
+    })}
+                                <span class="selection-main">
+                                  <span class="selection-label">${device.label}</span>
+                                </span>
+                                ${device.meta ? b2`<span class="selection-meta">${device.meta}</span>` : A}
+                              </div>
+                            `) : b2`<div class="selection-empty">No devices available.</div>`}
+                      </div>
+                    </div>
+                  ` : A}
+                  <div class="backup-action-row">
+                    <button
+                      class="primary-btn header-primary-btn"
+                      ?disabled=${this._backupActionDisabled()}
+                      @click=${() => void this._runBackup()}
+                    >
+                      ${isRunning ? "Working" : "Start backup"}
+                    </button>
+                  </div>
+                  </div>
+                `}
+          </div>
+        ` : A}
+      </div>
+    `;
+  }
+  _renderRestoreSectionLegacy() {
+    const isOpen = this.openSection === "restore";
+    const isRunning = this._isProgressRunning(this._restoreProgress);
+    const activityOptions = bundleActivityOptions(this._restoreBundle);
+    const deviceOptions = bundleDeviceOptions(this._restoreBundle);
+    const restoreSelection = reconcileRestoreSelection({
+      bundle: this._restoreBundle,
+      selectedActivityIds: this._restoreActivityIds,
+      manualSelectedDeviceIds: this._restoreManualDeviceIds
+    });
+    return b2`
+      <div class="accordion-section ${isOpen ? "open" : ""}">
+        <div class="acc-header" @click=${() => this.setOpenSection("restore")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:database-import-outline"></ha-icon></span>
+          <span class="acc-title">Restore A Backup</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? b2`
+          <div class="acc-body restore-body">
+            <div class="backup-drawer-sub">
+              Load a backup file, then choose exactly what to restore. Activities automatically pull in the Devices they depend on.
+            </div>
+            ${this._restoreError ? this._renderStatus("error", "mdi:alert-circle-outline", this._restoreError) : A}
+            ${this._restoreSuccess ? this._renderStatus("success", "mdi:check-circle-outline", this._restoreSuccess) : A}
+            ${isRunning && this._restoreProgress ? this._renderProgressCard(this._restoreProgress, "restore") : A}
+            <input id="restore-file-input" type="file" accept=".json,application/json" @change=${this._handleFilePicked} />
+            <div class="action-row" style="justify-content:flex-start;">
+              <button class="secondary-btn" ?disabled=${this._restoreLocked()} @click=${this._openFilePicker}>Choose backup file</button>
+              ${this._restoreFilename ? b2`<span class="file-chip"><ha-icon icon="mdi:file-document-outline"></ha-icon>${this._restoreFilename}</span>` : A}
+            </div>
+            ${this._restoreBundle ? b2`
+              <div class="mode-tabs">
+                <button class="mode-tab ${this._restoreMode === "replace" ? "active" : ""}" ?disabled=${this._restoreLocked()} @click=${() => this._restoreMode = "replace"}>Replace</button>
+                <button class="mode-tab ${this._restoreMode === "merge" ? "active" : ""}" ?disabled=${this._restoreLocked()} @click=${() => this._restoreMode = "merge"}>Merge</button>
+              </div>
+              ${this._renderStatus(
+      "warning",
+      this._restoreMode === "replace" ? "mdi:alert-outline" : "mdi:plus-circle-outline",
+      this._restoreMode === "replace" ? "Replace erases the destination hub first, then restores the selected content." : "Merge keeps the current hub content and adds the selected backup content as new items."
+    )}
+              <div class="selection-card">
+                <div class="selection-list">
+                  ${activityOptions.length ? activityOptions.map((activity) => b2`
+                    <div class="selection-row">
+                      ${this._renderCheckboxControl({
+      checked: this._restoreActivityIds.includes(activity.id),
+      disabled: this._restoreLocked(),
+      onChange: (checked) => this._setRestoreActivity(activity.id, checked),
+      stopClick: false
+    })}
+                      <span class="selection-main">
+                        <span class="selection-label">${activity.label}</span>
+                        ${activity.meta ? b2`<span class="selection-sub">${activity.meta}</span>` : A}
+                      </span>
+                    </div>
+                  `) : b2`<div class="selection-empty">This backup file has no activities.</div>`}
+                </div>
+              </div>
+              <div class="selection-card">
+                <div class="selection-list">
+                  ${deviceOptions.length ? deviceOptions.map((device) => {
+      const forced = restoreSelection.forcedDeviceIds.includes(device.id);
+      return b2`
+                      <div class="selection-row ${forced ? "locked" : ""}">
+                        ${this._renderCheckboxControl({
+        checked: restoreSelection.selectedDeviceIds.includes(device.id),
+        disabled: forced || this._restoreLocked(),
+        onChange: (checked) => this._setRestoreDevice(device.id, checked),
+        stopClick: false
+      })}
+                        <span class="selection-main">
+                          <span class="selection-label">${device.label}</span>
+                          ${device.meta ? b2`<span class="selection-sub">${forced ? `${device.meta} \xB7 required by selected activities` : device.meta}</span>` : A}
+                        </span>
+                      </div>
+                    `;
+    }) : b2`<div class="selection-empty">This backup file has no devices.</div>`}
+                </div>
+              </div>
+              <div class="action-row" style="justify-content:flex-start;">
+                <button class="primary-btn" ?disabled=${this._restoreActionDisabled(restoreSelection.selectedDeviceIds)} @click=${this._runRestore}>Start restore</button>
+              </div>
+            ` : A}
+          </div>
+        ` : A}
+      </div>
+    `;
+  }
+  _renderRestoreSection() {
+    const isOpen = this.openSection === "restore";
+    const isRunning = this._isProgressRunning(this._restoreProgress);
+    const isSuccess = String(this._restoreProgress?.status || "") === "success";
+    const activityOptions = bundleActivityOptions(this._restoreBundle);
+    const deviceOptions = bundleDeviceOptions(this._restoreBundle);
+    const restoreSelection = reconcileRestoreSelection({
+      bundle: this._restoreBundle,
+      selectedActivityIds: this._restoreActivityIds,
+      manualSelectedDeviceIds: this._restoreManualDeviceIds
+    });
+    const totalRestoreOptions = activityOptions.length + deviceOptions.length;
+    const totalRestoreSelected = this._restoreActivityIds.length + restoreSelection.selectedDeviceIds.length;
+    const allRestoreSelected = totalRestoreOptions > 0 && totalRestoreSelected === totalRestoreOptions;
+    return b2`
+      <div class="accordion-section ${isOpen ? "open" : ""}">
+        <div class="acc-header" @click=${() => this.setOpenSection("restore")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:database-import-outline"></ha-icon></span>
+          <span class="acc-title">Restore A Backup</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? b2`
+          <div class="acc-body restore-body">
+            <div class="backup-drawer-sub">
+              ${isRunning ? "The hub is restoring your backup." : isSuccess ? "Your restore has completed." : "Load a backup file, then choose exactly what to restore. Activities automatically pull in the Devices they depend on."}
+            </div>
+            ${this._restoreError ? this._renderStatus("error", "mdi:alert-circle-outline", this._restoreError) : A}
+            ${isRunning && this._restoreProgress ? this._renderProgressCard(this._restoreProgress, "restore") : isSuccess ? b2`
+                  <div class="backup-complete-card">
+                    <div class="backup-complete-icon"><ha-icon icon="mdi:check-decagram-outline"></ha-icon></div>
+                    <div class="backup-complete-title">Restore completed</div>
+                    <div class="backup-complete-sub">The selected Activities and Devices were restored to the hub.</div>
+                    <div class="action-row">
+                      <button class="primary-btn" @click=${this._resetRestoreComposer}>Complete</button>
+                    </div>
+                  </div>
+                ` : A}
+            <input id="restore-file-input" type="file" accept=".json,application/json" @change=${this._handleFilePicked} />
+            ${!isRunning && !isSuccess && this._restoreBundle ? b2`
+              <div class="restore-config-view">
+                <div class="backup-devices-head">
+                  <div class="backup-devices-head-main">
+                    <div class="backup-section-title">Items to restore</div>
+                    <div class="backup-selected-count">${totalRestoreSelected} selected</div>
+                  </div>
+                  <button class="backup-link-btn" ?disabled=${this._restoreLocked()} @click=${allRestoreSelected ? this._clearRestoreSelection : this._selectAllRestoreItems}>
+                    ${allRestoreSelected ? "Deselect all" : "Select all"}
+                  </button>
+                </div>
+                <div class="selection-card">
+                  <div class="selection-list">
+                    ${activityOptions.length ? b2`
+                        <div class="selection-group-header">Activities</div>
+                        ${activityOptions.map((activity) => b2`
+                          <div
+                            class="selection-row"
+                            @click=${() => {
+      if (this._restoreLocked()) return;
+      this._setRestoreActivity(activity.id, !this._restoreActivityIds.includes(activity.id));
+    }}
+                          >
+                            ${this._renderCheckboxControl({
+      checked: this._restoreActivityIds.includes(activity.id),
+      disabled: this._restoreLocked(),
+      onChange: (checked) => this._setRestoreActivity(activity.id, checked)
+    })}
+                            <span class="selection-main">
+                              <span class="selection-label">${activity.label}</span>
+                            </span>
+                            ${activity.meta ? b2`<span class="selection-meta">${activity.meta}</span>` : A}
+                          </div>
+                        `)}
+                      ` : b2`<div class="selection-empty">This backup file has no activities.</div>`}
+                    ${deviceOptions.length ? b2`
+                        <div class="selection-group-header">Devices</div>
+                        ${deviceOptions.map((device) => {
+      const forced = restoreSelection.forcedDeviceIds.includes(device.id);
+      return b2`
+                            <div
+                              class="selection-row ${forced ? "locked" : ""}"
+                              @click=${() => {
+        if (forced || this._restoreLocked()) return;
+        this._setRestoreDevice(device.id, !restoreSelection.selectedDeviceIds.includes(device.id));
+      }}
+                            >
+                              ${this._renderCheckboxControl({
+        checked: restoreSelection.selectedDeviceIds.includes(device.id),
+        disabled: forced || this._restoreLocked(),
+        onChange: (checked) => this._setRestoreDevice(device.id, checked)
+      })}
+                              <span class="selection-main">
+                                <span class="selection-label">${device.label}</span>
+                              </span>
+                              ${device.meta ? b2`<span class="selection-meta">${forced ? `${device.meta} \xB7 linked` : device.meta}</span>` : A}
+                            </div>
+                          `;
+    })}
+                      ` : b2`<div class="selection-empty">This backup file has no devices.</div>`}
+                  </div>
+                </div>
+                <div class="backup-scope-group">
+                  <div
+                    class="selection-row"
+                    @click=${() => {
+      if (this._restoreLocked()) return;
+      this._restoreMode = this._restoreMode === "replace" ? "merge" : "replace";
+    }}
+                  >
+                    ${this._renderCheckboxControl({
+      checked: this._restoreMode === "replace",
+      disabled: this._restoreLocked(),
+      onChange: (checked) => {
+        this._restoreMode = checked ? "replace" : "merge";
+      }
+    })}
+                    <span class="selection-main">
+                      <span class="selection-label">Erase existing Devices and Activities</span>
+                    </span>
+                  </div>
+                </div>
+                <div class="restore-action-row">
+                  <button class="primary-btn" ?disabled=${this._restoreActionDisabled(restoreSelection.selectedDeviceIds)} @click=${this._runRestore}>Start restore</button>
+                  <button class="secondary-btn" ?disabled=${this._restoreLocked()} @click=${this._openFilePicker}>${this._restoreFilename || "Choose backup file"}</button>
+                </div>
+              </div>
+            ` : !isRunning && !isSuccess ? b2`
+              <div class="restore-action-row">
+                <button class="secondary-btn" ?disabled=${this._restoreLocked()} @click=${this._openFilePicker}>${this._restoreFilename || "Choose backup file"}</button>
+              </div>
+            ` : A}
+          </div>
+        ` : A}
+      </div>
+    `;
+  }
+  _renderStatus(tone, icon, message) {
+    return b2`
+      <div class="status-box ${tone}">
+        <span class="status-icon"><ha-icon icon=${icon}></ha-icon></span>
+        <span>${message}</span>
+      </div>
+    `;
+  }
+  _renderScopeChoice(params) {
+    if (customElements.get("ha-formfield") && customElements.get("ha-radio")) {
+      return b2`
+        <ha-formfield class="scope-form" label=${params.label}>
+          <ha-radio
+            name=${params.name}
+            .checked=${params.checked}
+            ?disabled=${params.disabled}
+          ></ha-radio>
+        </ha-formfield>
+      `;
+    }
+    return b2`
+      <span class="scope-form scope-form--fallback">
+        ${this._renderRadioControl(params)}
+        <span class="scope-form-label">${params.label}</span>
+      </span>
+    `;
+  }
+  _renderCheckboxControl(params) {
+    const stopClick = params.stopClick !== false;
+    if (customElements.get("ha-checkbox")) {
+      return b2`
+        <ha-checkbox
+          .checked=${params.checked}
+          ?disabled=${params.disabled}
+          @click=${stopClick ? ((event) => event.stopPropagation()) : (() => {
+      })}
+          @change=${(event) => {
+        const target = event.currentTarget;
+        params.onChange(!!target.checked);
+      }}
+        ></ha-checkbox>
+      `;
+    }
+    return b2`
+      <input
+        class="compat-choice compat-choice--checkbox"
+        type="checkbox"
+        .checked=${params.checked}
+        ?disabled=${params.disabled}
+        @click=${stopClick ? ((event) => event.stopPropagation()) : (() => {
+    })}
+        @change=${(event) => {
+      const target = event.currentTarget;
+      params.onChange(!!target.checked);
+    }}
+      />
+    `;
+  }
+  _renderRadioControl(params) {
+    if (customElements.get("ha-radio")) {
+      return b2`
+        <ha-radio
+          name=${params.name}
+          .checked=${params.checked}
+          ?disabled=${params.disabled}
+        ></ha-radio>
+      `;
+    }
+    return b2`
+      <input
+        class="compat-choice compat-choice--radio"
+        type="radio"
+        name=${params.name}
+        .checked=${params.checked}
+        ?disabled=${params.disabled}
+      />
+    `;
+  }
+  _renderProgressCard(progress, mode) {
+    const total = Math.max(0, Number(progress.total_steps || 0));
+    const done = Math.max(0, Number(progress.completed_steps || 0));
+    const percent = total > 0 ? Math.max(6, Math.min(100, Math.round(done / total * 100))) : 36;
+    return b2`
+      <div class="progress-shell" data-mode=${mode}>
+        <div class="progress-stage">
+          <div class="progress-node home">
+            <div class="progress-disc"><ha-icon icon="mdi:home-assistant"></ha-icon></div>
+            <div class="progress-node-label">Home Assistant</div>
+          </div>
+          <div class="progress-route" aria-hidden="true">
+            <i class="packet"></i>
+            <i class="packet"></i>
+            <i class="packet"></i>
+          </div>
+          <div class="progress-node hub">
+            <div class="progress-disc">${hubIcon("hero", "progress-hub-svg")}</div>
+            <div class="progress-node-label">Sofabaton Hub</div>
+          </div>
+        </div>
+        <div class="progress-copy">
+          <div class="progress-title">${mode === "backup" ? "Creating backup" : "Restoring backup"}</div>
+          <div class="progress-message">${String(progress.message || "Working\u2026")}</div>
+        </div>
+        <div class="progress-bar"><div class="progress-bar-fill" style=${`width:${percent}%`}></div></div>
+        <div class="progress-meta">
+          <span>${String(progress.phase || "running").replace(/_/g, " ")}</span>
+          <span>${total > 0 ? `${done}/${total} steps` : "Preparing\u2026"}</span>
+        </div>
+      </div>
+    `;
+  }
+  _backupLocked() {
+    return this.hubCommandBusy || this._isProgressRunning(this._backupProgress) || this._isProgressRunning(this._restoreProgress);
+  }
+  _restoreLocked() {
+    return this.hubCommandBusy || this._isProgressRunning(this._restoreProgress) || this._isProgressRunning(this._backupProgress);
+  }
+  _isProgressRunning(progress) {
+    return !!progress && ["pending", "running"].includes(String(progress.status || ""));
+  }
+  _setBackupScope(scope) {
+    this._backupScope = scope;
+    if (!this._backupDeviceIds.length && this.cacheHub) {
+      this._backupDeviceIds = backupDeviceOptions(this.cacheHub).map((device) => device.id);
+    }
+  }
+  _setBackupDevice(deviceId, checked) {
+    const next = new Set(this._backupDeviceIds);
+    if (checked) next.add(deviceId);
+    else next.delete(deviceId);
+    this._backupDeviceIds = [...next].sort((left, right) => left - right);
+  }
+  _setRestoreActivity(activityId, checked) {
+    const next = new Set(this._restoreActivityIds);
+    if (checked) next.add(activityId);
+    else next.delete(activityId);
+    this._restoreActivityIds = [...next].sort((left, right) => left - right);
+  }
+  _setRestoreDevice(deviceId, checked) {
+    const next = new Set(this._restoreManualDeviceIds);
+    if (checked) next.add(deviceId);
+    else next.delete(deviceId);
+    this._restoreManualDeviceIds = [...next].sort((left, right) => left - right);
+  }
+  _backupActionDisabled() {
+    if (this._backupLocked()) return true;
+    if (!this.hub || !this.hass || !this.cacheHub || !this.persistentCacheEnabled) return true;
+    if (String(this._backupProgress?.status || "") === "success") return true;
+    if (this._backupScope === "whole_hub") return false;
+    return this._backupDeviceIds.length === 0;
+  }
+  _restoreActionDisabled(selectedDeviceIds) {
+    if (this._restoreLocked()) return true;
+    if (!this.hub || !this.hass || !this._restoreBundle) return true;
+    return selectedDeviceIds.length === 0 && this._restoreActivityIds.length === 0;
+  }
+  api() {
+    if (!this.hass) throw new Error("Home Assistant is not available");
+    return new ControlPanelApi(this.hass);
+  }
+  async _runBackup() {
+    if (!this.hub) return;
+    this._backupError = null;
+    this._backupProgress = null;
+    this._revokeDownloadUrl();
+    const deviceIds = this._backupScope === "whole_hub" ? null : this._backupDeviceIds;
+    this.setHubCommandBusy?.(true, "Starting backup\u2026");
+    try {
+      const start = await this.api().startBackupExport(this.hub.entry_id, deviceIds);
+      await this._subscribeToOperation(start.operation_id, "backup");
+    } catch (error) {
+      this._backupError = formatError(error);
+      this.setHubCommandBusy?.(false, null);
+    }
+  }
+  async _runRestore() {
+    if (!this.hub || !this._restoreBundle) return;
+    const selection = reconcileRestoreSelection({
+      bundle: this._restoreBundle,
+      selectedActivityIds: this._restoreActivityIds,
+      manualSelectedDeviceIds: this._restoreManualDeviceIds
+    });
+    const filtered = pruneBackupBundle({
+      bundle: this._restoreBundle,
+      selectedActivityIds: this._restoreActivityIds,
+      selectedDeviceIds: selection.selectedDeviceIds
+    });
+    this._restoreError = null;
+    this._restoreSuccess = null;
+    this._restoreProgress = null;
+    this.setHubCommandBusy?.(true, "Starting restore\u2026");
+    try {
+      const start = await this.api().startBackupRestore(this.hub.entry_id, filtered, this._restoreMode);
+      await this._subscribeToOperation(start.operation_id, "restore");
+    } catch (error) {
+      this._restoreError = formatError(error);
+      this.setHubCommandBusy?.(false, null);
+    }
+  }
+  async _subscribeToOperation(operationId, kind) {
+    this._teardownProgressSubscription();
+    const unsubscribe = await this.api().subscribeBackupProgress(operationId, async (payload) => {
+      if (kind === "backup") {
+        this._backupProgress = payload;
+        if (payload.status === "success") {
+          this.setHubCommandBusy?.(false, null);
+          try {
+            await this.refreshControlPanelState?.();
+          } catch {
+          }
+        } else if (payload.status === "failed") {
+          this._backupError = String(payload.error || payload.message || "Backup failed.");
+          this.setHubCommandBusy?.(false, null);
+          try {
+            await this.refreshControlPanelState?.();
+          } catch {
+          }
+        }
+      } else {
+        this._restoreProgress = payload;
+        if (payload.status === "success") {
+          this._restoreSuccess = "Restore completed.";
+          this.setHubCommandBusy?.(false, null);
+          try {
+            await this.refreshControlPanelState?.();
+          } catch {
+          }
+        } else if (payload.status === "failed") {
+          this._restoreError = String(payload.error || payload.message || "Restore failed.");
+          this.setHubCommandBusy?.(false, null);
+        }
+      }
+      if (!this._isProgressRunning(payload)) {
+        this._teardownProgressSubscription();
+      }
+    });
+    this._progressUnsub = unsubscribe;
+  }
+  _teardownProgressSubscription() {
+    const unsub = this._progressUnsub;
+    this._progressUnsub = null;
+    if (unsub) {
+      try {
+        unsub();
+      } catch {
+      }
+    }
+  }
+  _openFilePicker() {
+    this.renderRoot.querySelector("#restore-file-input")?.click();
+  }
+  async _handleFilePicked(event) {
+    const input = event.currentTarget;
+    const file = input?.files?.[0];
+    if (!file) return;
+    this._restoreError = null;
+    this._restoreSuccess = null;
+    try {
+      const text = await file.text();
+      const bundle = validateBackupBundle(JSON.parse(text));
+      this._restoreBundle = bundle;
+      this._restoreFilename = file.name;
+      this._restoreMode = "merge";
+      this._restoreActivityIds = bundleActivityOptions(bundle).map((activity) => activity.id);
+      this._restoreManualDeviceIds = bundleDeviceOptions(bundle).map((device) => device.id);
+    } catch (error) {
+      this._restoreBundle = null;
+      this._restoreFilename = "";
+      this._restoreActivityIds = [];
+      this._restoreManualDeviceIds = [];
+      this._restoreError = formatError(error);
+    } finally {
+      if (input) input.value = "";
+    }
+  }
+  async _downloadLatestBackup() {
+    const backup = this._backupProgress?.backup;
+    if (!backup) return;
+    this._revokeDownloadUrl();
+    this._downloadUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = this._downloadUrl;
+    anchor.download = String(this._backupProgress?.filename || "sofabaton_backup.json");
+    anchor.click();
+    try {
+      if (this._backupProgress?.operation_id) {
+        await this.api().clearBackupResult(this._backupProgress.operation_id);
+        this._backupProgress = { ...this._backupProgress, backup_downloaded: true };
+      }
+    } catch {
+    }
+  }
+  _backupResultSummary(bundle) {
+    const activityCount = Array.isArray(bundle?.activities) ? bundle.activities.length : 0;
+    const deviceCount = Array.isArray(bundle?.devices) ? bundle.devices.length : 0;
+    return `${activityCount} Activities and ${deviceCount} Devices backed up`;
+  }
+  async _syncBackupOperationState() {
+    const entryId = String(this.hub?.entry_id || "").trim();
+    if (!entryId || !this.hass) return;
+    if (this._loadedBackupEntryId === entryId && this._backupHydrating) return;
+    const activeOperation = this.hub?.active_backup_operation || null;
+    const activeOperationId = this._isProgressRunning(activeOperation) ? String(activeOperation?.operation_id || "").trim() : "";
+    const localOperationId = String(
+      this._backupProgress?.operation_id || this._restoreProgress?.operation_id || ""
+    ).trim();
+    const localProgressRunning = this._isProgressRunning(this._backupProgress) || this._isProgressRunning(this._restoreProgress);
+    if (this._loadedBackupEntryId === entryId && this._progressUnsub && !!activeOperationId && localProgressRunning && localOperationId === activeOperationId) {
+      return;
+    }
+    this._loadedBackupEntryId = entryId;
+    this._backupHydrating = true;
+    this._teardownProgressSubscription();
+    try {
+      const state = await this.api().getBackupState(entryId);
+      this._backupProgress = state?.backup_export || null;
+      this._restoreProgress = state?.backup_restore || null;
+      this._backupError = String(this._backupProgress?.status || "") === "failed" ? String(this._backupProgress?.error || this._backupProgress?.message || "Backup failed.") : null;
+      this._restoreError = String(this._restoreProgress?.status || "") === "failed" ? String(this._restoreProgress?.error || this._restoreProgress?.message || "Restore failed.") : null;
+      this._restoreSuccess = String(this._restoreProgress?.status || "") === "success" ? "Restore completed." : null;
+      const active = state?.active_operation || null;
+      if (active && String(active.kind || "") === "backup_export" && active.operation_id) {
+        this.setHubCommandBusy?.(true, String(active.message || "Backup in progress\u2026"));
+        await this._subscribeToOperation(active.operation_id, "backup");
+      } else if (active && String(active.kind || "") === "backup_restore" && active.operation_id) {
+        this.setHubCommandBusy?.(true, String(active.message || "Restore in progress\u2026"));
+        await this._subscribeToOperation(active.operation_id, "restore");
+      } else {
+        this.setHubCommandBusy?.(false, null);
+      }
+    } catch {
+    } finally {
+      this._backupHydrating = false;
+    }
+  }
+  _revokeDownloadUrl() {
+    if (!this._downloadUrl) return;
+    URL.revokeObjectURL(this._downloadUrl);
+    this._downloadUrl = null;
+  }
+};
+SofabatonBackupTab.properties = {
+  hass: { attribute: false },
+  hub: { attribute: false },
+  cacheHub: { attribute: false },
+  setHubCommandBusy: { attribute: false },
+  refreshControlPanelState: { attribute: false },
+  hubCommandBusy: { type: Boolean },
+  hubCommandBusyLabel: { type: String },
+  loading: { type: Boolean },
+  error: { type: String },
+  persistentCacheEnabled: { type: Boolean },
+  selectedHubProxyConnected: { type: Boolean },
+  openSection: { attribute: false },
+  setOpenSection: { attribute: false },
+  _backupScope: { state: true },
+  _backupDeviceIds: { state: true },
+  _backupError: { state: true },
+  _backupProgress: { state: true },
+  _restoreError: { state: true },
+  _restoreSuccess: { state: true },
+  _restoreProgress: { state: true },
+  _restoreMode: { state: true },
+  _restoreBundle: { state: true },
+  _restoreFilename: { state: true },
+  _restoreActivityIds: { state: true },
+  _restoreManualDeviceIds: { state: true },
+  _loadedBackupEntryId: { state: true },
+  _backupHydrating: { state: true }
+};
+SofabatonBackupTab.styles = i`
+    :host {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      --backup-radius-sm: calc(var(--ha-card-border-radius, 12px) * 0.85);
+      --backup-radius-md: var(--ha-card-border-radius, 12px);
+      --backup-radius-lg: calc(var(--ha-card-border-radius, 12px) * 1.33);
+      --backup-radius-xl: calc(var(--ha-card-border-radius, 12px) * 1.8);
+      --backup-radius-pill: calc(var(--ha-card-border-radius, 12px) * 999);
+    }
+    .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; overflow-y: auto; }
+    .state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--secondary-text-color);
+      text-align: center;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .state.error { color: var(--error-color, #db4437); }
+    .blocked-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--secondary-text-color);
+      line-height: 1.6;
+    }
+    .blocked-state-title {
+      color: var(--primary-text-color);
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .blocked-state-sub {
+      max-width: 340px;
+      font-size: 13px;
+    }
+    .backup-panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      margin: -16px;
+    }
+    .accordion-section { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--divider-color); }
+    .accordion-section:first-child { border-top: none; }
+    .accordion-section.open { flex: 1; }
+    .acc-header {
+      flex-shrink: 0;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 120ms ease;
+    }
+    .acc-header:hover { background: color-mix(in srgb, var(--primary-color) 6%, var(--ha-card-background, var(--card-background-color))); }
+    .acc-header-icon { color: var(--secondary-text-color); display: inline-flex; flex: 0 0 auto; }
+    .accordion-section.open .acc-header-icon { color: var(--primary-color); }
+    .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
+    .acc-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--secondary-text-color); }
+    .flex-spacer { flex: 1; }
+    .chevron { font-size: 9px; color: var(--secondary-text-color); transition: transform 150ms; }
+    .accordion-section.open .chevron { transform: rotate(180deg); }
+    .acc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; display: grid; gap: 12px; align-content: start; }
+    .backup-body {
+      padding-top: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-content: normal;
+    }
+    .restore-body {
+      padding-top: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-content: normal;
+    }
+
+    .header-primary-btn {
+      flex: 0 0 auto;
+      min-width: 114px;
+      min-height: 42px;
+      padding: 0 18px;
+      border-radius: var(--backup-radius-md);
+      border: 1px solid color-mix(in srgb, var(--primary-color) 75%, white 10%);
+      background: color-mix(in srgb, var(--primary-color) 20%, white 80%);
+      color: var(--primary-color);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: pointer;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .header-primary-btn:hover:not(:disabled) {
+      border-color: var(--primary-color);
+      background: color-mix(in srgb, var(--primary-color) 24%, white 76%);
+    }
+    .header-primary-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    .backup-action-row {
+      display: flex;
+      justify-content: flex-start;
+    }
+    .backup-drawer-sub { color: var(--secondary-text-color); font-size: 13px; line-height: 1.5; }
+    .backup-section-title { color: var(--primary-text-color); font-size: 13px; font-weight: 700; }
+
+    .backup-config-view {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .restore-config-view {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .backup-scope-group { display: grid; gap: 8px; }
+    .backup-scope-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-md);
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+      overflow: hidden;
+    }
+    .backup-scope-option {
+      display: flex;
+      cursor: pointer;
+      min-width: 0;
+    }
+    .backup-scope-option * { cursor: inherit; }
+    .backup-scope-option + .backup-scope-option {
+      border-left: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
+    }
+    .backup-scope-option.selected {
+      background: color-mix(in srgb, var(--primary-color) 10%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .backup-scope-option ha-formfield {
+      width: 100%;
+      min-width: 0;
+      --mdc-theme-text-primary-on-background: var(--primary-text-color);
+    }
+    .backup-scope-option .scope-form {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0;
+    }
+    .backup-scope-option ha-radio { flex: 0 0 auto; }
+    .scope-form-label {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .compat-choice {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--primary-color);
+    }
+
+    .backup-devices-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .backup-devices-head-main {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .backup-selected-count {
+      color: var(--primary-color);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .backup-link-btn {
+      border: none;
+      background: transparent;
+      color: var(--primary-color);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0;
+    }
+    .backup-link-btn:disabled { opacity: 0.48; cursor: default; }
+
+    .selection-card {
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-md);
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+      overflow: hidden;
+      min-height: 0;
+    }
+    .backup-config-view .selection-card {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .restore-config-view .selection-card {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .selection-list { display: flex; flex-direction: column; max-height: 340px; overflow-y: auto; }
+    .backup-config-view .selection-list {
+      max-height: none;
+      height: 100%;
+      min-height: 0;
+    }
+    .restore-config-view .selection-list {
+      max-height: none;
+      height: 100%;
+      min-height: 0;
+    }
+    .selection-empty {
+      padding: 16px 14px;
+      font-size: 13px;
+      color: var(--secondary-text-color);
+    }
+    .selection-group-header {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 0 14px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--secondary-text-color);
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 94%, white 6%);
+      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
+    }
+    .selection-group-header:first-child { border-top: none; }
+    .selection-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 14px;
+      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
+      cursor: pointer;
+    }
+    .selection-row:first-child { border-top: none; }
+    .selection-row ha-checkbox { flex: 0 0 auto; }
+    .selection-main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex: 1 1 auto;
+    }
+    .selection-label {
+      color: var(--primary-text-color);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .selection-meta {
+      color: var(--secondary-text-color);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      margin-left: 8px;
+    }
+    .selection-sub {
+      color: var(--secondary-text-color);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .status-box {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-sm);
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--secondary-text-color);
+    }
+    .status-box.success {
+      color: #2e7d32;
+      border-color: color-mix(in srgb, #2e7d32 35%, var(--divider-color));
+      background: color-mix(in srgb, #2e7d32 5%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .status-box.error {
+      color: var(--error-color, #db4437);
+      border-color: color-mix(in srgb, var(--error-color, #db4437) 35%, var(--divider-color));
+      background: color-mix(in srgb, var(--error-color, #db4437) 5%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .status-box.warning {
+      border-color: color-mix(in srgb, var(--warning-color, #f59e0b) 35%, var(--divider-color));
+      background: color-mix(in srgb, var(--warning-color, #f59e0b) 5%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .status-icon { display: inline-flex; color: inherit; flex: 0 0 auto; }
+    .status-icon ha-icon { --mdc-icon-size: 18px; }
+
+    .action-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: center; }
+    .primary-btn, .secondary-btn {
+      border-radius: var(--backup-radius-md);
+      padding: 10px 16px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .primary-btn {
+      border: 1px solid color-mix(in srgb, var(--primary-color) 65%, var(--divider-color));
+      color: var(--primary-text-color);
+      background: color-mix(in srgb, var(--primary-color) 16%, var(--ha-card-background, var(--card-background-color)));
+    }
+    .secondary-btn {
+      border: 1px solid var(--divider-color);
+      color: var(--primary-text-color);
+      background: transparent;
+    }
+    .primary-btn:hover:not(:disabled), .secondary-btn:hover:not(:disabled) { transform: translateY(-1px); }
+    .primary-btn:disabled, .secondary-btn:disabled { opacity: 0.48; cursor: default; transform: none; }
+
+    .file-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: var(--backup-radius-pill);
+      border: 1px solid var(--divider-color);
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+    }
+
+    .backup-complete-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 10px;
+      border: 1px solid color-mix(in srgb, var(--primary-color) 20%, var(--divider-color));
+      border-radius: var(--backup-radius-xl);
+      padding: 28px 18px;
+      background:
+        radial-gradient(circle at top, color-mix(in srgb, var(--primary-color) 14%, transparent), transparent 44%),
+        color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);
+    }
+    .backup-complete-icon {
+      width: 64px;
+      height: 64px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--backup-radius-pill);
+      color: var(--primary-color);
+      background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+    }
+    .backup-complete-icon ha-icon { --mdc-icon-size: 30px; }
+    .backup-complete-title {
+      color: var(--primary-text-color);
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .backup-complete-sub {
+      color: var(--secondary-text-color);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .mode-option-btn {
+      width: 100%;
+      min-width: 0;
+      min-height: 36px;
+      border: none;
+      background: transparent;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      padding: 8px 14px;
+    }
+    .restore-action-row {
+      display: flex;
+      justify-content: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .progress-shell {
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-xl);
+      padding: 18px;
+      background: transparent;
+      color: var(--primary-text-color);
+    }
+    .progress-shell[data-mode="restore"] .packet { animation-name: backupMove; }
+    .progress-stage {
+      position: relative;
+      display: flex;
+      flex-wrap: nowrap;
+      justify-content: center;
+      gap: 4px;
+      align-items: center;
+      min-height: 110px;
+      min-width: 0;
+    }
+    .progress-node { display: grid; justify-items: center; gap: 10px; z-index: 2; }
+    .progress-disc {
+      width: 76px;
+      height: 76px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--backup-radius-lg);
+      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);
+      border: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
+    }
+    .progress-node.home .progress-disc { color: var(--primary-color); }
+    .progress-node.hub .progress-disc { color: var(--primary-color); }
+    .progress-disc ha-icon { --mdc-icon-size: 50px; }
+    .progress-disc .progress-hub-svg { width: 60px; height: 60px; }
+    .progress-node-label {
+      color: var(--secondary-text-color);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .progress-route { position: relative; flex: 0 1 68px; min-width: 68px; height: 42px; }
+    .progress-route::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 2px;
+      background: color-mix(in srgb, var(--primary-color) 28%, transparent);
+      transform: translateY(-50%);
+    }
+    .packet {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 14%, transparent);
+      animation: restoreMove 1.75s cubic-bezier(.55,0,.25,1) infinite;
+    }
+    .packet:nth-child(2) { animation-delay: .38s; opacity: .78; transform: scale(.82); }
+    .packet:nth-child(3) { animation-delay: .76s; opacity: .55; transform: scale(.68); }
+    .progress-copy {
+      margin-top: 8px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .progress-title {
+      font-size: clamp(20px, 3vw, 28px);
+      letter-spacing: -.03em;
+      font-weight: 700;
+    }
+    .progress-message { color: var(--secondary-text-color); font-size: 14px; line-height: 1.5; }
+    .progress-bar {
+      margin-top: 14px;
+      height: 8px;
+      overflow: hidden;
+      border-radius: var(--backup-radius-pill);
+      background: color-mix(in srgb, var(--divider-color) 55%, transparent);
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: var(--primary-color);
+      transition: width 180ms ease;
+    }
+    .progress-meta {
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--secondary-text-color);
+    }
+
+    input[type="file"] { display: none; }
+    @keyframes backupMove {
+      0% { left: 6%; top: 50%; opacity: 0; transform: translate(-50%, -50%) scale(.55); }
+      18% { opacity: 1; }
+      82% { opacity: 1; }
+      100% { left: 94%; top: 50%; opacity: 0; transform: translate(-50%, -50%) scale(1); }
+    }
+    @keyframes restoreMove {
+      0% { left: 94%; top: 50%; opacity: 0; transform: translate(-50%, -50%) scale(.55); }
+      18% { opacity: 1; }
+      82% { opacity: 1; }
+      100% { left: 6%; top: 50%; opacity: 0; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    @media (max-width: 380px) {
+      .backup-scope-options { grid-template-columns: 1fr; }
+      .backup-scope-option + .backup-scope-option {
+        border-left: none;
+        border-top: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
+      }
+    }
+    @media (max-width: 760px) {
+      .progress-disc { width: 64px; height: 64px; }
+      .progress-disc ha-icon { --mdc-icon-size: 42px; }
+      .progress-disc .progress-hub-svg { width: 50px; height: 50px; }
+      .progress-route { flex-basis: 52px; min-width: 52px; }
+    }
+  `;
+if (!customElements.get("sofabaton-backup-tab")) {
+  customElements.define("sofabaton-backup-tab", SofabatonBackupTab);
+}
+
+// node_modules/lit-html/directive.js
 var e4 = (t4) => (...e5) => ({ _$litDirective$: t4, values: e5 });
 var i5 = class {
   constructor(t4) {
@@ -1985,12 +5104,12 @@ var i5 = class {
   }
 };
 
-// ../../../node_modules/lit-html/directive-helpers.js
+// node_modules/lit-html/directive-helpers.js
 var { I: t3 } = j;
 var m2 = {};
 var p3 = (o5, t4 = m2) => o5._$AH = t4;
 
-// ../../../node_modules/lit-html/directives/keyed.js
+// node_modules/lit-html/directives/keyed.js
 var i6 = e4(class extends i5 {
   constructor() {
     super(...arguments), this.key = A;
@@ -2527,7 +5646,10 @@ var SofabatonWifiCommandsTab = class extends i4 {
         <div class="list-scroll">
           <div class="list-header">
             <div class="list-header-copy">
-              <div class="acc-title">WIFI DEVICES</div>
+              <div class="list-header-title-row">
+                <span class="acc-header-icon"><ha-icon icon="mdi:wifi"></ha-icon></span>
+                <div class="acc-title">WIFI DEVICES</div>
+              </div>
               <div class="section-subtitle">Choose a Wifi Device to edit its command slots, or add a new one.</div>
             </div>
             <div class="list-header-action">
@@ -2574,10 +5696,10 @@ var SofabatonWifiCommandsTab = class extends i4 {
           ` : b2`<div class="empty-state-card">No Wifi Devices configured yet. Add one to start assigning command slots.</div>`}
         </div>
         <div class="sticky-footer">
+          ${!canAdd ? b2`<div class="wifi-max-devices-note">Maximum number of devices reached</div>` : A}
           <div class="wifi-docs-bar">
             <a class="wifi-docs-link" href=${WIFI_COMMANDS_DOCS_URL} target="_blank" rel="noreferrer noopener">Wifi Commands documentation</a>
           </div>
-          ${this._renderStatusDock(this._listDockLabel(canAdd), this._listDockTone(canAdd))}
         </div>
       </div>
     `;
@@ -3232,12 +6354,22 @@ var SofabatonWifiCommandsTab = class extends i4 {
     }
     return { powerOnCommandId, powerOffCommandId };
   }
+  _validActivityIdSet() {
+    const list = this._editorActivities();
+    if (!list.length) return null;
+    return new Set(list.map((activity) => String(activity.id)));
+  }
   _normalizeCommandsForStorage(nextCommands, powerOnCommandId = null, powerOffCommandId = null) {
     const normalizedPowerOnId = this._normalizePowerCommandId(powerOnCommandId);
     const normalizedPowerOffId = this._normalizePowerCommandId(powerOffCommandId);
+    const validActivityIds = this._validActivityIdSet();
     return Array.from({ length: SLOT_COUNT }, (_2, idx) => {
       const item = Array.isArray(nextCommands) ? nextCommands[idx] ?? {} : {};
       const record = item && typeof item === "object" ? item : {};
+      const rawInputActivityId = String(record.input_activity_id ?? "");
+      const inputActivityId = validActivityIds && rawInputActivityId && !validActivityIds.has(rawInputActivityId) ? "" : rawInputActivityId;
+      const rawActivities = Array.isArray(record.activities) ? record.activities.map((id) => String(id)).filter((id) => id !== "") : [];
+      const activities = validActivityIds ? rawActivities.filter((id) => validActivityIds.has(id)) : rawActivities;
       return {
         ...this._commandSlotDefault(idx),
         name: this._sanitizeCommandName(record.name ?? `Command ${idx + 1}`),
@@ -3246,8 +6378,8 @@ var SofabatonWifiCommandsTab = class extends i4 {
         long_press_enabled: Boolean(record.long_press_enabled) && Boolean(String(record.hard_button ?? "").trim()),
         is_power_on: normalizedPowerOnId === idx + 1,
         is_power_off: normalizedPowerOffId === idx + 1,
-        input_activity_id: String(record.input_activity_id ?? ""),
-        activities: Array.isArray(record.activities) ? record.activities.map((id) => String(id)).filter((id) => id !== "") : [],
+        input_activity_id: inputActivityId,
+        activities,
         action: this._normalizeCommandAction(record.action),
         long_press_action: this._normalizeCommandAction(record.long_press_action)
       };
@@ -3876,17 +7008,6 @@ var SofabatonWifiCommandsTab = class extends i4 {
     if (device.sync_needed) return "sync-pending";
     return "sync-ok";
   }
-  _listDockLabel(canAdd) {
-    if (this._creatingDevice) return "Creating Wifi Device\u2026";
-    if (this._hubCommandLocked()) return this._effectiveHubCommandLabel();
-    if (!canAdd) return `Maximum of ${this._maxWifiDevices} Wifi Devices reached`;
-    return "Add Wifi Device";
-  }
-  _listDockTone(canAdd) {
-    if (this._creatingDevice || this._hubCommandLocked()) return "status-progress";
-    if (!canAdd) return "status-warning";
-    return "status-success";
-  }
   _syncDockTone(remoteUnavailable, externallyLocked) {
     if (remoteUnavailable || this._syncState.status === "failed") return "status-error";
     if (this._syncState.status === "running" || externallyLocked) return "status-progress";
@@ -4107,7 +7228,16 @@ SofabatonWifiCommandsTab.properties = {
   _maxWifiDevices: { state: true }
 };
 SofabatonWifiCommandsTab.styles = i`
-    :host { display: flex; flex: 1; min-height: 0; }
+    :host {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      --tools-radius-sm: calc(var(--ha-card-border-radius, 12px) * 0.85);
+      --tools-radius-md: var(--ha-card-border-radius, 12px);
+      --tools-radius-lg: calc(var(--ha-card-border-radius, 12px) * 1.33);
+      --tools-radius-xl: calc(var(--ha-card-border-radius, 12px) * 1.8);
+      --tools-radius-pill: 999px;
+    }
     .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; overflow: hidden; }
     .list-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0; overflow: hidden; margin: -16px; }
     .list-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px 18px 16px 16px; }
@@ -4121,16 +7251,19 @@ SofabatonWifiCommandsTab.styles = i`
     .detail-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
     .detail-title-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
     .detail-title { font-size: 18px; font-weight: 700; color: var(--primary-text-color); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .back-btn, .list-action-btn, .detail-sync-btn, .device-delete-btn { border: 1px solid var(--divider-color); border-radius: 10px; background: transparent; color: var(--primary-text-color); font: inherit; }
+    .back-btn, .list-action-btn, .detail-sync-btn, .device-delete-btn { border: 1px solid var(--divider-color); border-radius: var(--tools-radius-sm); background: transparent; color: var(--primary-text-color); font: inherit; }
     .back-btn, .list-action-btn, .detail-sync-btn { padding: 8px 12px; font-weight: 700; cursor: pointer; }
     .back-btn { display: inline-flex; align-items: center; gap: 8px; }
     .list-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
     .list-header-copy { min-width: 0; }
+    .list-header-title-row { display: flex; align-items: center; gap: 10px; }
+    .list-header-title-row .acc-header-icon { color: var(--primary-color); display: inline-flex; flex: 0 0 auto; }
+    .list-header-title-row .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
     .list-header-copy .acc-title { display: block; }
     .list-header-copy .section-subtitle { margin-top: 8px; }
     .list-header-action { grid-column: 2; grid-row: 1; align-self: start; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .device-list { display: grid; gap: 10px; }
-    .device-card { width: 100%; max-width: 100%; box-sizing: border-box; border: 1px solid var(--divider-color); border-radius: 18px; padding: 10px 14px; background: var(--ha-card-background, var(--card-background-color)); text-align: left; display: flex; align-items: center; gap: 14px; cursor: pointer; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .device-card { width: 100%; max-width: 100%; box-sizing: border-box; border: 1px solid var(--divider-color); border-radius: var(--tools-radius-lg); padding: 10px 14px; background: var(--ha-card-background, var(--card-background-color)); text-align: left; display: flex; align-items: center; gap: 14px; cursor: pointer; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .device-card[aria-disabled="true"] { cursor: default; opacity: 0.72; }
     .device-card.pending-delete { border-color: color-mix(in srgb, var(--warning-color, #f59e0b) 45%, var(--divider-color)); }
     .device-card:hover, .back-btn:hover, .list-action-btn:hover, .detail-sync-btn:hover, .device-delete-btn:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
@@ -4176,7 +7309,7 @@ SofabatonWifiCommandsTab.styles = i`
     .detail-sync-btn:disabled:hover {
       border-color: color-mix(in srgb, var(--divider-color) 88%, transparent);
     }
-    .empty-state-card { border: 1px dashed var(--divider-color); border-radius: 14px; padding: 18px; color: var(--secondary-text-color); line-height: 1.5; }
+    .empty-state-card { border: 1px dashed var(--divider-color); border-radius: var(--tools-radius-md); padding: 18px; color: var(--secondary-text-color); line-height: 1.5; }
     .bottom-dock-status {
       width: 100%;
       min-height: 0;
@@ -4240,7 +7373,7 @@ SofabatonWifiCommandsTab.styles = i`
     .section-title-wrap { display: flex; align-items: center; gap: 8px; }
     .section-subtitle, .dialog-note, .dialog-footer-note, .slot-confirm-sub, .sync-message, .sync-warning-text, .empty-hint { color: var(--secondary-text-color); }
     .section-subtitle { font-size: 13px; line-height: 1.5; }
-    .sync-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--divider-color); border-radius: 18px; background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 82%, transparent); }
+    .sync-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--divider-color); border-radius: var(--tools-radius-lg); background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 82%, transparent); }
     .sync-row.sync-error { border-color: color-mix(in srgb, var(--error-color, #db4437) 35%, var(--divider-color)); }
     .sync-row.sync-ok { border-color: color-mix(in srgb, #48b851 35%, var(--divider-color)); }
     .sync-row.sync-running { border-color: color-mix(in srgb, var(--primary-color) 35%, var(--divider-color)); }
@@ -4249,16 +7382,17 @@ SofabatonWifiCommandsTab.styles = i`
     .sync-doc-link { color: var(--primary-color); font-weight: 600; text-decoration: none; }
     .sync-doc-link:hover { text-decoration: underline; }
     .list-view .sticky-footer { border-top: none; }
-    .wifi-docs-bar { display: flex; justify-content: center; padding: 7px 16px 6px; border-bottom: 1px solid var(--divider-color); }
+    .wifi-max-devices-note { display: flex; justify-content: center; padding: 8px 16px 4px; font-size: 13px; color: var(--secondary-text-color); }
+    .wifi-docs-bar { display: flex; justify-content: center; padding: 7px 16px 8px; }
     .wifi-docs-link { font-size: 12px; font-weight: 500; color: var(--primary-color); text-decoration: none; opacity: 0.85; }
     .wifi-docs-link:hover { opacity: 1; text-decoration: underline; }
-    .sync-btn, .dialog-btn, .slot-action-btn, .sync-static { border: 1px solid var(--divider-color); border-radius: 10px; padding: 8px 12px; background: transparent; color: var(--primary-text-color); font: inherit; font-size: 13px; font-weight: 700; }
+    .sync-btn, .dialog-btn, .slot-action-btn, .sync-static { border: 1px solid var(--divider-color); border-radius: var(--tools-radius-sm); padding: 8px 12px; background: transparent; color: var(--primary-text-color); font: inherit; font-size: 13px; font-weight: 700; }
     .sync-btn, .dialog-btn, .slot-action-btn, .activity-chip, .checkbox-row, .slot-btn, .icon-btn, .version-chip, .action-tab { cursor: pointer; }
     .sync-btn:hover, .dialog-btn:hover, .slot-action-btn:hover, .activity-chip:hover, .version-chip:hover, .action-tab:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
     .sync-btn-primary, .dialog-btn-primary { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .sync-static { opacity: 0.65; cursor: default; }
     .command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .slot-btn { position: relative; border: 1px solid var(--divider-color); border-radius: 12px; min-height: 108px; cursor: pointer; padding: 0; text-align: left; display: flex; flex-direction: column; overflow: hidden; background: var(--ha-card-background, var(--card-background-color)); }
+    .slot-btn { position: relative; border: 1px solid var(--divider-color); border-radius: var(--tools-radius-md); min-height: 108px; cursor: pointer; padding: 0; text-align: left; display: flex; flex-direction: column; overflow: hidden; background: var(--ha-card-background, var(--card-background-color)); }
     .slot-btn:hover { border-color: var(--primary-color); }
     .slot-btn.slot-empty .slot-main { gap: 12px; align-items: center; justify-content: center; flex-direction: column; min-height: 100%; width: 100%; padding: 0; text-align: center; }
     .slot-btn.slot-confirming {
@@ -4280,7 +7414,7 @@ SofabatonWifiCommandsTab.styles = i`
     .slot-meta-icon ha-icon { --mdc-icon-size: 14px; }
     .slot-actions { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 6px; z-index: 1; }
     .slot-flag,
-    .slot-clear { width: 26px; height: 26px; min-width: 26px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); color: var(--secondary-text-color); display: inline-flex; align-items: center; justify-content: center; padding: 0; opacity: 0.9; }
+    .slot-clear { width: 26px; height: 26px; min-width: 26px; border-radius: var(--tools-radius-sm); border: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); color: var(--secondary-text-color); display: inline-flex; align-items: center; justify-content: center; padding: 0; opacity: 0.9; }
     .slot-flag { cursor: default; }
     .slot-flag.power-on { color: #2e7d32; border-color: color-mix(in srgb, #2e7d32 35%, var(--divider-color)); }
     .slot-flag.power-off { color: #c62828; border-color: color-mix(in srgb, #c62828 35%, var(--divider-color)); }
@@ -4289,7 +7423,7 @@ SofabatonWifiCommandsTab.styles = i`
     .slot-clear ha-icon { --mdc-icon-size: 16px; }
     .slot-flag ha-icon { --mdc-icon-size: 14px; }
     .slot-clear { cursor: pointer; }
-    .slot-action-btn { margin: 0 10px 10px; border: 1px solid var(--divider-color); border-radius: 10px; min-height: 44px; width: auto; background: var(--secondary-background-color, var(--ha-card-background, var(--card-background-color))); color: var(--primary-text-color); font-size: 14px; font-weight: 500; line-height: 1.2; text-align: left; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease; }
+    .slot-action-btn { margin: 0 10px 10px; border: 1px solid var(--divider-color); border-radius: var(--tools-radius-sm); min-height: 44px; width: auto; background: var(--secondary-background-color, var(--ha-card-background, var(--card-background-color))); color: var(--primary-text-color); font-size: 14px; font-weight: 500; line-height: 1.2; text-align: left; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease; }
     .slot-action-btn:hover { border-color: var(--primary-color); background: var(--ha-card-background, var(--card-background-color)); }
     .slot-action-btn:active { transform: translateY(1px); }
     .slot-confirm-title { font-size: 15px; line-height: 1.2; margin: 0; }
@@ -4302,7 +7436,7 @@ SofabatonWifiCommandsTab.styles = i`
       font-size: 13px;
     }
     .modal-backdrop { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 0, 0, 0.52); }
-    .dialog { width: min(760px, calc(100vw - 36px)); max-height: min(82vh, 900px); display: flex; flex-direction: column; border-radius: 16px; border: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color, var(--primary-background-color))); box-shadow: var(--ha-card-box-shadow, 0 8px 28px rgba(0,0,0,0.28)); overflow: hidden; }
+    .dialog { width: min(760px, calc(100vw - 36px)); max-height: min(82vh, 900px); display: flex; flex-direction: column; border-radius: var(--tools-radius-lg); border: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color, var(--primary-background-color))); box-shadow: var(--ha-card-box-shadow, 0 8px 28px rgba(0,0,0,0.28)); overflow: hidden; }
     .dialog.small { width: min(500px, calc(100vw - 36px)); }
     .dialog-header, .dialog-footer { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
     .dialog-header { border-bottom: 1px solid var(--divider-color); }
@@ -4315,7 +7449,7 @@ SofabatonWifiCommandsTab.styles = i`
       align-items: center;
       justify-content: center;
       border: 1px solid var(--divider-color);
-      border-radius: 10px;
+      border-radius: var(--tools-radius-sm);
       background: var(--ha-card-background, var(--card-background-color));
       color: var(--secondary-text-color);
       cursor: pointer;
@@ -4355,7 +7489,7 @@ SofabatonWifiCommandsTab.styles = i`
     }
     .dialog-note {
       border: 1px solid color-mix(in srgb, var(--info-color, var(--primary-color)) 42%, var(--divider-color));
-      border-radius: 12px;
+      border-radius: var(--tools-radius-md);
       padding: 12px;
       background: color-mix(in srgb, var(--info-color, var(--primary-color)) 12%, var(--ha-card-background, var(--card-background-color)));
       color: var(--primary-text-color);
@@ -4378,7 +7512,7 @@ SofabatonWifiCommandsTab.styles = i`
     .dialog-footer-actions { display: flex; gap: 8px; }
     .dialog-footer-note { min-height: 18px; font-size: 13px; color: var(--error-color, #db4437); }
     .config-block { display: grid; gap: 14px; }
-    .config-group { display: grid; gap: 14px; padding: 14px; border: 1px solid var(--divider-color); border-radius: 14px; background: color-mix(in srgb, var(--ha-card-background, transparent) 92%, #000); }
+    .config-group { display: grid; gap: 14px; padding: 14px; border: 1px solid var(--divider-color); border-radius: var(--tools-radius-md); background: color-mix(in srgb, var(--ha-card-background, transparent) 92%, #000); }
     .advanced-toggle { width: fit-content; border: 0; background: transparent; color: var(--secondary-text-color); padding: 0; display: inline-flex; align-items: center; gap: 6px; text-align: left; font: inherit; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
     .advanced-toggle:hover { color: var(--primary-text-color); }
     .advanced-toggle-copy { display: block; }
@@ -4453,7 +7587,7 @@ SofabatonWifiCommandsTab.styles = i`
     @media (max-width: 640px) {
       .command-grid { grid-template-columns: 1fr; }
       .modal-backdrop { padding: max(env(safe-area-inset-top), 8px) 0 0; align-items: flex-start; }
-      .dialog, .dialog.small { width: 100%; max-height: 100%; border-radius: 0 0 16px 16px; }
+      .dialog, .dialog.small { width: 100%; max-height: 100%; border-radius: 0 0 var(--tools-radius-lg) var(--tools-radius-lg); }
       .dialog-footer { padding-bottom: max(env(safe-area-inset-bottom), 12px); }
       .list-header { grid-template-columns: 1fr; }
       .list-header-action { grid-column: 1; grid-row: auto; width: 100%; }
@@ -4512,8 +7646,13 @@ var SofabatonControlPanelCard = class extends i4 {
   constructor() {
     super();
     this._config = {};
+    this._hubPickerOpen = false;
+    this._toolsMenuOpen = false;
     this._lastRenderedTab = null;
     this._pendingCacheScrollSnapshot = null;
+    this._boundHandleDocumentPointerDown = (event) => {
+      this.handleDocumentPointerDown(event);
+    };
     this._store = new ControlPanelStore(
       (snapshot) => {
         this._snapshot = snapshot;
@@ -4543,12 +7682,15 @@ var SofabatonControlPanelCard = class extends i4 {
   connectedCallback() {
     super.connectedCallback();
     logOnce();
+    document.addEventListener("pointerdown", this._boundHandleDocumentPointerDown, true);
     this._store.connected();
   }
   disconnectedCallback() {
     super.disconnectedCallback();
     this._store.disconnected();
-    this.renderRoot.querySelector("#hub-picker-dialog")?.close();
+    document.removeEventListener("pointerdown", this._boundHandleDocumentPointerDown, true);
+    this._hubPickerOpen = false;
+    this._toolsMenuOpen = false;
   }
   willUpdate() {
     if (this._lastRenderedTab === "cache") {
@@ -4579,16 +7721,35 @@ var SofabatonControlPanelCard = class extends i4 {
     }
     this._lastRenderedTab = this._snapshot.selectedTab;
   }
-  openHubPicker() {
-    const button = this.renderRoot.querySelector("#hub-picker-btn");
-    const dialog = this.renderRoot.querySelector("#hub-picker-dialog");
-    if (!button || !dialog) return;
-    const rect = button.getBoundingClientRect();
-    dialog.style.top = `${rect.bottom + 4}px`;
-    dialog.style.left = `${Math.max(8, rect.right - 180)}px`;
-    dialog.showModal();
+  handleDocumentPointerDown(event) {
+    const path = event.composedPath();
+    const hubPickerRoot = this.renderRoot.querySelector("#hub-picker-root");
+    const toolsMenuRoot = this.renderRoot.querySelector("#tools-tab-menu-root");
+    const clickedHubPicker = hubPickerRoot ? path.includes(hubPickerRoot) : false;
+    const clickedToolsMenu = toolsMenuRoot ? path.includes(toolsMenuRoot) : false;
+    let changed = false;
+    if (this._hubPickerOpen && !clickedHubPicker) {
+      this._hubPickerOpen = false;
+      changed = true;
+    }
+    if (this._toolsMenuOpen && !clickedToolsMenu) {
+      this._toolsMenuOpen = false;
+      changed = true;
+    }
+    if (changed) this.requestUpdate();
+  }
+  toggleHubPicker() {
+    this._hubPickerOpen = !this._hubPickerOpen;
+    if (this._hubPickerOpen) this._toolsMenuOpen = false;
+    this.requestUpdate();
+  }
+  toggleToolsMenu() {
+    this._toolsMenuOpen = !this._toolsMenuOpen;
+    if (this._toolsMenuOpen) this._hubPickerOpen = false;
+    this.requestUpdate();
   }
   handleTabSelect(tabId) {
+    this._toolsMenuOpen = false;
     this._store.selectTab(tabId);
   }
   handleSettingToggle(setting, enabled) {
@@ -4638,6 +7799,25 @@ var SofabatonControlPanelCard = class extends i4 {
       behavior: "smooth"
     });
   }
+  renderHeaderStatus(hub) {
+    if (!hub) return null;
+    const connected = hubConnected(this._snapshot.hass, hub);
+    const proxyOn = proxyClientConnected(this._snapshot.hass, hub);
+    return b2`
+      <div class="card-header-status">
+        <div class="dock-pill ${connected ? "dock-pill--hub-on" : "dock-pill--hub-off"}">
+          <span>HUB</span>
+        </div>
+        <div class="dock-pill ${proxyOn ? "dock-pill--app-on" : "dock-pill--app-off"}">
+          <span>APP</span>
+        </div>
+      </div>
+    `;
+  }
+  renderBrandLabel() {
+    const version = String(this._snapshot.toolsFrontendVersionExpected ?? this._snapshot.toolsFrontendVersionLoaded ?? "").trim() || "unknown";
+    return b2`<div class="card-brand">SOFABATON CONTROL PANEL - v${version}</div>`;
+  }
   renderBackendUnavailable(height) {
     return b2`
       <ha-card>
@@ -4662,9 +7842,6 @@ var SofabatonControlPanelCard = class extends i4 {
     return b2`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
-          <div class="card-header">
-            <span class="card-title">Sofabaton Control Panel</span>
-          </div>
           <div class="card-body">
             <div class="version-mismatch-state">
               <div class="version-mismatch-header">
@@ -4691,28 +7868,43 @@ var SofabatonControlPanelCard = class extends i4 {
       </ha-card>
     `;
   }
+  renderHubUnavailable() {
+    return b2`
+      <div class="card-body">
+        <div class="card-blocked-state">
+          <div class="card-blocked-icon"><ha-icon icon="mdi:lan-disconnect"></ha-icon></div>
+          <div class="card-blocked-title">Hub unavailable</div>
+          <div class="card-blocked-copy">
+            This hub is not connected, so the control panel is unavailable until the hub reconnects.
+          </div>
+        </div>
+      </div>
+    `;
+  }
   render() {
     const hub = selectedHub(this._snapshot);
     const cacheHub = selectedHubCache(this._snapshot);
     const cacheEnabled = persistentCacheEnabled(this._snapshot);
     const hubs = this._snapshot.state?.hubs ?? [];
     const height = Number(this._config.card_height ?? 600);
+    const selectedHubConnected = !hub || hubConnected(this._snapshot.hass, hub);
     if (this._snapshot.toolsFrontendVersionMismatch) {
       return this.renderVersionMismatch(height);
     }
     if (this._snapshot.backendUnavailable) {
       return this.renderBackendUnavailable(height);
     }
+    const activeBackupOperation = hub?.active_backup_operation;
+    const backupBusy = !!activeBackupOperation && ["pending", "running"].includes(String(activeBackupOperation.status || ""));
     const sharedHubCommandBusy = Boolean(
-      this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey
+      this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey || backupBusy
     );
-    const sharedHubCommandLabel = this._snapshot.externalHubCommandLabel || (this._snapshot.refreshBusy ? "Refreshing cache\u2026" : null) || (this._snapshot.pendingActionKey ? "Hub command in progress\u2026" : null);
+    const sharedHubCommandLabel = this._snapshot.externalHubCommandLabel || (this._snapshot.refreshBusy ? "Refreshing cache\u2026" : null) || (backupBusy ? String(activeBackupOperation?.message || "Backup or restore in progress\u2026") : null) || (this._snapshot.pendingActionKey ? "Hub command in progress\u2026" : null);
     let activeTab = renderSettingsTab({
       loading: this._snapshot.loading,
       error: this._snapshot.loadError,
       hub,
       hass: this._snapshot.hass,
-      integrationVersion: this._snapshot.toolsFrontendVersionExpected,
       persistentCacheEnabled: cacheEnabled,
       hubCommandBusy: sharedHubCommandBusy,
       pendingSettingKey: this._snapshot.pendingSettingKey,
@@ -4739,6 +7931,41 @@ var SofabatonControlPanelCard = class extends i4 {
           .refreshControlPanelState=${() => this._store.loadControlPanelState()}
         ></sofabaton-wifi-commands-tab>
       `;
+    } else if (this._snapshot.selectedTab === "blobs") {
+      activeTab = b2`
+        <sofabaton-blobs-tab
+          .loading=${this._snapshot.loading}
+          .error=${this._snapshot.loadError}
+          .hub=${hub}
+          .cacheHub=${cacheHub}
+          .hass=${this._snapshot.hass}
+          .persistentCacheEnabled=${cacheEnabled}
+          .hubCommandBusy=${sharedHubCommandBusy}
+          .hubCommandBusyLabel=${sharedHubCommandLabel}
+          .openSection=${this._snapshot.openBlobsSection}
+          .toggleOpenSection=${(section) => this._store.toggleBlobsSection(section)}
+          .setHubCommandBusy=${(busy, label) => this._store.setExternalHubCommandBusy(busy, label ?? null)}
+          .refreshControlPanelState=${() => this._store.loadState({ silent: true })}
+        ></sofabaton-blobs-tab>
+      `;
+    } else if (this._snapshot.selectedTab === "backup") {
+      activeTab = b2`
+        <sofabaton-backup-tab
+          .loading=${this._snapshot.loading}
+          .error=${this._snapshot.loadError}
+          .hub=${hub}
+          .cacheHub=${cacheHub}
+          .hass=${this._snapshot.hass}
+          .persistentCacheEnabled=${cacheEnabled}
+          .selectedHubProxyConnected=${proxyClientConnected(this._snapshot.hass, hub)}
+          .hubCommandBusy=${sharedHubCommandBusy}
+          .hubCommandBusyLabel=${sharedHubCommandLabel}
+          .openSection=${this._snapshot.openBackupSection}
+          .setOpenSection=${(section) => this._store.setBackupSection(section)}
+          .setHubCommandBusy=${(busy, label) => this._store.setExternalHubCommandBusy(busy, label ?? null)}
+          .refreshControlPanelState=${() => this._store.loadState({ silent: true })}
+        ></sofabaton-backup-tab>
+      `;
     } else if (this._snapshot.selectedTab === "cache") {
       activeTab = renderCacheTab({
         loading: this._snapshot.loading,
@@ -4752,6 +7979,8 @@ var SofabatonControlPanelCard = class extends i4 {
         openSection: this._snapshot.openSection,
         openEntity: this._snapshot.openEntity,
         selectedHubProxyConnected: proxyClientConnected(this._snapshot.hass, hub),
+        enablingPersistentCache: this._snapshot.pendingSettingKey === "persistent_cache",
+        onEnablePersistentCache: () => this.handleSettingToggle("persistent_cache", true),
         onRefreshStale: () => void this._store.refreshStale(),
         onToggleSection: (sectionId) => this._store.toggleSection(sectionId),
         onToggleEntity: (key) => this._store.toggleEntity(key),
@@ -4762,26 +7991,30 @@ var SofabatonControlPanelCard = class extends i4 {
     return b2`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
-          <div class="card-header">
-            <span class="card-title">Sofabaton Control Panel</span>
-            ${renderHubPicker({
-      visible: hubs.length > 1,
+          <div class="card-topbar">
+            ${this.renderBrandLabel()}
+            ${this.renderHeaderStatus(hub)}
+            ${hubs.length > 1 ? renderHubPicker({
+      interactive: true,
+      open: this._hubPickerOpen,
       selectedLabel: hub?.name || hub?.entry_id || "",
+      prefixLabel: "HUB",
       hubs,
       selectedEntryId: this._snapshot.selectedHubEntryId,
-      onOpen: () => this.openHubPicker(),
+      onToggle: () => this.toggleHubPicker(),
       onSelect: (entryId) => {
-        this.renderRoot.querySelector("#hub-picker-dialog")?.close();
+        this._hubPickerOpen = false;
         this._store.selectHub(entryId);
       }
-    })}
+    }) : null}
           </div>
           ${renderTabBar({
       selectedTab: this._snapshot.selectedTab,
-      persistentCacheEnabled: cacheEnabled,
-      onSelect: (tabId) => this.handleTabSelect(tabId)
+      toolsMenuOpen: this._toolsMenuOpen,
+      onSelect: (tabId) => this.handleTabSelect(tabId),
+      onToggleToolsMenu: () => this.toggleToolsMenu()
     })}
-          <div class="card-body">${activeTab}</div>
+          ${selectedHubConnected ? b2`<div class="card-body">${activeTab}</div>` : this.renderHubUnavailable()}
         </div>
       </ha-card>
     `;

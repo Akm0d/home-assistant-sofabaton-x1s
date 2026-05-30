@@ -7,6 +7,68 @@ from typing import Any
 _HUB_LOG_PREFIX_PATTERN = re.compile(r"^\[(?P<entry_id>[^\[\]]+)\]\s+")
 
 
+class LogTag:
+    """Canonical subsystem tags for log-message prefixes.
+
+    Single source of truth for the ``[TAG]`` token that follows the per-hub
+    ``[entry_id]`` prefix added by :class:`HubLogger`. Every value is an
+    UPPERCASE, bracket-wrapped string so call sites can write the prefix
+    directly, e.g. ``log.debug("%s connected", LogTag.TRANSPORT)`` or
+    ``log.debug(f"{LogTag.FRAME} ...")``.
+
+    Tags are deliberately UPPERCASE: :func:`extract_hub_log_entry_id` rejects
+    an all-caps leading bracket, so a tag is never mistaken for a hub entry id
+    when a line carries no ``[entry_id]`` prefix (such lines are treated as
+    globally relevant and shown in every hub's view).
+    """
+
+    # Transport / wire
+    TRANSPORT = "[TRANSPORT]"   # socket bridge connect/disconnect/io (TCP/UDP)
+    SEND = "[SEND]"             # outbound frame dispatch to the hub
+    WIRE = "[WIRE]"             # full hex frame dumps (gated by the hex-logging switch)
+    FRAME = "[FRAME]"           # decoded inbound/outbound frame summaries (family/role/paging)
+    PARSE = "[PARSE]"           # frame-decode errors
+
+    # Lifecycle / identity
+    PROXY = "[PROXY]"           # proxy lifecycle: enable/disable/stop/hex toggle
+    MDNS = "[MDNS]"             # mDNS discovery / advertisement
+    HUB = "[HUB]"               # hub identity / name
+    BANNER = "[BANNER]"         # connect banner parsing
+    STATE = "[STATE]"           # current-activity / connection state changes
+
+    # Command dispatch & acks
+    CMD = "[CMD]"               # command queue / dispatch
+    ACK = "[ACK]"               # ack waiters / STATUS_ACK classification
+
+    # Catalog read paths
+    CATALOG = "[CATALOG]"       # device/activity/button/command catalog requests & parsing
+    MACRO = "[MACRO]"           # macro page decode
+    REMOTE = "[REMOTE]"         # remote sync/find, idle/device-control queries
+
+    # Write / mutation flows
+    CREATE = "[CREATE]"         # device/activity create flow
+    RESTORE = "[RESTORE]"       # restore flow
+    BACKUP = "[BACKUP]"         # backup serialization / erase
+    WIFI = "[WIFI]"             # wifi / virtual-ip device flow & per-step acks
+    IR = "[IR]"                 # IR blob play / persist
+    ACTIVITY = "[ACTIVITY]"     # activity-assign, favorites, keymap-write ops
+
+    # Subsystems
+    DEMUX = "[DEMUX]"           # CALL_ME notify demuxer
+    ROKU = "[ROKU]"             # Roku ECP listener
+    HINT = "[HINT]"             # diagnostic hints
+
+    @classmethod
+    def all(cls) -> tuple[str, ...]:
+        """Return every registered tag value."""
+
+        return tuple(
+            value
+            for name, value in vars(cls).items()
+            if not name.startswith("_") and isinstance(value, str)
+        )
+
+
 def extract_hub_log_entry_id(message: str) -> str | None:
     """Return the canonical hub entry id from the start of a log message."""
 

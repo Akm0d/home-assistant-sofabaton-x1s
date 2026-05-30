@@ -35,9 +35,21 @@ Observed stable fields:
 - `payload[0]` = 1-based row index
 - `payload[3]` = total device rows in the burst
 - `payload[6:8]` = device id
+- `payload[10]` = observed device-class / device-type code
 - some captures also repeat the row index / total near `payload[9:11]`
 - X1S/X2 text regions are commonly UTF-16BE
 - X1 text regions are commonly UTF-8 or ASCII-compatible
+
+Observed device-class codes:
+
+| Code | Normalized class | Notes |
+|------|------------------|-------|
+| `0x03` | `bluetooth` | Bluetooth device rows |
+| `0x0A` | `wifi_roku` | Roku / WiFi rows |
+| `0x0D` | `ir` | Learned or catalog IR devices |
+| `0x1A` | `wifi_hue` | Hue / WiFi rows |
+| `0x1C` | `wifi_ip` | Virtual IP / HTTP rows |
+| `0x20` | `wifi_mqtt` | MQTT-style rows |
 
 The exact meaning of several surrounding control bytes is still incomplete, but
 the rows behave as fixed-position records rather than short TLV structures.
@@ -54,14 +66,77 @@ Observed stable fields:
 - X1S/X2 labels are commonly UTF-16BE
 - X1 labels are commonly UTF-8 or ASCII-compatible
 
+### Device/activity write body (families `0x07`, `0x37`, `0x08`)
+
+Observed create/update writes reuse one fixed-size record body whose variant
+dimensions match the read-side device/activity record families.
+
+Observed wrapper:
+
+```
+payload[0]   = 0x01
+payload[1:3] = 1, big-endian
+payload[3:]  = fixed-size body
+```
+
+Observed body layout:
+
+| Offset | Meaning |
+|--------|---------|
+| `0` | body marker (`0x01`) |
+| `1:3` | total pages, big-endian (`1` in observed create/update traffic) |
+| `3` | record kind |
+| `4` | entity id (`0xFF` for create-new, existing id for update/finalize) |
+| `5` | icon id |
+| `6` | sort order |
+| `7` | code/source type |
+| `8` | device/activity type |
+| `9:25` | 16-byte opaque code id |
+| `25` | hide flag |
+| `26` | input flag |
+| `27` | channel / variant-specific selector |
+| `28` | power-state byte |
+| `29..` | fixed-width name slot |
+| after name slot | fixed-width brand slot |
+| after brand slot | fixed-width tail slot |
+| last byte | body checksum (`sum(body[:-1]) & 0xFF`) |
+
+Observed variant dimensions:
+- X1: 120-byte body, 30-byte name/brand/tail slots, ASCII labels
+- X1S/X2: 210-byte body, 60-byte name/brand/tail slots, UTF-16BE labels
+
+Observed tail-slot structure:
+- bytes `0..5`: optional IP marker + IPv4 bytes
+- bytes `6..8`: optional poll-time marker + 2-byte value
+- bytes `9..17`: input/power/share/tail-marker control region
+- bytes `18..21`: optional vendor-extension block on some captures
+
+The family-`0x37` activity-create body is layout-compatible with the family-`0x07`
+device-create body; the difference is the opcode family and the meaning of the
+assigned id returned by the create ack.
+
 ---
 
 ## Command list records (`REQ_COMMANDS`, family `0x5D`)
 
-Command-list bursts return one or more command records per page. The exact page
-layout varies by hub line, but the repeated command unit has a consistent shape.
-The burst should be treated as a paged byte stream: page boundaries are not
-guaranteed to align to command-record boundaries.
+Command-list bursts should be treated as one assembled command-record stream per
+request. Page boundaries are transport artifacts and are not guaranteed to align
+to record boundaries.
+
+Observed assembled-record layouts:
+
+| Hub line | Record size | Label slot |
+|----------|-------------|------------|
+| X1 | 40 bytes | `record[9:39]`, ASCII / UTF-8-compatible |
+| X1S/X2 | 70 bytes | `record[9:69]`, UTF-16BE |
+
+Observed assembled-body behavior:
+- the page-1 header carries the command count for the burst
+- after page-local headers are stripped, the assembled body begins directly with
+  the first record byte
+- record decoding is safest after concatenating the page bodies for the burst
+- raw `0xFF` bytes can appear inside label data or at record tails, so page-local
+  delimiter scanning is not a safe primary parser strategy
 
 ### Repeated command unit
 
@@ -78,6 +153,7 @@ Observed control-block behavior:
 - virtual/IP devices often use mostly-zero control blocks
 - format markers observed in this family include `0x03`, `0x0D`, `0x1A`, and `0x1C`
 - `0x0A` and `0x20` are also observed as command-format markers on some devices
+- on strict fixed-width X1 captures, byte `39` is commonly `0xFF`
 
 ### Label encodings
 
@@ -90,29 +166,14 @@ Observed command-label encodings:
   (for example `U+00FF`), so consumers must not split records on bare `0xFF`
   unless a full record separator pattern is present
 
-Observed separator behavior:
-- many X1S/X2 bursts use `0xFF` before follow-on records
-- some X1 bursts do not use `0xFF` separators at all
-- absence of `0xFF` does not imply that the page contains only one command
-- some X1 single-page bursts pack multiple ASCII command records back-to-back
-  with no explicit separator bytes
-
 ### Paging behavior
 
 Observed paging behavior:
 - command records may span page boundaries
 - non-header pages should be treated primarily as continuations of the current
   command burst, not as self-contained command lists
-- record decoding is safest after concatenating the page bodies for the burst
-
-Observed X1 packed-record behavior:
-- some one-page X1 command bursts are a contiguous ASCII record stream
-- those records are structurally delimited by repeated
-  `[dev_id, command_id, fmt, 0x00, 0x00, 0x00, 0x00, ...]` starts rather than
-  by `0xFF`
-- the amount of zero padding inside the record can vary slightly, so consumers
-  should not assume a fixed record width even when the page has no `0xFF`
-  separators
+- after assembly, observed real-wire bursts can be decoded as fixed-width records
+  using the hub-family-specific stride above
 
 Observed single-page X1 header quirk:
 - some one-page X1 header bursts begin with the same early prefix as targeted
@@ -142,6 +203,42 @@ payload[76:]   = device-specific metadata, observed as IP/port + HTTP template
 
 This response is used as a readback/confirmation step after WiFi input
 configuration changes.
+
+### Command/code write pages (family `0x0E`, `A->H`)
+
+Observed command writes page one logical record body across one or more
+family-`0x0E` frames.
+
+Observed per-page wrapper:
+
+```
+payload[0]   = command_seq
+payload[1:3] = page number, big-endian
+payload[3:]  = body chunk
+```
+
+Observed body layout:
+
+| Offset | Meaning |
+|--------|---------|
+| `0` | burst-wide command count / size marker |
+| `1:3` | total pages for this one command record |
+| `3` | device id |
+| `4` | default button slot id |
+| `5` | library / codec type |
+| `6:12` | 6-byte canonical command code |
+| `12..` | fixed-width label slot |
+| after label slot | opaque library/blob bytes |
+| last byte | body checksum (`sum(body[:-1]) & 0xFF`) |
+
+Observed variant dimensions:
+- X1 label slot: 30-byte ASCII
+- X1S/X2 label slot: 60-byte UTF-16BE
+
+Observed ack behavior:
+- each page is acked independently via `0x0103`
+- `payload[0] == 0x00` means accepted
+- `payload[0] == 0x0C` is an observed explicit reject on malformed save pages
 
 ---
 
@@ -231,6 +328,28 @@ Some rows for hard buttons bound to activity-local macros use a distinct subtype
 where the row refers back to the activity rather than to a device command.
 These should not be interpreted as normal `(device_id, command_id)` bindings.
 
+### Button-binding write (`family 0x3E`, `A->H`)
+
+Observed button-binding writes are fixed-size single-page payloads:
+
+```
+payload[0:3]   = 01 00 01
+body[0:3]      = 01 00 01
+body[3]        = target entity id
+body[4]        = button id being written
+body[5]        = short-press target device id
+body[6:12]     = short-press canonical command code
+body[12]       = short-press button id
+body[13]       = long-press target device id
+body[14:20]    = long-press canonical command code
+body[20]       = long-press button id
+body[21]       = body checksum
+```
+
+Observed ack:
+- reply opcode `0x013E`
+- `payload[0]` echoes the written button id
+
 ---
 
 ## Activity membership rows (`REQ_ACTIVITY_MAP`, family `0x6D`)
@@ -288,6 +407,38 @@ Observed label encodings:
 - X1: ASCII is common
 - X1S/X2: UTF-16BE is common
 
+### Assembled record layout
+
+Observed assembled macro regions have this structure:
+
+```
+byte 0        macro id
+byte 1        key-entry count
+byte 2..      repeated 10-byte key entries
+...           trailing fixed-width label slot
+last byte     trailing terminator / checksum-like byte
+```
+
+Observed key-entry layout:
+
+```
+byte 0        device id
+byte 1        key id
+byte 2..7     opaque 6-byte control / fid block
+byte 8        duration
+byte 9        delay
+```
+
+Observed label-slot sizes:
+- X1: 30 trailing bytes before the final terminator
+- X1S/X2: 60 trailing bytes before the final terminator
+
+Client guidance:
+- decode the label from the trailing fixed-width slot, not from the first
+  printable bytes encountered in the region
+- if the declared key-entry count would overlap the trailing label slot, clamp
+  to the entries that fit inside the region
+
 ### Empty power-macro variant on X1S
 
 Some X1S `POWER_ON` / `POWER_OFF` records for empty power sequences carry a
@@ -301,6 +452,39 @@ Observed paging behavior:
 - one macro record may span multiple fragments
 - record starts are identified by fragment metadata, but label decoding is
   safest after concatenating fragment bodies for the burst
+
+### Macro write (`family 0x12`, `A->H`)
+
+Observed macro writes use the same per-variant label-slot widths as the read-side
+macro records, but the write body carries an explicit step count and raw 10-byte
+step rows.
+
+Observed layout:
+
+```
+payload[0:3]   = 01 00 01
+body[0:3]      = 01 00 01
+body[3]        = entity id
+body[4]        = macro key id
+body[5]        = step count
+body[6..]      = step_count repeated 10-byte step rows
+...            = fixed-width label slot
+last byte      = body checksum
+```
+
+Observed 10-byte step-row layout:
+
+```
+byte 0        device id
+byte 1        command id / key id
+byte 2..7     6-byte fid / canonical command code
+byte 8        duration
+byte 9        delay
+```
+
+Observed ack:
+- reply opcode `0x0112`
+- `payload[0]` echoes the written macro key id
 
 ---
 
@@ -353,6 +537,103 @@ Observed text encoding for the name fields in this family:
 
 ---
 
+## IR command dump pages (`REQ_BLOB`, families `0x0D` / `0x0E`)
+
+`REQ_BLOB` (`0x020C`) is reused for two distinct flows:
+- WiFi/input-config label refresh for one `(device, slot)` pair
+- multi-page command/blob dump retrieval for one command or a full device
+  snapshot
+
+This section covers the blob-dump variant.
+
+### Request shapes
+
+Observed request payloads:
+- `[dev_lo, cmd_lo]` = dump one command/blob record
+- `[dev_lo, 0xFF]` = dump all command/blob records for the device
+
+### Common page fields
+
+Observed dump pages in families `0x0D` and `0x0E` share:
+
+```
+payload[0] = response index
+payload[2] = page number
+```
+
+Observed behavior:
+- `response index` identifies one record within the snapshot returned by the
+  request
+- `page number` is 1-based within that record
+- later pages do not repeat the actual command id, so consumers must map the
+  response index from continuation pages back to the page-1 metadata for the
+  same record
+
+### Page-1 metadata layout
+
+Observed stable fields on page 1:
+
+```
+payload[0]    = response index
+payload[2]    = page number (= 1)
+payload[3]    = total commands in the device snapshot
+payload[5]    = total pages for this one command/blob record
+payload[6]    = device id
+payload[7]    = command id
+payload[8]    = format marker / device-class-like marker
+payload[13:15] = 2-byte label-side metadata field
+payload[15:]  = fixed-width label slot followed by the first blob slice
+```
+
+Observed label encodings:
+- X1 page 1 uses a compact ASCII/Latin-1 label slot
+- X1S/X2 page 1 uses a wider UTF-16BE label slot
+
+Observed page-1 blob starts:
+- X1: first blob byte at offset `43`
+- X1S/X2: first blob byte typically at offset `73`
+
+Observed X1S/X2 page-1 blob prefixes at the blob start include:
+- `01 20 00 10`
+- `01 30 00 10`
+- `03 20 00 00`
+- `01 00 00 00`
+
+These prefixes are part of the dumped blob body, not separate transport
+metadata.
+
+### Continuation pages
+
+Observed continuation/final dump pages use:
+
+```
+payload[0] = response index
+payload[1] = 0x00
+payload[2] = page number (2..N)
+payload[3:] = continuation blob slice
+```
+
+Observed behavior:
+- continuation pages do not carry label text
+- continuation pages do not repeat total-command or total-page metadata
+- the page payload after byte `2` should be concatenated directly onto the
+  page-1 blob bytes for the same response index
+
+### Assembly guidance
+
+Observed assembly rules:
+- `payload[3]` on page 1 is the device snapshot's total command count, not this
+  record's page count
+- `payload[5]` on page 1 is the expected page count for this one record
+- the assembled blob for a command is the concatenation of:
+  - page 1 blob bytes starting at the family-specific page-1 blob start
+  - each later page's `payload[3:]` in page-number order
+- a full-device snapshot is complete only when all observed response indexes
+  have been matched to page-1 metadata and each record has received its full
+  page count
+
+---
+
 ## Favorite ordering response (family `0x63`)
 
 Observed payload shape:
@@ -363,6 +644,195 @@ Observed payload shape:
 
 Each trailing pair assigns one hub-internal favorite identifier to one display
 slot.
+
+---
+
+## IR blob save pages (family `0x0E`, `A->H`)
+
+Observed app-originated blob-save uploads use family `0x0E` pages whose payload
+shape mirrors the dump flow but carries a save-specific trailing checksum.
+
+### Page-1 save layout
+
+Observed page-1 save payload:
+
+```
+payload[0:15] = 01 00 01 01 00 total_pages dev_lo 00 0D 00 00 00 00 00 00
+payload[15:]  = fixed-width label slot followed by the first blob slice
+```
+
+Observed label slots:
+- X1: bytes `15..42` hold a 28-byte ASCII/Latin-1 command label
+- X1S/X2: bytes `15..72` hold a 58-byte UTF-16BE command label
+
+### Continuation save pages
+
+Observed continuation/final save pages use:
+
+```
+payload[0:3] = 01 00 page_no
+payload[3:]  = continuation blob slice
+```
+
+### Save-specific trailing checksum
+
+Before paging, the saved blob body carries one additional trailing byte that is
+distinct from the replay-tail checksum used by family `0x0F` playback:
+
+```
+persist_tail = (sum8(page_one_prefix) + sum8(label_slot) + sum8(blob_body) - 2) & 0xFF
+```
+
+Observed behavior:
+- the persisted bytes are `blob_body + persist_tail`
+- `total_pages` counts the page-1 payload and all continuation pages needed to
+  carry that persisted byte stream
+- page acknowledgments are observed through `0x0103`, with `payload[0] == 0x00`
+  for accept and `payload[0] == 0x0C` for reject
+
+---
+
+## IR blob replay bodies (family `0x0F`)
+
+The app's "Test" flow replays raw IR blobs through family `0x0F` frames. These
+blobs are not self-describing rows like `REQ_COMMANDS` or `REQ_BUTTONS`; they
+are opaque byte bodies that the hub consumes as one-shot replay data.
+
+### Replay frame layout
+
+Observed replay payload structure:
+
+- first page of a replay burst:
+
+```
+payload[0:3]   = 01 00 seq
+payload[3:13]  = 01 00 total_frames 00 00 00 00 00 00 00
+payload[13:]   = first blob slice
+```
+
+- continuation/final replay page:
+
+```
+payload[0:3]   = 01 00 seq
+payload[3:]    = continuation blob slice
+```
+
+Observed behavior:
+- `seq` is 1-based
+- `total_frames` is present only on the first page
+- the opcode high byte equals the payload length for that page
+- page boundaries are transport artifacts; the replay source is the assembled
+  blob body
+
+### Declared-length header in dumped blobs
+
+Many dumped replay blobs begin with a small blob-local header. Two observed
+families are:
+
+```
+00 00 <declared_len_be16> 00 00 00 00 94 cf ...
+00 00 <declared_len_be16> 00 00 00 00 9c 40 ...
+00 00 <declared_len_be16> 00 00 00 00 94 74 ...
+```
+
+Observed behavior:
+- the first four bytes are commonly `00 00 <len_hi> <len_lo>`
+- for those blobs, the declared body length often excludes the final trailing
+  checksum/tail byte
+- the blob body itself is replayed across one or more family-`0x0F` pages
+
+### Two broad blob classes
+
+Current captures support a useful first split:
+
+1. Descriptive blobs
+2. Captured/database blobs
+
+#### Descriptive blobs
+
+These embed a human-readable ASCII protocol description inside the blob body.
+Observed examples include:
+
+```text
+P:DenonK R:37000 C0:84 C1:50 C2:0 D:4 S:1 F:5 CHECKSUM:17
+P:Sony12 R:40000 D:1 F:18 MUL:2
+P:NEC R:38400 D:0 S:206 F:11
+```
+
+Observed behavior:
+- the blob begins with a compact descriptor-style header such as:
+
+```
+00 00 <declared_len_be16> 00 00 11 00 94 70 ...
+```
+
+- the ASCII text begins with `P:` and then carries protocol-specific fields
+- different descriptive protocols expose different field sets
+- `CHECKSUM:` is **not** what makes a blob descriptive; it is just one field
+  used by some descriptor families such as `DenonK`
+
+#### Captured/database blobs
+
+These are opaque binary replay bodies rather than self-describing ASCII
+protocol records.
+
+Observed examples include:
+
+```
+00 00 <declared_len_be16> 00 00 00 00 94 cf ...
+00 00 <declared_len_be16> 00 00 00 00 9c 40 ...
+00 00 <declared_len_be16> 00 00 00 00 94 74 ...
+```
+
+Observed behavior:
+- these commonly contain pulse/codeset data rather than text
+- they may be one-frame or multi-frame replays
+- page boundaries are transport artifacts; the replay source is still the
+  assembled blob body
+
+### Trailing-byte normalization
+
+Observed `dump_ir_blob` / replay behavior is not uniform across all blob
+families. Some dumped blobs replay successfully as-is, while others require the
+final blob byte to be rewritten before the hub accepts playback.
+
+Validated observed replay-tail rule so far:
+
+1. `DenonK`-style descriptive blobs containing embedded `CHECKSUM:` text
+2. Non-descriptor X1/X1S database-style blobs with headers such as `9c40`,
+   `94cf`, or `9474`
+
+```
+tail = (sum8(blob[:-1]) + total_frames + 1) & 0xFF
+```
+
+Where:
+- `sum8(blob[:-1])` is the 8-bit sum of every blob byte except the final tail
+  byte
+- `total_frames` is the number of family-`0x0F` pages required to replay the
+  blob
+
+Observed on:
+- long multi-frame X1 command blobs
+- short single-frame database-style blobs
+
+Examples validated from captures:
+- 4-frame replay blobs: `sum8 + 5`
+- 3-frame replay blobs: `sum8 + 4`
+- 1-frame replay blobs: `sum8 + 2`
+
+Important scope note:
+- not every descriptive protocol has been validated yet
+- descriptive families such as `Sony12` and `NEC` are observed, but their
+  replay-tail rewrite behavior should not be assumed without matching replay
+  captures
+
+Client guidance:
+- do not assume the trailing byte returned by a blob-dump flow is always the
+  replay-ready value
+- if a blob family matches one of the validated classes above, normalize the
+  final byte before replay
+- if the hub returns `0x0103/0x0C`, treat the replay frame as rejected
 
 ---
 

@@ -28,7 +28,15 @@ HVER_X2 = "3"
 HUB_VERSION_X1 = "X1"
 HUB_VERSION_X1S = "X1S"
 HUB_VERSION_X2 = "X2"
-DEFAULT_HUB_VERSION = HUB_VERSION_X1
+
+# Backup-format schema versions. These gate restore: a payload whose
+# schema_version does not match is rejected so the slim, hand-editable
+# format stays an exact contract (no silent reads of a stale verbose
+# dump). Bump the matching constant whenever the corresponding export
+# shape changes, and update the restore gate + fixtures together.
+DEVICE_BACKUP_SCHEMA_VERSION = 4
+ACTIVITY_BACKUP_SCHEMA_VERSION = 4
+HUB_BUNDLE_SCHEMA_VERSION = 5
 
 HUB_VERSION_BY_HVER = {
     HVER_X1: HUB_VERSION_X1,
@@ -112,28 +120,56 @@ def signal_command_sync(entry_id: str) -> str:
 
 
 def classify_hub_version(props: dict[str, str]) -> str:
-    """Determine hub version based on advertised properties."""
+    """Determine hub version from advertised mDNS / banner properties.
+
+    Raises :class:`ValueError` when ``props`` carries no ``HVER`` key
+    or its value does not map to a known hub line. The integration
+    deliberately refuses to default to a previously-known variant in
+    that case: a missing or unfamiliar advertisement signals either an
+    upstream firmware change or a misconfigured manual entry, and
+    silently inheriting the X1 layout would corrupt every write to
+    that hub. Callers that cannot guarantee an ``HVER`` (e.g. fully
+    manual entry before first connect) must pick a known variant
+    explicitly rather than relying on this helper.
+    """
 
     hver = props.get("HVER")
-    if hver is not None:
-        version = HUB_VERSION_BY_HVER.get(str(hver).strip())
-        if version:
-            return version
-
-    return DEFAULT_HUB_VERSION
+    if hver is None:
+        raise ValueError(
+            "classify_hub_version: advertisement is missing HVER; "
+            "cannot identify hub variant."
+        )
+    version = HUB_VERSION_BY_HVER.get(str(hver).strip())
+    if not version:
+        known = ", ".join(sorted(HUB_VERSION_BY_HVER))
+        raise ValueError(
+            f"classify_hub_version: unknown HVER={hver!r}; "
+            f"expected one of {known}."
+        )
+    return version
 
 
 def mdns_service_type_for_props(props: dict[str, str]) -> str:
-    """Map hub properties to the correct mDNS service type."""
+    """Map hub properties to the correct mDNS service type.
 
-    version = classify_hub_version(props)
+    The integration advertises the same service type for every known
+    variant, so an unclassifiable advertisement falls back to the
+    shared narrow-line type rather than refusing to advertise -- the
+    transport envelope is byte-compatible across the family and the
+    connect banner reclassifies authoritatively.
+    """
+
+    try:
+        version = classify_hub_version(props)
+    except ValueError:
+        return MDNS_SERVICE_TYPE_X1
     return MDNS_SERVICE_TYPE_BY_VERSION.get(version, MDNS_SERVICE_TYPE_X1)
 
 
 def format_hub_entry_title(version: str | None, host: str | None, mac: str | None) -> str:
     """Return a consistent config-entry title for integration cards."""
 
-    display_version = (version or DEFAULT_HUB_VERSION).strip() or DEFAULT_HUB_VERSION
+    display_version = (version or "unknown").strip() or "unknown"
     display_host = (host or "unknown").strip() or "unknown"
     display_mac = (mac or "unknown").strip() or "unknown"
     return f"Sofabaton {display_version} ({display_host} / {display_mac})"

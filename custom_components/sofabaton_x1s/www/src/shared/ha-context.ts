@@ -1,5 +1,7 @@
-export type TabId = "settings" | "wifi_commands" | "cache" | "logs";
+export type TabId = "settings" | "wifi_commands" | "blobs" | "backup" | "cache" | "logs";
 export type SectionId = "activities" | "devices";
+export type BackupSectionId = "make" | "restore";
+export type BlobsSectionId = "fetch" | "test" | "save";
 export type SettingKey =
   | "persistent_cache"
   | "hex_logging_enabled"
@@ -37,7 +39,13 @@ export interface ControlPanelHubState {
   proxy_client_connected?: boolean;
   settings?: Partial<Record<Exclude<SettingKey, "persistent_cache">, boolean>>;
   activities?: Array<{ id: number; name?: string; favorite_count?: number; macro_count?: number }>;
-  devices_list?: Array<{ id: number; name?: string; command_count?: number }>;
+  devices_list?: Array<{
+    id: number;
+    name?: string;
+    command_count?: number;
+    device_class?: string;
+    device_class_code?: number;
+  }>;
   buttons?: Record<string, number[]>;
   commands?: Record<string, Record<string, string>>;
   activity_favorites?: Record<
@@ -48,6 +56,7 @@ export interface ControlPanelHubState {
     string,
     Array<{ command_id: number; name?: string; label?: string }>
   >;
+  active_backup_operation?: BackupProgressEvent | null;
 }
 
 export interface ControlPanelStateResponse {
@@ -60,7 +69,13 @@ export interface CacheHubState {
   entry_id: string;
   name?: string;
   activities?: Array<{ id: number; name?: string; favorite_count?: number; macro_count?: number }>;
-  devices_list?: Array<{ id: number; name?: string; command_count?: number }>;
+  devices_list?: Array<{
+    id: number;
+    name?: string;
+    command_count?: number;
+    device_class?: string;
+    device_class_code?: number;
+  }>;
   buttons?: Record<string, number[]>;
   commands?: Record<string, Record<string, string>>;
   activity_favorites?: Record<
@@ -94,6 +109,114 @@ export interface LogsResponse {
   lines: ControlPanelLogLine[];
 }
 
+export interface BlobFetchCommandResult {
+  command_label?: string | null;
+  device_id: number;
+  command_id?: number | null;
+  device_class?: string | null;
+  blob_kind?: string | null;
+  command_blob?: string | null;
+  parsed_blob?: string | null;
+  replay_tail_checksum?: number | null;
+  command_checksum?: number | null;
+}
+
+export interface BlobFetchResponse {
+  device_id: number;
+  requested_command_id?: number | null;
+  total_commands?: number | null;
+  received_command_count?: number | null;
+  complete?: boolean;
+  commands: BlobFetchCommandResult[];
+}
+
+export interface BlobPlayResponse {
+  ok: boolean;
+}
+
+export interface BlobPersistResponse {
+  status: string;
+  device_id: number;
+  command_id: number;
+  command_name: string;
+  page_count?: number | null;
+}
+
+export interface BackupBundleDeviceBlock {
+  device_id: number;
+  name?: string | null;
+  brand?: string | null;
+  device_class?: string | null;
+  device_class_code?: number | null;
+  entity_type?: string | null;
+}
+
+export interface BackupBundleDevicePayload {
+  kind?: string | null;
+  complete?: boolean;
+  device?: BackupBundleDeviceBlock | null;
+}
+
+export interface BackupBundleActivityPayload {
+  kind?: string | null;
+  complete?: boolean;
+  device?: BackupBundleDeviceBlock | null;
+  referenced_source_device_ids?: number[] | null;
+}
+
+export interface BackupBundlePayload {
+  kind: string;
+  schema_version: number;
+  captured_at?: string | null;
+  complete?: boolean | null;
+  hub?: {
+    entry_id?: string | null;
+    name?: string | null;
+    version?: string | null;
+  } | null;
+  devices: BackupBundleDevicePayload[];
+  activities: BackupBundleActivityPayload[];
+}
+
+export const BACKUP_BUNDLE_SCHEMA_VERSION = 5;
+
+export interface BackupOperationStartResponse {
+  operation_id: string;
+}
+
+export interface BackupRestoreResult {
+  status: string;
+  failed_at?: [string, number | null] | null;
+  device_id_map?: Record<string, number> | null;
+  restored_devices?: Array<Record<string, unknown>> | null;
+  restored_activities?: Array<Record<string, unknown>> | null;
+}
+
+export interface BackupProgressEvent {
+  operation_id: string;
+  kind: string;
+  entry_id: string;
+  status: string;
+  phase?: string | null;
+  mode?: string | null;
+  message?: string | null;
+  completed_steps?: number | null;
+  total_steps?: number | null;
+  current_device_id?: number | null;
+  current_activity_id?: number | null;
+  filename?: string | null;
+  backup?: BackupBundlePayload | null;
+  backup_downloaded?: boolean | null;
+  result?: BackupRestoreResult | null;
+  error?: string | null;
+}
+
+export interface BackupOperationStateResponse {
+  backup_export?: BackupProgressEvent | null;
+  backup_restore?: BackupProgressEvent | null;
+  active_operation?: BackupProgressEvent | null;
+}
+
 export interface ControlPanelSnapshot {
   hass: HassLike | null;
   state: ControlPanelStateResponse | null;
@@ -107,6 +230,8 @@ export interface ControlPanelSnapshot {
   selectedHubEntryId: string | null;
   selectedTab: TabId;
   openSection: SectionId | null;
+  openBackupSection: BackupSectionId;
+  openBlobsSection: BlobsSectionId | null;
   openEntity: string | null;
   staleData: boolean;
   refreshBusy: boolean;

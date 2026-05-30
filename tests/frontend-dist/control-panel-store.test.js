@@ -32,6 +32,66 @@ var ControlPanelApi = class {
       action
     });
   }
+  fetchBlob(entryId, deviceId, commandId) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/blobs/fetch",
+      entry_id: entryId,
+      device_id: deviceId,
+      ...commandId != null ? { command_id: commandId } : {}
+    });
+  }
+  playIrBlob(entryId, blob) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/blobs/play",
+      entry_id: entryId,
+      blob
+    });
+  }
+  persistIrBlob(entryId, deviceId, commandName, blob) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/blobs/persist",
+      entry_id: entryId,
+      device_id: deviceId,
+      command_name: commandName,
+      blob
+    });
+  }
+  startBackupExport(entryId, deviceIds) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/export",
+      entry_id: entryId,
+      ...deviceIds?.length ? { device_ids: deviceIds } : {}
+    });
+  }
+  startBackupRestore(entryId, backup, mode) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/restore",
+      entry_id: entryId,
+      backup,
+      mode
+    });
+  }
+  subscribeBackupProgress(operationId, onMessage) {
+    if (!this.hass.connection?.subscribeMessage) {
+      return Promise.reject(new Error("Backup progress is unavailable without a websocket connection"));
+    }
+    return this.hass.connection.subscribeMessage(
+      onMessage,
+      { type: "sofabaton_x1s/backup/progress_subscribe", operation_id: operationId }
+    );
+  }
+  getBackupState(entryId) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/state",
+      entry_id: entryId
+    });
+  }
+  clearBackupResult(operationId) {
+    return this.hass.callWS({
+      type: "sofabaton_x1s/backup/clear_result",
+      operation_id: operationId
+    });
+  }
   refreshCatalog(entryId, kind) {
     return this.hass.callWS({
       type: "sofabaton_x1s/catalog/refresh",
@@ -1215,6 +1275,38 @@ function selectedHub(snapshot) {
 function persistentCacheEnabled(snapshot) {
   return !!snapshot.state?.persistent_cache_enabled;
 }
+function deviceClassIcon(deviceClass) {
+  switch (String(deviceClass || "").trim().toLowerCase()) {
+    case "ir":
+      return "mdi:remote";
+    case "bluetooth":
+      return "mdi:bluetooth";
+    case "wifi_roku":
+    case "wifi_hue":
+    case "wifi_mqtt":
+    case "wifi_ip":
+      return "mdi:wifi";
+    default:
+      return "mdi:radio-tower";
+  }
+}
+function isBackendUnavailableError(error, hass) {
+  if (hass && hass.connected === false) return true;
+  if (!error) return false;
+  const candidate = error;
+  const code = String(
+    candidate.code ?? candidate.error?.code ?? ""
+  ).toLowerCase();
+  if (code === "unknown_command" || code === "not_found" || code === "connection_lost" || code === "disconnected") {
+    return true;
+  }
+  const message = String(
+    candidate.message ?? candidate.error?.message ?? (error instanceof Error ? error.message : "")
+  );
+  if (/unknown[_\s-]?command/i.test(message)) return true;
+  if (/connection.*(lost|closed)|disconnected|websocket.*closed/i.test(message)) return true;
+  return false;
+}
 function formatError(error) {
   if (!error) return "Unknown error";
   if (typeof error === "string") return error;
@@ -1299,8 +1391,13 @@ function connectionFingerprint(hass) {
 }
 
 // custom_components/sofabaton_x1s/www/src/state/control-panel-store.ts
+var BACKEND_RETRY_MIN_MS = 2e3;
+var BACKEND_RETRY_MAX_MS = 1e4;
 var VIEW_STATE_STORAGE_KEY = "sofabaton_x1s:tools_card:view_state:v1";
-var VALID_TABS = /* @__PURE__ */ new Set(["settings", "wifi_commands", "cache", "logs"]);
+var VALID_TABS = /* @__PURE__ */ new Set(["settings", "wifi_commands", "blobs", "backup", "cache", "logs"]);
+var VALID_CACHE_SECTIONS = /* @__PURE__ */ new Set(["activities", "devices"]);
+var VALID_BACKUP_SECTIONS = /* @__PURE__ */ new Set(["make", "restore"]);
+var VALID_BLOBS_SECTIONS = /* @__PURE__ */ new Set(["fetch", "test", "save"]);
 function viewStateStorage() {
   try {
     if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
@@ -1315,9 +1412,15 @@ function readPersistedViewState() {
     const parsed = JSON.parse(storage.getItem(VIEW_STATE_STORAGE_KEY) || "{}");
     const selectedHubEntryId = String(parsed?.selectedHubEntryId ?? "").trim() || null;
     const selectedTab = VALID_TABS.has(parsed?.selectedTab) ? parsed.selectedTab : void 0;
+    const openSection = VALID_CACHE_SECTIONS.has(parsed?.openSection) ? parsed.openSection : parsed?.openSection === null ? null : void 0;
+    const openBackupSection = VALID_BACKUP_SECTIONS.has(parsed?.openBackupSection) ? parsed.openBackupSection : void 0;
+    const openBlobsSection = VALID_BLOBS_SECTIONS.has(parsed?.openBlobsSection) ? parsed.openBlobsSection : parsed?.openBlobsSection === null ? null : void 0;
     return {
       selectedHubEntryId,
-      ...selectedTab ? { selectedTab } : {}
+      ...selectedTab ? { selectedTab } : {},
+      ...openSection !== void 0 ? { openSection } : {},
+      ...openBackupSection ? { openBackupSection } : {},
+      ...openBlobsSection !== void 0 ? { openBlobsSection } : {}
     };
   } catch (_error) {
     return {};
@@ -1340,9 +1443,12 @@ var INITIAL_SNAPSHOT = {
   toolsFrontendVersionMismatch: false,
   loading: false,
   loadError: null,
+  backendUnavailable: false,
   selectedHubEntryId: null,
-  selectedTab: "settings",
+  selectedTab: "cache",
   openSection: "activities",
+  openBackupSection: "make",
+  openBlobsSection: "fetch",
   openEntity: null,
   staleData: false,
   refreshBusy: false,
@@ -1370,9 +1476,15 @@ var ControlPanelStore = class {
     this._refreshGraceUntil = 0;
     this._logsUnsub = null;
     this._logsLoadSeq = 0;
+    this._logsSubscribeSeq = 0;
     this._lastObservedGenerations = cacheGenerationSnapshot(null);
     this._lastHassFingerprint = "";
     this._lastConnectionFingerprint = "";
+    this._backendRetryTimer = null;
+    this._backendRetryDelay = BACKEND_RETRY_MIN_MS;
+    this._backupOpUnsub = null;
+    this._backupOpEntryId = null;
+    this._backupOpId = null;
     this._loadedFrontendVersion = normalizeLoadedFrontendVersion(options.loadedFrontendVersion);
     this._snapshot = {
       ...INITIAL_SNAPSHOT,
@@ -1387,7 +1499,10 @@ var ControlPanelStore = class {
     this._isConnected = true;
     if (this._snapshot.hass && !this._snapshot.state && !this._loadingStatePromise) {
       void this.loadState();
+    } else if (this._snapshot.backendUnavailable) {
+      this._scheduleBackendRetry();
     }
+    void this._syncBackupOperationFeed();
     if (this._snapshot.selectedTab === "logs") {
       void this.syncLogsFeed();
     }
@@ -1399,7 +1514,43 @@ var ControlPanelStore = class {
       externalHubCommandBusy: false,
       externalHubCommandLabel: null
     };
-    this.unsubscribeLogs();
+    this._clearBackendRetry();
+    void this._teardownBackupOperationFeed();
+    void this.unsubscribeLogs();
+  }
+  _clearBackendRetry() {
+    if (this._backendRetryTimer) {
+      clearTimeout(this._backendRetryTimer);
+      this._backendRetryTimer = null;
+    }
+    this._backendRetryDelay = BACKEND_RETRY_MIN_MS;
+  }
+  _scheduleBackendRetry() {
+    if (!this._isConnected) return;
+    if (this._backendRetryTimer) return;
+    const delay = this._backendRetryDelay;
+    this._backendRetryDelay = Math.min(BACKEND_RETRY_MAX_MS, Math.round(delay * 1.5));
+    this._backendRetryTimer = setTimeout(() => {
+      this._backendRetryTimer = null;
+      if (!this._isConnected || !this._snapshot.backendUnavailable) return;
+      void this.loadState({ silent: true });
+    }, delay);
+  }
+  _markBackendUnavailable() {
+    const wasUnavailable = this._snapshot.backendUnavailable;
+    this._snapshot = {
+      ...this._snapshot,
+      backendUnavailable: true,
+      loadError: null,
+      logsError: null
+    };
+    if (!wasUnavailable) this._backendRetryDelay = BACKEND_RETRY_MIN_MS;
+    this._scheduleBackendRetry();
+  }
+  _clearBackendUnavailable() {
+    if (!this._snapshot.backendUnavailable) return;
+    this._snapshot = { ...this._snapshot, backendUnavailable: false };
+    this._clearBackendRetry();
   }
   setHass(hass) {
     const previousHass = this._snapshot.hass;
@@ -1445,23 +1596,25 @@ var ControlPanelStore = class {
       externalHubCommandLabel: null
     };
     this.persistViewState();
-    this.unsubscribeLogs();
     this.emit();
-    void this.loadControlPanelState().finally(() => {
-      if (this._snapshot.selectedTab === "logs") void this.syncLogsFeed();
-    });
+    void (async () => {
+      await this._teardownBackupOperationFeed();
+      await this.unsubscribeLogs();
+      await this.loadControlPanelState();
+      await this._syncBackupOperationFeed();
+      if (this._snapshot.selectedTab === "logs") await this.syncLogsFeed();
+    })();
   }
   selectTab(tabId) {
-    const nextTab = tabId === "cache" && !persistentCacheEnabled(this._snapshot) ? "settings" : tabId;
     this._snapshot = {
       ...this._snapshot,
-      selectedTab: nextTab,
-      logsStickToBottom: nextTab === "logs" ? true : this._snapshot.logsStickToBottom,
-      logsScrollBehavior: nextTab === "logs" ? "auto" : this._snapshot.logsScrollBehavior
+      selectedTab: tabId,
+      logsStickToBottom: tabId === "logs" ? true : this._snapshot.logsStickToBottom,
+      logsScrollBehavior: tabId === "logs" ? "auto" : this._snapshot.logsScrollBehavior
     };
     this.persistViewState();
-    if (nextTab === "logs") void this.syncLogsFeed();
-    else this.unsubscribeLogs();
+    if (tabId === "logs") void this.syncLogsFeed();
+    else void this.unsubscribeLogs();
     this.emit();
   }
   toggleSection(sectionId) {
@@ -1470,6 +1623,20 @@ var ControlPanelStore = class {
       openSection: this._snapshot.openSection === sectionId ? null : sectionId,
       openEntity: null
     };
+    this.persistViewState();
+    this.emit();
+  }
+  setBackupSection(sectionId) {
+    if (this._snapshot.openBackupSection === sectionId) return;
+    this._snapshot = { ...this._snapshot, openBackupSection: sectionId };
+    this.persistViewState();
+    this.emit();
+  }
+  toggleBlobsSection(sectionId) {
+    const next = this._snapshot.openBlobsSection === sectionId ? null : sectionId;
+    if (this._snapshot.openBlobsSection === next) return;
+    this._snapshot = { ...this._snapshot, openBlobsSection: next };
+    this.persistViewState();
     this.emit();
   }
   toggleEntity(key) {
@@ -1507,8 +1674,15 @@ var ControlPanelStore = class {
         this.applyControlPanelState(state);
         this._snapshot = { ...this._snapshot, contents };
         this.syncSelection();
+        this._clearBackendUnavailable();
+        await this._syncBackupOperationFeed();
       } catch (error) {
-        this._snapshot = { ...this._snapshot, loadError: formatError(error) };
+        if (isBackendUnavailableError(error, this._snapshot.hass)) {
+          this._markBackendUnavailable();
+        } else {
+          this._snapshot = { ...this._snapshot, loadError: formatError(error), backendUnavailable: false };
+          this._clearBackendRetry();
+        }
       } finally {
         this._loadingStatePromise = null;
         this._snapshot = { ...this._snapshot, loading: false, staleData: false };
@@ -1520,10 +1694,21 @@ var ControlPanelStore = class {
     return this._loadingStatePromise;
   }
   async loadControlPanelState() {
-    const state = await this.api().loadState();
-    this.applyControlPanelState(state);
-    this.syncSelection();
-    this.emit();
+    try {
+      const state = await this.api().loadState();
+      this.applyControlPanelState(state);
+      this.syncSelection();
+      this._clearBackendUnavailable();
+      await this._syncBackupOperationFeed();
+      this.emit();
+    } catch (error) {
+      if (isBackendUnavailableError(error, this._snapshot.hass)) {
+        this._markBackendUnavailable();
+        this.emit();
+        return;
+      }
+      throw error;
+    }
   }
   async loadCacheContents() {
     const contents = await this.api().loadCacheContents();
@@ -1539,18 +1724,10 @@ var ControlPanelStore = class {
     try {
       await this.api().setSetting(hub.entry_id, setting, enabled);
       if (setting === "persistent_cache") {
-        if (!enabled && this._snapshot.selectedTab === "cache") {
-          this._snapshot = { ...this._snapshot, selectedTab: "settings" };
-          await this.loadState();
-          return;
-        }
         if (enabled) await this.loadCacheContents();
         else await this.loadControlPanelState();
       } else {
         await this.loadControlPanelState();
-      }
-      if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
-        this._snapshot = { ...this._snapshot, selectedTab: "settings" };
       }
     } catch (_error) {
       this.applyOptimisticSetting(
@@ -1626,7 +1803,7 @@ var ControlPanelStore = class {
   async syncLogsFeed() {
     const hub = selectedHub(this._snapshot);
     if (!this._isConnected || this._snapshot.selectedTab !== "logs" || !hub) {
-      this.unsubscribeLogs();
+      await this.unsubscribeLogs();
       return;
     }
     const entryId = hub.entry_id;
@@ -1636,22 +1813,33 @@ var ControlPanelStore = class {
       void this.loadHubLogs(entryId);
     }
     if (this._snapshot.logsSubscribedEntryId === entryId) return;
-    this.unsubscribeLogs();
+    await this.unsubscribeLogs();
+    const subscribeSeq = ++this._logsSubscribeSeq;
     this._snapshot = { ...this._snapshot, logsSubscribedEntryId: entryId };
     this.emit();
     try {
       const unsubscribe = await this.api().subscribeLogs(entryId, (payload) => {
+        if (subscribeSeq !== this._logsSubscribeSeq) return;
         if (this._snapshot.logsSubscribedEntryId !== entryId) return;
         this.handleHubLogMessage(entryId, payload);
       });
-      if (this._snapshot.logsSubscribedEntryId !== entryId) {
-        unsubscribe();
+      if (subscribeSeq !== this._logsSubscribeSeq) {
+        try {
+          unsubscribe();
+        } catch {
+        }
         return;
       }
       this._logsUnsub = unsubscribe;
       await this.loadHubLogs(entryId, { preserveLines: true });
     } catch (error) {
-      if (this._snapshot.logsSubscribedEntryId !== entryId) return;
+      if (subscribeSeq !== this._logsSubscribeSeq) return;
+      if (isBackendUnavailableError(error, this._snapshot.hass)) {
+        this._snapshot = { ...this._snapshot, logsSubscribedEntryId: null };
+        this._markBackendUnavailable();
+        this.emit();
+        return;
+      }
       this._snapshot = {
         ...this._snapshot,
         logsError: formatError(error),
@@ -1687,11 +1875,16 @@ var ControlPanelStore = class {
       };
     } catch (error) {
       if (seq !== this._logsLoadSeq) return;
-      this._snapshot = {
-        ...this._snapshot,
-        logsError: formatError(error),
-        logsLoadedEntryId: entryId
-      };
+      if (isBackendUnavailableError(error, this._snapshot.hass)) {
+        this._snapshot = { ...this._snapshot, logsLoadedEntryId: entryId };
+        this._markBackendUnavailable();
+      } else {
+        this._snapshot = {
+          ...this._snapshot,
+          logsError: formatError(error),
+          logsLoadedEntryId: entryId
+        };
+      }
     } finally {
       if (seq !== this._logsLoadSeq) return;
       this._snapshot = { ...this._snapshot, logsLoading: false };
@@ -1722,10 +1915,16 @@ var ControlPanelStore = class {
     void _formatted;
     this.emit();
   }
-  unsubscribeLogs() {
-    this._logsUnsub?.();
+  async unsubscribeLogs() {
+    this._logsSubscribeSeq++;
+    const unsub = this._logsUnsub;
     this._logsUnsub = null;
     this._snapshot = { ...this._snapshot, logsSubscribedEntryId: null };
+    if (!unsub) return;
+    try {
+      await unsub();
+    } catch {
+    }
   }
   applyControlPanelState(state) {
     const expectedVersion = normalizeExpectedFrontendVersion(state?.tools_frontend_version);
@@ -1782,9 +1981,6 @@ var ControlPanelStore = class {
     if (!hubs.some((hub) => hub.entry_id === this._snapshot.selectedHubEntryId)) {
       this._snapshot = { ...this._snapshot, selectedHubEntryId: hubs[0].entry_id };
     }
-    if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
-      this._snapshot = { ...this._snapshot, selectedTab: "settings" };
-    }
     this.persistViewState();
   }
   api() {
@@ -1799,16 +1995,88 @@ var ControlPanelStore = class {
         VIEW_STATE_STORAGE_KEY,
         JSON.stringify({
           selectedHubEntryId: this._snapshot.selectedHubEntryId,
-          selectedTab: this._snapshot.selectedTab
+          selectedTab: this._snapshot.selectedTab,
+          openSection: this._snapshot.openSection,
+          openBackupSection: this._snapshot.openBackupSection,
+          openBlobsSection: this._snapshot.openBlobsSection
         })
       );
     } catch (_error) {
     }
   }
   _isHubCommandBusy() {
+    const hub = selectedHub(this._snapshot);
+    const activeBackupOperation = hub?.active_backup_operation;
+    const backupBusy = !!activeBackupOperation && ["pending", "running"].includes(String(activeBackupOperation.status || ""));
     return Boolean(
-      this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey
+      this._snapshot.refreshBusy || this._snapshot.externalHubCommandBusy || this._snapshot.pendingActionKey || backupBusy
     );
+  }
+  async _syncBackupOperationFeed() {
+    const hub = selectedHub(this._snapshot);
+    const active = hub?.active_backup_operation;
+    const entryId = String(hub?.entry_id || "").trim() || null;
+    const operationId = active && ["pending", "running"].includes(String(active.status || "")) ? String(active.operation_id || "").trim() || null : null;
+    if (!this._isConnected || !entryId || !operationId || !this._snapshot.hass) {
+      await this._teardownBackupOperationFeed();
+      return;
+    }
+    if (this._backupOpEntryId === entryId && this._backupOpId === operationId && this._backupOpUnsub) {
+      return;
+    }
+    await this._teardownBackupOperationFeed();
+    this._backupOpEntryId = entryId;
+    this._backupOpId = operationId;
+    try {
+      const unsubscribe = await this.api().subscribeBackupProgress(operationId, (payload) => {
+        if (this._backupOpId !== operationId || this._backupOpEntryId !== entryId) return;
+        this._applyBackupProgressToSnapshot(entryId, payload);
+        if (!["pending", "running"].includes(String(payload.status || ""))) {
+          void this._teardownBackupOperationFeed();
+        }
+      });
+      if (this._backupOpId !== operationId || this._backupOpEntryId !== entryId) {
+        try {
+          unsubscribe();
+        } catch {
+        }
+        return;
+      }
+      this._backupOpUnsub = unsubscribe;
+    } catch {
+      this._backupOpEntryId = null;
+      this._backupOpId = null;
+      this._backupOpUnsub = null;
+    }
+  }
+  _applyBackupProgressToSnapshot(entryId, payload) {
+    if (!this._snapshot.state) return;
+    const isRunning = ["pending", "running"].includes(String(payload.status || ""));
+    const hubs = this._snapshot.state.hubs.map(
+      (hub) => hub.entry_id === entryId ? {
+        ...hub,
+        active_backup_operation: isRunning ? payload : null
+      } : hub
+    );
+    this._snapshot = {
+      ...this._snapshot,
+      state: {
+        ...this._snapshot.state,
+        hubs
+      }
+    };
+    this.emit();
+  }
+  async _teardownBackupOperationFeed() {
+    const unsub = this._backupOpUnsub;
+    this._backupOpUnsub = null;
+    this._backupOpEntryId = null;
+    this._backupOpId = null;
+    if (!unsub) return;
+    try {
+      await unsub();
+    } catch {
+    }
   }
   emit() {
     this.onChange(this._snapshot);
@@ -1924,7 +2192,7 @@ function createStore() {
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
-test("loadState keeps cache tab unavailable when persistent cache is disabled", async () => {
+test("cache tab is selectable even when persistent cache is disabled", async () => {
   const { store } = createStore();
   store.connected();
   store.setHass(
@@ -1939,7 +2207,7 @@ test("loadState keeps cache tab unavailable when persistent cache is disabled", 
   );
   await store.loadState();
   store.selectTab("cache");
-  assert.equal(store.snapshot.selectedTab, "settings");
+  assert.equal(store.snapshot.selectedTab, "cache");
   assert.equal(store.snapshot.state?.persistent_cache_enabled, false);
 });
 test("loadState restores the most recent hub and tab from local storage", async () => {
@@ -1947,7 +2215,7 @@ test("loadState restores the most recent hub and tab from local storage", async 
     VIEW_STATE_STORAGE_KEY2,
     JSON.stringify({
       selectedHubEntryId: "hub-2",
-      selectedTab: "logs"
+      selectedTab: "blobs"
     })
   );
   const store = new ControlPanelStore(() => void 0, {
@@ -1980,7 +2248,7 @@ test("loadState restores the most recent hub and tab from local storage", async 
   );
   await store.loadState();
   assert.equal(store.snapshot.selectedHubEntryId, "hub-2");
-  assert.equal(store.snapshot.selectedTab, "logs");
+  assert.equal(store.snapshot.selectedTab, "blobs");
 });
 test("loadState falls back to the first available hub when the saved hub no longer exists", async () => {
   globalThis.localStorage?.setItem(
@@ -2035,7 +2303,10 @@ test("selectHub and selectTab persist the updated view state", async () => {
     JSON.parse(globalThis.localStorage?.getItem(VIEW_STATE_STORAGE_KEY2) || "{}"),
     {
       selectedHubEntryId: "hub-2",
-      selectedTab: "wifi_commands"
+      selectedTab: "wifi_commands",
+      openSection: "activities",
+      openBackupSection: "make",
+      openBlobsSection: "fetch"
     }
   );
 });
@@ -2186,4 +2457,14 @@ test("refreshForHub uses entity_id when a matching remote entity exists", async 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].entity_id, "remote.living_room");
   assert.equal(messages[0].entry_id, void 0);
+});
+test("deviceClassIcon maps known cache device classes to the expected icons", () => {
+  assert.equal(deviceClassIcon("ir"), "mdi:remote");
+  assert.equal(deviceClassIcon("bluetooth"), "mdi:bluetooth");
+  assert.equal(deviceClassIcon("wifi_roku"), "mdi:wifi");
+  assert.equal(deviceClassIcon("wifi_hue"), "mdi:wifi");
+  assert.equal(deviceClassIcon("wifi_mqtt"), "mdi:wifi");
+  assert.equal(deviceClassIcon("wifi_ip"), "mdi:wifi");
+  assert.equal(deviceClassIcon("something_else"), "mdi:radio-tower");
+  assert.equal(deviceClassIcon(void 0), "mdi:radio-tower");
 });

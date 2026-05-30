@@ -17,9 +17,27 @@ fetch_device_commands:
           max: 255
           mode: box
 
-dump_ir_commands:
-  name: Dump raw IR commands
-  description: Requests 0x020C [device_id, ff] and returns the parsed raw IR command pages for the selected device.
+play_ir_blob:
+  name: Play IR blob (Test)
+  description: Streams a canonical command blob body to the hub for one-shot playback. Accepts either a raw blob body without the final replay-tail checksum byte or a descriptive protocol string such as P:Sony12 R:40000 D:1 F:18 MUL:2. No data is persisted on the hub.
+  fields:
+    device:
+      name: Sofabaton hub
+      required: true
+      selector:
+        device:
+          integration: sofabaton_x1s
+    blob:
+      name: Blob or descriptor
+      description: Hex string of the canonical blob body without the final replay-tail checksum byte, or a descriptive protocol string beginning with P:. Whitespace and newlines are ignored for hex input.
+      required: true
+      selector:
+        text:
+          multiline: true
+
+persist_ir_blob:
+  name: Persist IR blob
+  description: Adds a new command to an existing IR device by staging the current command ids, uploading a canonical command blob body, and saving it on the hub. Accepts either a raw blob body without the final replay-tail checksum byte or a descriptive protocol string beginning with P:.
   fields:
     device:
       name: Sofabaton hub
@@ -29,8 +47,128 @@ dump_ir_commands:
           integration: sofabaton_x1s
     device_id:
       name: Device id
-      description: Hub device id to dump via 0x020C [device_id, ff].
+      description: Existing IR device id that should receive the new command.
       required: true
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    command_name:
+      name: Command name
+      description: Label to save on the hub for the new command.
+      required: true
+      selector:
+        text:
+    blob:
+      name: Blob or descriptor
+      description: Hex string of the canonical blob body without the final replay-tail checksum byte, or a descriptive protocol string beginning with P:. Whitespace and newlines are ignored for hex input.
+      required: true
+      selector:
+        text:
+          multiline: true
+
+fetch_blob:
+  name: Fetch normalized blob
+  description: Requests 0x020C [device_id, command_id] and returns normalized command blob records. Each record includes the canonical blob body without the final replay-tail checksum byte, the removed checksum byte for debugging, and parsed descriptor text when the blob is descriptive.
+  fields:
+    device:
+      name: Sofabaton hub
+      required: true
+      selector:
+        device:
+          integration: sofabaton_x1s
+    device_id:
+      name: Device id
+      description: Hub device id to fetch via 0x020C [device_id, command_id].
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    command_id:
+      name: Command id
+      description: Optional item id to probe via 0x020C [device_id, command_id]. Omit to request all records with ff.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+
+backup_bundle:
+  name: Backup hub bundle
+  description: >-
+    Returns a hub_bundle JSON payload (schema_version 5). With device_ids
+    omitted, backs up everything (all devices and all activities). With
+    device_ids supplied, backs up just the listed devices (activities are
+    not included; bundles that mix devices with activities are produced
+    only by the whole-hub mode). The bundle is the only backup unit -- per
+    the bundle-backup plan there is no standalone device or activity
+    payload anymore.
+  fields:
+    device:
+      name: Sofabaton hub
+      required: true
+      selector:
+        device:
+          integration: sofabaton_x1s
+    device_ids:
+      name: Device ids
+      description: >-
+        Optional list of device ids (1..255) to back up. Omit (or pass an
+        empty list) to back up the whole hub.
+      required: false
+      selector:
+        object:
+
+restore_backup:
+  name: Restore hub bundle
+  description: >-
+    Restores a hub_bundle JSON payload (schema_version 5). Devices in the
+    bundle are restored first; the action auto-builds the source->new
+    device_id map. Activities in the bundle are then restored using that
+    map. Bundles containing activities require a hub erase first; until
+    erase support ships this fails fast with a clear error and no wire
+    writes.
+  fields:
+    device:
+      name: Sofabaton hub
+      required: true
+      selector:
+        device:
+          integration: sofabaton_x1s
+    backup:
+      name: Backup payload
+      description: Full hub_bundle object returned by the backup_bundle action.
+      required: true
+      selector:
+        object:
+
+dump_ir_commands:
+  name: Dump raw IR commands
+  description: Requests 0x020C [device_id, command_id] and returns the parsed raw command blob pages for the selected device. Leave command_id empty to request all blob records with ff.
+  fields:
+    device:
+      name: Sofabaton hub
+      required: true
+      selector:
+        device:
+          integration: sofabaton_x1s
+    device_id:
+      name: Device id
+      description: Hub device id to dump via 0x020C [device_id, command_id].
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    command_id:
+      name: Command id
+      description: Optional item id to probe via 0x020C [device_id, command_id]. Omit to request all records with ff.
+      required: false
       selector:
         number:
           min: 1

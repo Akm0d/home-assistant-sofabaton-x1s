@@ -109,8 +109,10 @@ def test_manual_flow_bootstraps_default_identity_from_host() -> None:
 
     assert result["type"] == "create_entry"
     assert result["data"]["name"] == "1.2.3.4"
-    assert result["data"]["mdns_version"] == HUB_VERSION_X1
-    assert result["options"]["mdns_version"] == HUB_VERSION_X1
+    # Manual entry has no mDNS advertisement; the variant is resolved
+    # by the post-connect banner, not by config-flow defaults.
+    assert result["data"]["mdns_version"] is None
+    assert result["options"]["mdns_version"] is None
     assert result["data"]["mdns_txt"] == {"MAC": result["data"]["mac"]}
 
 
@@ -168,8 +170,10 @@ def test_manual_flow_formats_entry_title_with_version_host_and_mac() -> None:
     }))
 
     assert result["type"] == "create_entry"
+    # Manual entry has no variant yet; the title falls back to the
+    # ``unknown`` placeholder until the banner repairs it.
     assert result["title"] == format_hub_entry_title(
-        HUB_VERSION_X1,
+        None,
         "192.168.2.181",
         result["data"]["mac"],
     )
@@ -222,7 +226,8 @@ def test_zeroconf_existing_entry_updates_host_only() -> None:
 
 
 def test_format_hub_entry_title_defaults_unknown_values() -> None:
-    assert format_hub_entry_title(None, None, None) == "Sofabaton X1 (unknown / unknown)"
+    # No DEFAULT_HUB_VERSION fallback: ``None`` surfaces as ``unknown``.
+    assert format_hub_entry_title(None, None, None) == "Sofabaton unknown (unknown / unknown)"
 
 
 def test_options_flow_syncs_shared_ports_to_all_hubs() -> None:

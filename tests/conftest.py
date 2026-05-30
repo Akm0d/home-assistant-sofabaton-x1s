@@ -143,6 +143,9 @@ def _install_homeassistant_stubs() -> None:
         def __init__(self, hass, version, key, minor_version=1):
             self._data = None
 
+        def __class_getitem__(cls, item):
+            return cls
+
         async def async_load(self):
             return self._data
 

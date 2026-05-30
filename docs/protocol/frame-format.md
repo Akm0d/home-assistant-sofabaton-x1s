@@ -1,8 +1,8 @@
 # Frame Format
 
 Most protocol messages exchanged over TCP use the same binary frame structure. The
-UDP `CALL_ME` handshake also uses this structure. The app's `NOTIFY_ME` discovery
-probe is best treated as a fixed 5-byte magic probe that happens to match the same
+UDP `CALL_ME` handshake also uses this structure. The `NOTIFY_ME` discovery probe
+is best treated as a fixed 5-byte magic probe that happens to match the same
 sync/opcode/checksum pattern.
 
 ---
@@ -29,8 +29,8 @@ sync/opcode/checksum pattern.
 ### Sync bytes
 
 The two-byte sequence `0xA5 0x5A` marks the start of every frame. Frame boundaries
-are found by scanning for this pair in the byte stream; there is no explicit length
-field in the frame header.
+can be re-synchronized by scanning for this pair in the byte stream, but in normal
+aligned traffic the payload length is already known from `opcode_hi`.
 
 ### Opcode
 
@@ -45,16 +45,45 @@ the **family** identifier — all opcodes that belong to the same logical group 
 device button pages) share the same low byte. See [opcodes.md](opcodes.md) for the
 full opcode list and family table.
 
+### Opcode-hi is the payload length (invariant)
+
+The **high byte of the opcode is always equal to the number of payload bytes**.
+Clients may therefore read exactly `byte[2] + 5` bytes per frame when the stream
+is aligned, with no separate payload-length field. This means:
+
+```
+frame_length = 5 + byte[2]
+             = 5 + opcode_hi
+             = 4 (sync + opcode) + opcode_hi (payload) + 1 (checksum)
+```
+
+Every observed opcode in this codebase obeys the invariant. Examples:
+
+- `OP_REQ_BANNER = 0x0001`     → payload length 0, frame is 5 bytes
+- `OP_X2_REMOTE_LIST = 0x012E` → payload length 1, frame is 6 bytes
+- `OP_REQ_BUTTONS = 0x023C`    → payload length 2, frame is 7 bytes
+- `OP_FIND_REMOTE_X2 = 0x0323` → payload length 3, frame is 8 bytes
+- `OP_X2_REMOTE_SYNC = 0x0464` → payload length 4, frame is 9 bytes
+
+Deframers may either scan for sync (slow path, robust against single-frame
+corruption) or trust `byte[2]` as an O(1) length oracle (fast path, requires
+the stream to actually be aligned at a frame boundary).
+
 ### Payload
 
 Arbitrary bytes specific to each opcode. Some frames have no payload (zero bytes
-between opcode and checksum). The payload length is determined by scanning for the
-next `0xA5 0x5A` sync pair in the byte stream.
+between opcode and checksum). In aligned traffic, payload length is:
+
+```
+payload_length = opcode_hi = byte[2]
+```
+
+Sync scanning is therefore a recovery strategy, not the primary length source.
 
 > **Note:** The hub does not prefix frames with an explicit payload-length field.
-> A deframer must scan the stream for sync bytes to locate frame boundaries. If
-> payload bytes happen to contain `0xA5 0x5A`, the framer must rely on checksum
-> validation to distinguish real sync markers from data.
+> The opcode high byte already gives the payload length. A deframer may still
+> use sync scanning plus checksum validation to recover from corruption or
+> desynchronization.
 
 ### Checksum
 
@@ -83,10 +112,17 @@ CALL_ME frame (UDP discovery, see [connection-flow.md](connection-flow.md)):
 
 ```
 A5 5A          ← sync
-0C C3          ← opcode 0x0CC3 (CALL_ME)
-00 00 00 00    ← reserved / zeroed (6 bytes)
+0C C3          ← opcode 0x0CC3 (CALL_ME; opcode_hi 0x0C = 12 payload bytes)
+00 00 00 00    ← reserved bytes (6 observed zeros in current third-party traffic)
 00 00
-C0 A8 01 64    ← local IP in network byte order (192.168.1.100)
+?? ?? ?? ??    ← local IP (4 bytes). Byte order is ambiguous:
+                 - The HA proxy writes network byte order (e.g.
+                   C0 A8 01 64 for 192.168.1.100, via socket.inet_aton).
+                 - The official app writes the raw little-endian int
+                   returned by Android's WifiManager.getIpAddress().
+                 The hub responds correctly to both, which suggests it
+                 sources the IP from the UDP source-address header rather
+                 than from this field.
 20 08          ← listen port big-endian (0x2008 = 8200)
 ??             ← checksum
 ```

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from custom_components.sofabaton_x1s.diagnostics import _InMemoryLogHandler, _record_matches_entry, async_get_hub_log_lines
 from custom_components.sofabaton_x1s.logging_utils import (
+    LogTag,
     extract_hub_log_entry_id,
     get_hub_logger,
 )
@@ -18,6 +19,20 @@ class _CaptureHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.messages.append(record.getMessage())
+
+
+def test_log_tags_are_canonical_and_unique():
+    tags = LogTag.all()
+    assert tags, "LogTag registry must not be empty"
+    # Every tag is an UPPERCASE, bracket-wrapped token so it is never
+    # mistaken for a hub entry id by extract_hub_log_entry_id.
+    for tag in tags:
+        assert tag.startswith("[") and tag.endswith("]"), tag
+        inner = tag[1:-1]
+        assert inner == inner.upper(), tag
+        assert extract_hub_log_entry_id(f"{tag} message") is None, tag
+    # No accidental duplicates.
+    assert len(tags) == len(set(tags))
 
 
 def test_hub_logger_prefixes_once_and_supports_legacy_placeholder():

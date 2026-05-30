@@ -4,28 +4,80 @@ export const cardStyles = css`
   :host { display: block; }
   *, *::before, *::after { box-sizing: border-box; }
   .card-inner { height: var(--tools-card-height, 600px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--ha-card-border-radius, 12px); }
-  .card-header { flex-shrink: 0; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px 8px; }
+  .card-topbar {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--divider-color) 82%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--primary-color) 8%, var(--ha-card-background, var(--card-background-color))),
+        color-mix(in srgb, var(--primary-color) 4%, var(--ha-card-background, var(--card-background-color)))
+      );
+  }
+  .card-brand {
+    min-width: 0;
+    flex: 1 1 auto;
+    color: color-mix(in srgb, var(--primary-text-color) 94%, var(--secondary-text-color));
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-header-status {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
   .card-title { font-size: 16px; font-weight: 700; }
   .card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; gap: 14px; }
   .tab-panel.scrollable, .acc-body, .logs-console { overflow-y: auto; }
-  .hub-picker-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--divider-color); border-radius: 999px; padding: 4px 10px; background: var(--secondary-background-color, var(--ha-card-background)); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; }
-  .chip-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--secondary-text-color); }
-  .chip-name { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip-arrow { font-size: 10px; color: var(--secondary-text-color); }
-  .hub-picker-dialog { position: fixed; margin: 0; padding: 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18); min-width: 160px; overflow: hidden; }
-  .hub-picker-dialog::backdrop { background: transparent; }
-  .hub-option { padding: 9px 14px; font-size: 13px; cursor: pointer; }
-  .hub-option.selected { font-weight: 600; color: var(--primary-color); }
-  .tabs { flex-shrink: 0; display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--divider-color); }
-  .tab-btn { position: relative; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--secondary-text-color); font: inherit; font-size: 14px; font-weight: 700; padding: 12px 16px 11px; cursor: pointer; }
+  .hub-picker { position: relative; display: flex; flex-direction: column; align-items: flex-start; }
+  .card-topbar > .hub-picker { flex: 0 0 auto; align-items: flex-end; margin-left: 2px; }
+  .hub-picker-btn { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 420px); min-height: 24px; border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent); border-radius: 999px; padding: 0 10px 0 9px; background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 80%, var(--primary-color) 6%); cursor: pointer; font-family: inherit; color: var(--primary-text-color); flex-shrink: 0; user-select: none; -webkit-user-select: none; transition: border-color 120ms ease, background 120ms ease; }
+  .hub-picker-btn:hover { border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color)); }
+  .hub-picker-btn--static { cursor: default; }
+  .chip-prefix { font-size: 9px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, var(--primary-color) 62%, var(--secondary-text-color)); flex-shrink: 0; }
+  .chip-name { font-size: 11px; font-weight: 700; flex: 1; min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-arrow { --mdc-icon-size: 13px; color: var(--secondary-text-color); flex-shrink: 0; transform: rotate(180deg); }
+  .hub-picker-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; display: flex; flex-direction: column; width: max-content; min-width: 160px; max-width: min(320px, calc(100vw - 24px)); margin: 0; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); background: var(--card-background-color, var(--ha-card-background, white)); color: var(--primary-text-color); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
+  .hub-option, .tab-menu-item { width: 100%; border: none; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer; user-select: none; -webkit-user-select: none; }
+  .hub-option { padding: 10px 14px; font-size: 13px; }
+  .hub-option:hover, .tab-menu-item:hover { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
+  .hub-option.selected, .tab-menu-item.active { font-weight: 700; color: var(--primary-color); }
+  .tabs { flex-shrink: 0; display: flex; align-items: stretch; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--divider-color); }
+  .tabs-scroll { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; }
+  .tab-btn { position: relative; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--secondary-text-color); font: inherit; font-size: 14px; font-weight: 700; padding: 12px 16px 11px; cursor: pointer; user-select: none; -webkit-user-select: none; }
   .tab-btn--push-right { margin-left: auto; }
+  .tab-btn--menu { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; }
+  .tab-btn--menu.is-open { color: var(--primary-color); }
+  .tab-btn-menu-icon { --mdc-icon-size: 16px; }
+  .tab-btn-menu-caret { --mdc-icon-size: 18px; margin-right: -2px; }
   .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
   .tab-btn.tab-disabled { color: var(--disabled-text-color, var(--secondary-text-color)); opacity: 0.45; cursor: default; }
   .tab-btn-label-short { display: none; }
+  .tab-menu { position: relative; display: flex; }
+  .tab-menu--push-right { margin-left: auto; }
+  .tab-menu-dropdown { position: absolute; top: calc(100% + 1px); right: 0; z-index: 15; display: flex; flex-direction: column; min-width: 150px; padding: 4px 0; border: 1px solid var(--divider-color); border-radius: calc(var(--ha-card-border-radius, 12px) - 2px); background: var(--card-background-color, var(--ha-card-background, white)); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); overflow: hidden; }
+  .tab-menu-item { padding: 10px 14px; font-size: 13px; }
   .logs-panel { gap: 10px; }
   .logs-header, .hub-hero { display: grid; }
   .logs-header { gap: 4px; }
+  .logs-title-row { display: flex; align-items: center; gap: 10px; }
+  .logs-title-row .acc-header-icon { color: var(--primary-color); display: inline-flex; flex: 0 0 auto; }
+  .logs-title-row .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
   .logs-subtitle, .logs-empty, .cache-state, .entity-count, .refresh-list-label, .stale-banner { color: var(--secondary-text-color); }
   .logs-console { flex: 1; min-height: 0; border: 1px solid color-mix(in srgb, var(--primary-text-color) 14%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 2px); background: radial-gradient(circle at top, color-mix(in srgb, var(--primary-color) 6%, transparent), transparent 45%), color-mix(in srgb, #05070b 92%, var(--card-background-color, #fff)); font-family: "SF Mono", "Fira Code", Consolas, monospace; padding: 10px 0; user-select: text; -webkit-user-select: text; }
   .logs-empty { padding: 12px 14px; font-size: 12px; }
@@ -71,14 +123,67 @@ export const cardStyles = css`
   .hub-tab-layout > .tab-panel { flex: 1; }
   .panel-sticky-footer { flex-shrink: 0; border-top: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color)); }
   .bottom-dock-status { width: 100%; display: flex; align-items: stretch; justify-content: center; }
-  .dock-seg { display: inline-flex; align-items: center; gap: 5px; padding: 10px 14px; font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; }
-  .dock-sep { width: 1px; background: var(--divider-color); flex-shrink: 0; margin: 8px 0; }
-  .dock-seg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: currentColor; }
-  .dock-seg--hub-on { color: #48b851; }
-  .dock-seg--app-on { color: #67b7ff; }
-  .dock-seg--off { color: var(--secondary-text-color); opacity: 0.5; }
-  .dock-seg--version { color: var(--secondary-text-color); gap: 4px; }
-  .dock-version-icon { --mdc-icon-size: 13px; flex-shrink: 0; }
+  .dock-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--divider-color) 84%, transparent);
+    background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, transparent);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .dock-pill--hub-on {
+    color: #2f9f43;
+    border-color: color-mix(in srgb, #48b851 40%, var(--divider-color));
+    background: color-mix(in srgb, #48b851 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--hub-off {
+    color: #c13d3d;
+    border-color: color-mix(in srgb, #db4437 42%, var(--divider-color));
+    background: color-mix(in srgb, #db4437 10%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-on {
+    color: #2f80d8;
+    border-color: color-mix(in srgb, #67b7ff 42%, var(--divider-color));
+    background: color-mix(in srgb, #67b7ff 12%, var(--ha-card-background, var(--card-background-color)));
+  }
+  .dock-pill--app-off {
+    color: color-mix(in srgb, var(--secondary-text-color) 78%, transparent);
+    border-color: color-mix(in srgb, var(--divider-color) 88%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+  }
+  .card-blocked-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 32px;
+    text-align: center;
+  }
+  .card-blocked-icon {
+    display: inline-flex;
+    color: color-mix(in srgb, var(--warning-color, var(--primary-color)) 75%, var(--secondary-text-color));
+  }
+  .card-blocked-icon ha-icon { --mdc-icon-size: 40px; }
+  .card-blocked-title {
+    color: var(--primary-text-color);
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .card-blocked-copy {
+    max-width: 360px;
+    color: var(--secondary-text-color);
+    font-size: 13px;
+    line-height: 1.6;
+  }
   .dock-status-value { font-weight: 700; font-family: "SF Mono", "Fira Code", Consolas, monospace; }
   .settings-list { border: 1px solid color-mix(in srgb, var(--primary-text-color) 14%, var(--divider-color)); border-radius: calc(var(--ha-card-border-radius, 12px) + 4px); overflow: hidden; }
   .setting-tile { min-height: 52px; display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; background: var(--ha-card-background, var(--card-background-color, #fff)); border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color)); }
@@ -97,8 +202,11 @@ export const cardStyles = css`
   .accordion-section { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--divider-color); }
   .accordion-section:first-child { border-top: none; }
   .accordion-section.open { flex: 1; }
-  .acc-header { flex-shrink: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; cursor: pointer; user-select: none; transition: background-color 120ms ease; }
+  .acc-header { flex-shrink: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; cursor: pointer; user-select: none; transition: background-color 120ms ease; }
   .acc-header:hover { background: color-mix(in srgb, var(--primary-color) 6%, var(--ha-card-background, var(--card-background-color))); }
+  .acc-header-icon { color: var(--secondary-text-color); display: inline-flex; flex: 0 0 auto; transition: color 120ms ease; }
+  .acc-header-icon ha-icon { --mdc-icon-size: 18px; }
+  .accordion-section.open .acc-header-icon { color: var(--primary-color); }
   .acc-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--secondary-text-color); }
   .badge, .id-badge { border: 1px solid var(--divider-color); border-radius: 999px; }
   .badge { font-size: 11px; padding: 1px 7px; }
@@ -117,7 +225,10 @@ export const cardStyles = css`
   .entity-summary { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px; cursor: pointer; user-select: none; border-radius: var(--ha-card-border-radius, 12px); transition: background-color 120ms ease; }
   .entity-summary:hover { background: color-mix(in srgb, var(--primary-color) 5%, var(--secondary-background-color, var(--ha-card-background))); }
   .entity-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-  .entity-name { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entity-name { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .entity-name-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--state-icon-color, var(--secondary-text-color)); flex-shrink: 0; }
+  .entity-name-icon ha-icon { --mdc-icon-size: 16px; }
+  .entity-name-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entity-body { display: none; }
   .entity-block.open .entity-body { display: block; }
   .entity-block.open > .entity-summary { position: sticky; top: 0; z-index: 2; background: var(--secondary-background-color, var(--ha-card-background)); border-bottom: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; }
@@ -138,6 +249,16 @@ export const cardStyles = css`
   .cache-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px 16px; text-align: center; font-size: 13px; line-height: 1.6; }
   .cache-state-icon { font-size: 32px; line-height: 1; margin-bottom: 4px; }
   .cache-state-sub { font-size: 12px; line-height: 1.5; max-width: 260px; }
+  .cache-enable-state { gap: 14px; max-width: 360px; margin: 0 auto; }
+  .cache-enable-state .cache-state-title { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+  .cache-enable-state .cache-state-sub { font-size: 13px; color: var(--secondary-text-color); max-width: 320px; }
+  .cache-enable-icon { width: 64px; height: 64px; display: grid; place-items: center; border-radius: var(--ha-card-border-radius, 12px); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); margin-bottom: 4px; }
+  .cache-enable-icon ha-icon { --mdc-icon-size: 34px; }
+  .cache-enable-btn { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 12px 22px; border-radius: var(--ha-card-border-radius, 12px); border: 1px solid color-mix(in srgb, var(--primary-color) 60%, var(--divider-color)); background: color-mix(in srgb, var(--primary-color) 22%, var(--ha-card-background, var(--card-background-color))); color: var(--primary-text-color); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease; box-shadow: 0 4px 14px color-mix(in srgb, var(--primary-color) 22%, transparent); }
+  .cache-enable-btn:hover:not(:disabled) { transform: translateY(-1px); background: color-mix(in srgb, var(--primary-color) 28%, var(--ha-card-background, var(--card-background-color))); border-color: var(--primary-color); box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 28%, transparent); }
+  .cache-enable-btn:active:not(:disabled) { transform: translateY(0); }
+  .cache-enable-btn:disabled { opacity: 0.55; cursor: default; transform: none; box-shadow: none; }
+  .cache-enable-btn ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
   .version-mismatch-state { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; padding: 24px 32px 40px; }
   .version-mismatch-header { display: flex; align-items: flex-start; gap: 14px; }
   .version-mismatch-icon { flex-shrink: 0; display: inline-flex; padding-top: 3px; color: var(--warning-color, #ff9800); }
@@ -181,6 +302,8 @@ export const cardStyles = css`
   .hub-compact-stat-label { font-size: 11px; color: var(--secondary-text-color); font-weight: 500; }
   .hub-compact-divider { width: 1px; height: 36px; background: color-mix(in srgb, var(--primary-text-color) 10%, var(--divider-color)); flex-shrink: 0; }
   @media (max-width: 640px) {
+    .tabs-scroll { overflow-x: auto; scrollbar-width: none; }
+    .tabs-scroll::-webkit-scrollbar { display: none; }
     .tab-btn-label-short { display: inline; }
     .tab-btn--has-short-label .tab-btn-label { display: none; }
     .hub-connection-strip { grid-template-columns: auto minmax(14px, 1fr) auto minmax(14px, 1fr) auto; gap: 6px; padding: 8px 10px; }
@@ -189,5 +312,11 @@ export const cardStyles = css`
     .hub-ident-name { font-size: 15px; }
     .hub-compact-stats { display: none; }
     .entity-chevron { display: none; }
+    .card-topbar { padding: 4px 8px; gap: 6px; }
+    .hub-picker-btn { max-width: min(100vw - 32px, 320px); }
+    .chip-name { max-width: 220px; }
+    .card-header-status { gap: 4px; }
+    .dock-pill { min-height: 20px; padding: 0 6px; font-size: 9px; }
+    .card-brand { font-size: 9px; letter-spacing: 0.1em; }
   }
 `;

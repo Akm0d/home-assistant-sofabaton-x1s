@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Any, Dict
 
 # Frame markers used by the hub protocol
 SYNC0, SYNC1 = 0xA5, 0x5A
+
+# Frame invariant: opcode_hi == payload_length
+# ---------------------------------------------
+# The byte at offset [2] (which is also the high byte of the 16-bit BE opcode)
+# equals the number of payload bytes between the opcode and the checksum.
+# Total frame length is therefore always `5 + (opcode >> 8)`.
+#
+# Companion-client framing relies on this directly instead of
+# sync-scanning. Every opcode in this file obeys the invariant; if you
+# add a new opcode constant whose high byte does not match the payload size in
+# the comment, suspect the comment first.
+#
+# Example: OP_REQ_BUTTONS = 0x023C carries a 2-byte payload [act_lo, 0xFF];
+# the frame is 7 bytes total: A5 5A 02 3C XX XX SUM.
 
 
 class ButtonName:
@@ -52,16 +66,28 @@ BUTTONNAME_BY_CODE = {
 }
 
 
-# A→H requests (from app/client to hub)
+# A→H requests (from client to hub)
 OP_REQ_BANNER = 0x0001  # yields family-0x02 banner reply with model/batch/hub-fw
 OP_REQ_DEVICES = 0x000A  # yields CATALOG_ROW_DEVICE rows (0xD50B)
 OP_REQ_ACTIVITIES = 0x003A  # yields CATALOG_ROW_ACTIVITY rows (0xD53B)
 OP_REQ_BUTTONS = 0x023C  # payload: [act_lo, 0xFF]
 OP_REQ_COMMANDS = 0x025C  # payload: [dev_lo, cmd] (1-byte) or [dev_lo, 0xFF] for full list
+OP_REQ_BLOB = 0x020C  # payload: [dev_lo, item_lo] or [dev_lo, 0xFF] for full blob/object dump
 OP_REQ_ACTIVATE = 0x023F  # payload: [id_lo, key_code] (activity or device ID)
 OP_REQ_ACTIVITY_MAP = 0x016C  # payload: [act_lo] request activity favorites mapping (X1)
 OP_DELETE_DEVICE = 0x0109  # payload: [dev_lo] delete an existing device (observed X1)
+OP_SET_HUB_NAME = 0x0030  # payload: GB2312-encoded hub name bytes
+FAMILY_HUB_NAME_REPLY = 0x31  # H→A variable-length hub-name reply family
 OP_FIND_REMOTE = 0x0023  # payload: [0x01] to trigger remote buzzer
+OP_ERASE_CONFIGURATION = 0x001D  # payload: empty; wipes all devices/activities/macros/favorites/inputs.
+# Identical across X1, X1S, X2. The hub commonly disconnects after the ack; clients
+# must reconnect and re-fetch the catalogs from scratch. See docs/protocol/erase.md.
+# NOTE: opcode_hi=0x00 contradicts the documented 1-byte payload (frame
+# invariant says payload length == opcode_hi). Two possibilities:
+#   - The actual opcode is 0x0123 (1-byte payload) and was mis-recorded, or
+#   - The payload is empty and the "[0x01]" in this comment is wrong.
+# The X2 variant OP_FIND_REMOTE_X2 = 0x0323 correctly has a 3-byte payload.
+# Worth verifying against a captured X1/X1S buzzer frame.
 OP_FIND_REMOTE_X2 = 0x0323  # payload: [0x00, 0x00, 0x08] observed on X2 hubs
 OP_REMOTE_SYNC = 0x0064  # payload: empty; force remote<->hub sync on X1/X1S
 OP_X2_REMOTE_LIST = 0x012E  # payload: [0x00]; request connected remotes on X2
@@ -74,7 +100,35 @@ OP_PREPARE_SAVE = 0x4102  # payload triggers save transaction start
 OP_FINALIZE_DEVICE = 0x4677
 OP_DEVICE_SAVE_HEAD = 0x8D5D  # hub assigns device id
 OP_SAVE_COMMIT = 0x6501
+# ACK family — dispatch by opcode-lo only
+# ----------------------------------------
+# ACK dispatch reads
+# opcode-lo and ignores opcode-hi entirely when classifying ACKs.
+# Because of the opcode-hi == payload-length invariant, `0x0103`, `0x0203`,
+# `0x0303`, etc. are all the **same** "status ack" family with progressively
+# larger payloads — only the payload-0 byte is the verdict.
+#
+# Success/failure rule (binary):
+#   payload[0] == 0x00  →  success
+#   payload[0] != 0x00  →  failure
+#
+# Other ACK / event opcode-lo families observed in the dispatcher:
+#   0x15  batch-resume cursor: `cursor = BE(payload[1..4]) - 1`, re-emit
+#   0x3E  bare progression ack (no status byte; just "advance")
+#   0x42  device power-state / idle-behavior reply family (status byte at payload offset 1)
+#   0x45  one-shot status return (status byte at payload offset 1)
+#   0x57  one-shot status return (status byte at payload offset 2)
+#   0x60  ACK_READY family — posts "activity_update" event globally
+#   0x67  OTA-update push event from hub
+#
+# `ACK_SUCCESS = 0x0301` and `OP_STATUS_ACK = 0x0103` are both opcode-lo 0x03;
+# they are the same family with different payload widths. The naming is
+# retained for backward compatibility but the dispatcher logic should treat
+# any opcode with low byte 0x03 as a status frame.
 ACK_SUCCESS = 0x0301
+OP_STATUS_ACK = 0x0103  # H→A generic status/ack frame; payload[0] carries the status byte
+# Status-ack family identifier (low byte). Use `opcode & 0xFF == FAMILY_STATUS_ACK`.
+FAMILY_STATUS_ACK = 0x03
 
 # IP command synchronization (existing devices)
 OP_REQ_IPCMD_SYNC = 0x0C02
@@ -130,9 +184,10 @@ OP_ACTIVITY_MAP_PAGE = 0x7B6D
 
 # noise we're not using (kept for reference)
 OP_REQ_VERSION = 0x0058  # yields WIFI_FW (0x0359) then INFO_BANNER (0x112F)
-OP_PING2 = 0x0140
+OP_REQ_IDLE_BEHAVIOR = 0x0140  # payload: [dev_lo]; query device idle/power behavior
 OP_REQ_ACTIVITY_INPUTS = 0x0148  # payload: [0x01] request activity input candidates
-OP_PING2_ACK = 0x0242  # H→A keepalive response observed on X1S/X2
+OP_SET_IDLE_BEHAVIOR = 0x0241  # payload: [dev_lo, mode]; update device idle/power behavior
+OP_IDLE_BEHAVIOR = 0x0242  # H→A payload: [dev_lo, mode] current device idle/power behavior
 OP_ACTIVITY_DEVICE_CONFIRM = 0x024F  # payload: [dev_lo, include_flag]
 OP_REQ_MACRO_LABELS = 0x024D  # payload: [act_lo, 0xFF]
 OP_REQ_MACROS = OP_REQ_MACRO_LABELS  # backward-compat alias
@@ -145,11 +200,16 @@ OP_ACTIVITY_INPUTS_PAGE_B = 0xC947  # H→A final activity-input candidates page
 OP_ACTIVITY_ASSIGN_FINALIZE = 0xD538  # A→H post-macro activity assignment save (X1S/X2)
 OP_ACTIVITY_ASSIGN_COMMIT = 0x0265  # A→H post-save commit marker (observed on X2)
 OP_ACTIVITY_CONFIRM = 0x7B38  # A→H activity confirmation row write (observed X1)
+OP_ACTIVITY_CREATE_ACK = 0x0137  # H→A assigned activity id after family-0x37 create write (X1)
 OP_ACTIVITY_MAP_PAGE_X1S = 0xD56D  # H→A activity mapping page variant (X1S/X2)
 OP_BANNER = 0x1D02  # representative family-0x02 banner reply with hub ident/name/batch/fw
 OP_WIFI_FW = 0x0359  # WiFi firmware ver (Vx.y.z)
 OP_INFO_BANNER = 0x112F  # vendor tag, batch date, remote fw byte, etc.
 
+
+# Backward-compatible aliases retained for older call sites and docs.
+OP_PING2 = OP_REQ_IDLE_BEHAVIOR
+OP_PING2_ACK = OP_IDLE_BEHAVIOR
 
 OPNAMES: Dict[int, str] = {
     OP_CALL_ME: "CALL_ME",
@@ -158,10 +218,13 @@ OPNAMES: Dict[int, str] = {
     OP_REQ_DEVICES: "REQ_DEVICES",
     OP_REQ_BUTTONS: "REQ_BUTTONS",
     OP_REQ_COMMANDS: "REQ_COMMANDS",
+    OP_REQ_BLOB: "REQ_BLOB",
     OP_REQ_ACTIVATE: "REQ_ACTIVATE",
     OP_REQ_ACTIVITY_MAP: "REQ_ACTIVITY_MAP",
     OP_DELETE_DEVICE: "DELETE_DEVICE",
+    OP_SET_HUB_NAME: "SET_HUB_NAME",
     OP_FIND_REMOTE: "FIND_REMOTE",
+    OP_ERASE_CONFIGURATION: "ERASE_CONFIGURATION",
     OP_FIND_REMOTE_X2: "FIND_REMOTE_X2",
     OP_REMOTE_SYNC: "REMOTE_SYNC",
     OP_X2_REMOTE_LIST: "X2_REMOTE_LIST",
@@ -180,6 +243,8 @@ OPNAMES: Dict[int, str] = {
     OP_IPCMD_ROW_C: "IPCMD_ROW_C",
     OP_IPCMD_ROW_D: "IPCMD_ROW_D",
     ACK_SUCCESS: "ACK_SUCCESS",
+    OP_STATUS_ACK: "STATUS_ACK",
+    OP_ACTIVITY_CREATE_ACK: "ACTIVITY_CREATE_ACK",
     OP_ACK_READY: "ACK_READY",
     OP_MARKER: "REQ_BUTTONS_MARKER_X1S_X2",
     OP_CATALOG_ROW_DEVICE: "CATALOG_ROW_DEVICE",
@@ -224,7 +289,7 @@ OPNAMES: Dict[int, str] = {
     OP_MACROS_B2: "MACROS_B2",
     OP_ACTIVITY_DEVICE_CONFIRM: "ACTIVITY_DEVICE_CONFIRM",
     OP_REQ_ACTIVITY_INPUTS: "REQ_ACTIVITY_INPUTS",
-    OP_PING2_ACK: "PING2_ACK",
+    OP_IDLE_BEHAVIOR: "IDLE_BEHAVIOR",
     OP_REQ_MACRO_LABELS: "REQ_MACRO_LABELS",
     OP_ACTIVITY_INPUTS_PAGE_A: "ACTIVITY_INPUTS_PAGE_A",
     OP_ACTIVITY_INPUTS_PAGE_B: "ACTIVITY_INPUTS_PAGE_B",
@@ -233,7 +298,8 @@ OPNAMES: Dict[int, str] = {
     OP_ACTIVITY_CONFIRM: "ACTIVITY_CONFIRM",
     OP_ACTIVITY_MAP_PAGE_X1S: "ACTIVITY_MAP_PAGE_X1S",
     OP_REQ_VERSION: "REQ_VERSION",
-    OP_PING2: "PING2",
+    OP_REQ_IDLE_BEHAVIOR: "REQ_IDLE_BEHAVIOR",
+    OP_SET_IDLE_BEHAVIOR: "SET_IDLE_BEHAVIOR",
 }
 
 
@@ -256,6 +322,7 @@ def opcode_family(opcode: int) -> int:
 
 
 # Known opcode families (low byte) grouped by semantic row/page type
+FAMILY_STATUS_ACK = 0x03  # generic status / ack responses
 FAMILY_DEV_ROW = 0x0B  # device catalog rows (OP_CATALOG_ROW_DEVICE, OP_X1_DEVICE)
 FAMILY_ACT_ROW = 0x3B  # activity catalog rows (OP_CATALOG_ROW_ACTIVITY, OP_X1_ACTIVITY)
 FAMILY_MACROS = 0x13  # macro pages (OP_MACROS_A1/B1/A2/B2)
@@ -266,6 +333,147 @@ FAMILY_DEVBTNS = 0x5D  # device button pages (header, body, tail, variants)
 FAMILY_FAV_DELETE = 0x10      # A→H: delete a single favorite from an activity (opcode 0x0210)
 FAMILY_FAV_ORDER_REQ = 0x62   # A→H: request current favorites ordering (opcode 0x0162)
 FAMILY_FAV_ORDER_RESP = 0x63  # H→A: hub returns current favorites ordering (opcode variable)
+
+FAMILY_KEY_SORT_REQ = 0x62
+FAMILY_KEY_SORT_RESP = 0x63
+
+# IR blob playback.
+# Each frame carries a 247-byte slice of a single contiguous body buffer.
+# The body buffer is laid out as:
+#   body[0]     = 0x01
+#   body[1..2]  = total_pages BE
+#   body[3..5]  = 0x00 0x00 0x00
+#   body[6..11] = 0x00 * 6
+#   body[12..]  = library_data
+#   body[-1]    = sum8 over the preceding bytes
+# Every wire frame prepends a 3-byte page header [0x01, 0x00, page_no_lo] to
+# its slice. Frame opcode_hi is the resulting payload length (full chunks are
+# OP_FA0F = 250B payload).
+FAMILY_PLAY_BLOB = 0x0F
+PLAY_BLOB_MAX_PAYLOAD = 0xFA          # 250B — full-chunk payload size
+PLAY_BLOB_PAGE_HEADER_LEN = 3         # [0x01, 0x00, page_no_lo] preface per frame
+PLAY_BLOB_BODY_HEADER_LEN = 12        # body bytes preceding library_data
+PLAY_BLOB_CHUNK_SIZE = PLAY_BLOB_MAX_PAYLOAD - PLAY_BLOB_PAGE_HEADER_LEN  # 247B body slice per frame
+
+FAMILY_NAMES: Dict[int, str] = {
+    FAMILY_STATUS_ACK: "STATUS_ACK",
+    FAMILY_HUB_NAME_REPLY: "HUB_NAME_REPLY",
+    FAMILY_DEV_ROW: "DEVICE_ROW",
+    FAMILY_PLAY_BLOB: "PLAY_BLOB",
+    FAMILY_FAV_DELETE: "FAV_DELETE",
+    FAMILY_MACROS: "MACROS",
+    FAMILY_KEYMAP: "KEYMAP",
+    FAMILY_ACT_ROW: "ACTIVITY_ROW",
+    FAMILY_DEVBTNS: "COMMANDS",
+    FAMILY_FAV_ORDER_REQ: "FAV_ORDER_REQ",
+    FAMILY_FAV_ORDER_RESP: "FAV_ORDER_RESP",
+}
+
+
+DEVICE_CLASS_IR = "ir"
+DEVICE_CLASS_BLUETOOTH = "bluetooth"
+DEVICE_CLASS_WIFI_HUE = "wifi_hue"
+DEVICE_CLASS_WIFI_ROKU = "wifi_roku"
+DEVICE_CLASS_WIFI_IP = "wifi_ip"
+DEVICE_CLASS_WIFI_MQTT = "wifi_mqtt"
+DEVICE_CLASS_WIFI_SONOS = "wifi_sonos"
+DEVICE_CLASS_RF_315 = "rf_315mhz"
+DEVICE_CLASS_RF_433 = "rf_433mhz"
+
+DEVICE_CLASS_CODE_BLUETOOTH = 0x03
+DEVICE_CLASS_CODE_WIFI_ROKU = 0x0A
+DEVICE_CLASS_CODE_IR = 0x0D
+DEVICE_CLASS_CODE_WIFI_HUE = 0x1A
+DEVICE_CLASS_CODE_WIFI_IP = 0x1C
+DEVICE_CLASS_CODE_WIFI_MQTT = 0x20
+
+DEVICE_CLASS_BY_CODE: Dict[int, str] = {
+    DEVICE_CLASS_CODE_BLUETOOTH: DEVICE_CLASS_BLUETOOTH,
+    DEVICE_CLASS_CODE_WIFI_ROKU: DEVICE_CLASS_WIFI_ROKU,
+    DEVICE_CLASS_CODE_IR: DEVICE_CLASS_IR,
+    DEVICE_CLASS_CODE_WIFI_HUE: DEVICE_CLASS_WIFI_HUE,
+    DEVICE_CLASS_CODE_WIFI_IP: DEVICE_CLASS_WIFI_IP,
+    DEVICE_CLASS_CODE_WIFI_MQTT: DEVICE_CLASS_WIFI_MQTT,
+}
+
+DEVICE_CLASS_ALIASES: Dict[str, str] = {
+    "bt": DEVICE_CLASS_BLUETOOTH,
+    "bluetooth": DEVICE_CLASS_BLUETOOTH,
+    "device_type_bluetooth": DEVICE_CLASS_BLUETOOTH,
+    "hue": DEVICE_CLASS_WIFI_HUE,
+    "ip": DEVICE_CLASS_WIFI_IP,
+    "ir": DEVICE_CLASS_IR,
+    "rf": DEVICE_CLASS_RF_433,
+    "rf/315": DEVICE_CLASS_RF_315,
+    "rf/433": DEVICE_CLASS_RF_433,
+    "rf315": DEVICE_CLASS_RF_315,
+    "rf315mhz": DEVICE_CLASS_RF_315,
+    "rf_315": DEVICE_CLASS_RF_315,
+    "rf_315mhz": DEVICE_CLASS_RF_315,
+    "rf433": DEVICE_CLASS_RF_433,
+    "rf433mhz": DEVICE_CLASS_RF_433,
+    "rf_433": DEVICE_CLASS_RF_433,
+    "rf_433mhz": DEVICE_CLASS_RF_433,
+    "roku": DEVICE_CLASS_WIFI_ROKU,
+    "sonos": DEVICE_CLASS_WIFI_SONOS,
+    "mqtt": DEVICE_CLASS_WIFI_MQTT,
+    "315": DEVICE_CLASS_RF_315,
+    "315mhz": DEVICE_CLASS_RF_315,
+    "433": DEVICE_CLASS_RF_433,
+    "433mhz": DEVICE_CLASS_RF_433,
+    "virtual_http": DEVICE_CLASS_WIFI_IP,
+    "wifi/hue": DEVICE_CLASS_WIFI_HUE,
+    "wifi/ip": DEVICE_CLASS_WIFI_IP,
+    "wifi/mqtt": DEVICE_CLASS_WIFI_MQTT,
+    "wifi/roku": DEVICE_CLASS_WIFI_ROKU,
+    "wifi/sonos": DEVICE_CLASS_WIFI_SONOS,
+    "wifi_hue": DEVICE_CLASS_WIFI_HUE,
+    "wifi_ip": DEVICE_CLASS_WIFI_IP,
+    "wifi_mqtt": DEVICE_CLASS_WIFI_MQTT,
+    "wifi_roku": DEVICE_CLASS_WIFI_ROKU,
+    "wifi_sonos": DEVICE_CLASS_WIFI_SONOS,
+}
+
+PUBLIC_DEVICE_CLASSES: tuple[str, ...] = (
+    DEVICE_CLASS_IR,
+    DEVICE_CLASS_BLUETOOTH,
+    DEVICE_CLASS_WIFI_HUE,
+    DEVICE_CLASS_WIFI_ROKU,
+    DEVICE_CLASS_WIFI_IP,
+    DEVICE_CLASS_WIFI_MQTT,
+    DEVICE_CLASS_WIFI_SONOS,
+    DEVICE_CLASS_RF_315,
+    DEVICE_CLASS_RF_433,
+)
+
+
+def classify_device_class_code(device_class_code: Any) -> str | None:
+    """Map an observed device-class code to a stable normalized string."""
+
+    try:
+        code = int(device_class_code) & 0xFF
+    except (TypeError, ValueError):
+        return None
+    return DEVICE_CLASS_BY_CODE.get(code)
+
+
+def normalize_device_class(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    return DEVICE_CLASS_ALIASES.get(text, text)
+
+
+def known_public_device_classes() -> tuple[str, ...]:
+    """Return the normalized public device classes we intentionally model."""
+
+    return PUBLIC_DEVICE_CLASSES
+
+
+def opcode_family_name(opcode: int) -> str | None:
+    """Return a human-friendly name for an opcode family, if known."""
+
+    return FAMILY_NAMES.get(opcode_family(opcode))
 
 
 def group_known_opcodes_by_family() -> dict[int, list[str]]:
@@ -287,14 +495,37 @@ __all__ = [
     "SYNC1",
     "ButtonName",
     "BUTTONNAME_BY_CODE",
+    "DEVICE_CLASS_IR",
+    "DEVICE_CLASS_BLUETOOTH",
+    "DEVICE_CLASS_WIFI_HUE",
+    "DEVICE_CLASS_WIFI_ROKU",
+    "DEVICE_CLASS_WIFI_IP",
+    "DEVICE_CLASS_WIFI_MQTT",
+    "DEVICE_CLASS_WIFI_SONOS",
+    "DEVICE_CLASS_RF_315",
+    "DEVICE_CLASS_RF_433",
+    "DEVICE_CLASS_CODE_BLUETOOTH",
+    "DEVICE_CLASS_CODE_WIFI_ROKU",
+    "DEVICE_CLASS_CODE_IR",
+    "DEVICE_CLASS_CODE_WIFI_HUE",
+    "DEVICE_CLASS_CODE_WIFI_IP",
+    "DEVICE_CLASS_CODE_WIFI_MQTT",
+    "DEVICE_CLASS_BY_CODE",
+    "DEVICE_CLASS_ALIASES",
+    "PUBLIC_DEVICE_CLASSES",
+    "classify_device_class_code",
+    "known_public_device_classes",
+    "normalize_device_class",
     "OP_REQ_BANNER",
     "OP_REQ_DEVICES",
     "OP_REQ_ACTIVITIES",
     "OP_REQ_BUTTONS",
     "OP_REQ_COMMANDS",
+    "OP_REQ_BLOB",
     "OP_REQ_ACTIVATE",
     "OP_REQ_ACTIVITY_MAP",
     "OP_DELETE_DEVICE",
+    "OP_SET_HUB_NAME",
     "OP_FIND_REMOTE",
     "OP_FIND_REMOTE_X2",
     "OP_REMOTE_SYNC",
@@ -309,6 +540,7 @@ __all__ = [
     "OP_DEVICE_SAVE_HEAD",
     "OP_SAVE_COMMIT",
     "ACK_SUCCESS",
+    "OP_STATUS_ACK",
     "OP_REQ_IPCMD_SYNC",
     "OP_IPCMD_ROW_A",
     "OP_IPCMD_ROW_B",
@@ -349,6 +581,9 @@ __all__ = [
     "OP_CALL_ME",
     "OP_ACTIVITY_MAP_PAGE",
     "OP_REQ_VERSION",
+    "OP_REQ_IDLE_BEHAVIOR",
+    "OP_SET_IDLE_BEHAVIOR",
+    "OP_IDLE_BEHAVIOR",
     "OP_PING2",
     "OP_PING2_ACK",
     "OP_ACTIVITY_DEVICE_CONFIRM",
@@ -370,6 +605,10 @@ __all__ = [
     "opcode_hi",
     "opcode_lo",
     "opcode_family",
+    "opcode_family_name",
+    "FAMILY_NAMES",
+    "FAMILY_STATUS_ACK",
+    "FAMILY_HUB_NAME_REPLY",
     "FAMILY_DEV_ROW",
     "FAMILY_ACT_ROW",
     "FAMILY_MACROS",

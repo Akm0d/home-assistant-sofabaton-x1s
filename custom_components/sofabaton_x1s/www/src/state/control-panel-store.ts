@@ -1,4 +1,7 @@
 import type {
+  BackupProgressEvent,
+  BackupSectionId,
+  BlobsSectionId,
   ControlPanelSnapshot,
   HassLike,
   HubAction,
@@ -27,11 +30,17 @@ const BACKEND_RETRY_MIN_MS = 2000;
 const BACKEND_RETRY_MAX_MS = 10000;
 
 const VIEW_STATE_STORAGE_KEY = "sofabaton_x1s:tools_card:view_state:v1";
-const VALID_TABS = new Set<TabId>(["settings", "wifi_commands", "cache", "logs"]);
+const VALID_TABS = new Set<TabId>(["settings", "wifi_commands", "blobs", "backup", "cache", "logs"]);
+const VALID_CACHE_SECTIONS = new Set<SectionId>(["activities", "devices"]);
+const VALID_BACKUP_SECTIONS = new Set<BackupSectionId>(["make", "restore"]);
+const VALID_BLOBS_SECTIONS = new Set<BlobsSectionId>(["fetch", "test", "save"]);
 
 interface PersistedViewState {
   selectedHubEntryId?: string | null;
   selectedTab?: TabId;
+  openSection?: SectionId | null;
+  openBackupSection?: BackupSectionId;
+  openBlobsSection?: BlobsSectionId | null;
 }
 
 interface StorageLike {
@@ -55,9 +64,25 @@ function readPersistedViewState(): PersistedViewState {
     const parsed = JSON.parse(storage.getItem(VIEW_STATE_STORAGE_KEY) || "{}") as PersistedViewState;
     const selectedHubEntryId = String(parsed?.selectedHubEntryId ?? "").trim() || null;
     const selectedTab = VALID_TABS.has(parsed?.selectedTab as TabId) ? parsed.selectedTab : undefined;
+    const openSection = VALID_CACHE_SECTIONS.has(parsed?.openSection as SectionId)
+      ? (parsed.openSection as SectionId)
+      : parsed?.openSection === null
+        ? null
+        : undefined;
+    const openBackupSection = VALID_BACKUP_SECTIONS.has(parsed?.openBackupSection as BackupSectionId)
+      ? (parsed.openBackupSection as BackupSectionId)
+      : undefined;
+    const openBlobsSection = VALID_BLOBS_SECTIONS.has(parsed?.openBlobsSection as BlobsSectionId)
+      ? (parsed.openBlobsSection as BlobsSectionId)
+      : parsed?.openBlobsSection === null
+        ? null
+        : undefined;
     return {
       selectedHubEntryId,
       ...(selectedTab ? { selectedTab } : {}),
+      ...(openSection !== undefined ? { openSection } : {}),
+      ...(openBackupSection ? { openBackupSection } : {}),
+      ...(openBlobsSection !== undefined ? { openBlobsSection } : {}),
     };
   } catch (_error) {
     return {};
@@ -85,8 +110,10 @@ const INITIAL_SNAPSHOT: ControlPanelSnapshot = {
   loadError: null,
   backendUnavailable: false,
   selectedHubEntryId: null,
-  selectedTab: "settings",
+  selectedTab: "cache",
   openSection: "activities",
+  openBackupSection: "make",
+  openBlobsSection: "fetch",
   openEntity: null,
   staleData: false,
   refreshBusy: false,
@@ -123,6 +150,9 @@ export class ControlPanelStore {
   private _lastConnectionFingerprint = "";
   private _backendRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private _backendRetryDelay = BACKEND_RETRY_MIN_MS;
+  private _backupOpUnsub: (() => void) | null = null;
+  private _backupOpEntryId: string | null = null;
+  private _backupOpId: string | null = null;
   private readonly _loadedFrontendVersion: string;
 
   constructor(
@@ -148,6 +178,7 @@ export class ControlPanelStore {
     } else if (this._snapshot.backendUnavailable) {
       this._scheduleBackendRetry();
     }
+    void this._syncBackupOperationFeed();
     if (this._snapshot.selectedTab === "logs") {
       void this.syncLogsFeed();
     }
@@ -161,6 +192,7 @@ export class ControlPanelStore {
       externalHubCommandLabel: null,
     };
     this._clearBackendRetry();
+    void this._teardownBackupOperationFeed();
     void this.unsubscribeLogs();
   }
 
@@ -266,22 +298,23 @@ export class ControlPanelStore {
     this.persistViewState();
     this.emit();
     void (async () => {
+      await this._teardownBackupOperationFeed();
       await this.unsubscribeLogs();
       await this.loadControlPanelState();
+      await this._syncBackupOperationFeed();
       if (this._snapshot.selectedTab === "logs") await this.syncLogsFeed();
     })();
   }
 
   selectTab(tabId: TabId) {
-    const nextTab = tabId === "cache" && !persistentCacheEnabled(this._snapshot) ? "settings" : tabId;
     this._snapshot = {
       ...this._snapshot,
-      selectedTab: nextTab,
-      logsStickToBottom: nextTab === "logs" ? true : this._snapshot.logsStickToBottom,
-      logsScrollBehavior: nextTab === "logs" ? "auto" : this._snapshot.logsScrollBehavior,
+      selectedTab: tabId,
+      logsStickToBottom: tabId === "logs" ? true : this._snapshot.logsStickToBottom,
+      logsScrollBehavior: tabId === "logs" ? "auto" : this._snapshot.logsScrollBehavior,
     };
     this.persistViewState();
-    if (nextTab === "logs") void this.syncLogsFeed();
+    if (tabId === "logs") void this.syncLogsFeed();
     else void this.unsubscribeLogs();
     this.emit();
   }
@@ -292,6 +325,22 @@ export class ControlPanelStore {
       openSection: this._snapshot.openSection === sectionId ? null : sectionId,
       openEntity: null,
     };
+    this.persistViewState();
+    this.emit();
+  }
+
+  setBackupSection(sectionId: BackupSectionId) {
+    if (this._snapshot.openBackupSection === sectionId) return;
+    this._snapshot = { ...this._snapshot, openBackupSection: sectionId };
+    this.persistViewState();
+    this.emit();
+  }
+
+  toggleBlobsSection(sectionId: BlobsSectionId) {
+    const next = this._snapshot.openBlobsSection === sectionId ? null : sectionId;
+    if (this._snapshot.openBlobsSection === next) return;
+    this._snapshot = { ...this._snapshot, openBlobsSection: next };
+    this.persistViewState();
     this.emit();
   }
 
@@ -334,6 +383,7 @@ export class ControlPanelStore {
         this._snapshot = { ...this._snapshot, contents };
         this.syncSelection();
         this._clearBackendUnavailable();
+        await this._syncBackupOperationFeed();
       } catch (error) {
         if (isBackendUnavailableError(error, this._snapshot.hass)) {
           this._markBackendUnavailable();
@@ -358,6 +408,7 @@ export class ControlPanelStore {
       this.applyControlPanelState(state);
       this.syncSelection();
       this._clearBackendUnavailable();
+      await this._syncBackupOperationFeed();
       this.emit();
     } catch (error) {
       if (isBackendUnavailableError(error, this._snapshot.hass)) {
@@ -386,18 +437,10 @@ export class ControlPanelStore {
     try {
       await this.api().setSetting(hub.entry_id, setting, enabled);
       if (setting === "persistent_cache") {
-        if (!enabled && this._snapshot.selectedTab === "cache") {
-          this._snapshot = { ...this._snapshot, selectedTab: "settings" };
-          await this.loadState();
-          return;
-        }
         if (enabled) await this.loadCacheContents();
         else await this.loadControlPanelState();
       } else {
         await this.loadControlPanelState();
-      }
-      if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
-        this._snapshot = { ...this._snapshot, selectedTab: "settings" };
       }
     } catch (_error) {
       this.applyOptimisticSetting(
@@ -671,9 +714,6 @@ export class ControlPanelStore {
     if (!hubs.some((hub) => hub.entry_id === this._snapshot.selectedHubEntryId)) {
       this._snapshot = { ...this._snapshot, selectedHubEntryId: hubs[0].entry_id };
     }
-    if (this._snapshot.selectedTab === "cache" && !persistentCacheEnabled(this._snapshot)) {
-      this._snapshot = { ...this._snapshot, selectedTab: "settings" };
-    }
     this.persistViewState();
   }
 
@@ -691,6 +731,9 @@ export class ControlPanelStore {
         JSON.stringify({
           selectedHubEntryId: this._snapshot.selectedHubEntryId,
           selectedTab: this._snapshot.selectedTab,
+          openSection: this._snapshot.openSection,
+          openBackupSection: this._snapshot.openBackupSection,
+          openBlobsSection: this._snapshot.openBlobsSection,
         } satisfies PersistedViewState),
       );
     } catch (_error) {
@@ -699,11 +742,92 @@ export class ControlPanelStore {
   }
 
   private _isHubCommandBusy() {
+    const hub = selectedHub(this._snapshot);
+    const activeBackupOperation = hub?.active_backup_operation;
+    const backupBusy =
+      !!activeBackupOperation &&
+      ["pending", "running"].includes(String(activeBackupOperation.status || ""));
     return Boolean(
       this._snapshot.refreshBusy ||
       this._snapshot.externalHubCommandBusy ||
-      this._snapshot.pendingActionKey,
+      this._snapshot.pendingActionKey ||
+      backupBusy,
     );
+  }
+
+  private async _syncBackupOperationFeed() {
+    const hub = selectedHub(this._snapshot);
+    const active = hub?.active_backup_operation;
+    const entryId = String(hub?.entry_id || "").trim() || null;
+    const operationId =
+      active && ["pending", "running"].includes(String(active.status || ""))
+        ? String(active.operation_id || "").trim() || null
+        : null;
+
+    if (!this._isConnected || !entryId || !operationId || !this._snapshot.hass) {
+      await this._teardownBackupOperationFeed();
+      return;
+    }
+    if (this._backupOpEntryId === entryId && this._backupOpId === operationId && this._backupOpUnsub) {
+      return;
+    }
+
+    await this._teardownBackupOperationFeed();
+    this._backupOpEntryId = entryId;
+    this._backupOpId = operationId;
+
+    try {
+      const unsubscribe = await this.api().subscribeBackupProgress(operationId, (payload) => {
+        if (this._backupOpId !== operationId || this._backupOpEntryId !== entryId) return;
+        this._applyBackupProgressToSnapshot(entryId, payload);
+        if (!["pending", "running"].includes(String(payload.status || ""))) {
+          void this._teardownBackupOperationFeed();
+        }
+      });
+      if (this._backupOpId !== operationId || this._backupOpEntryId !== entryId) {
+        try { unsubscribe(); } catch { /* ignore */ }
+        return;
+      }
+      this._backupOpUnsub = unsubscribe;
+    } catch {
+      this._backupOpEntryId = null;
+      this._backupOpId = null;
+      this._backupOpUnsub = null;
+    }
+  }
+
+  private _applyBackupProgressToSnapshot(entryId: string, payload: BackupProgressEvent) {
+    if (!this._snapshot.state) return;
+    const isRunning = ["pending", "running"].includes(String(payload.status || ""));
+    const hubs = this._snapshot.state.hubs.map((hub) =>
+      hub.entry_id === entryId
+        ? {
+            ...hub,
+            active_backup_operation: isRunning ? payload : null,
+          }
+        : hub,
+    );
+    this._snapshot = {
+      ...this._snapshot,
+      state: {
+        ...this._snapshot.state,
+        hubs,
+      },
+    };
+    this.emit();
+  }
+
+  private async _teardownBackupOperationFeed() {
+    const unsub = this._backupOpUnsub;
+    this._backupOpUnsub = null;
+    this._backupOpEntryId = null;
+    this._backupOpId = null;
+    if (!unsub) return;
+    try {
+      await unsub();
+    } catch {
+      /* ignore */
+    }
   }
 
   private emit() {

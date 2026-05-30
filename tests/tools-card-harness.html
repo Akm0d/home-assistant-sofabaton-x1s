@@ -1,0 +1,1971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sofabaton Tools Card — Test Harness</title>
+  <!-- MDI icon font — makes ha-icon stub render real icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font/css/materialdesignicons.min.css">
+  <style>
+    :root {
+      --primary-color: #03a9f4;
+      --primary-text-color: #212121;
+      --secondary-text-color: #727272;
+      --disabled-text-color: #bdbdbd;
+      --divider-color: #e0e0e0;
+      --card-background-color: #ffffff;
+      --ha-card-background: #ffffff;
+      --secondary-background-color: #f5f5f5;
+      --primary-background-color: #fafafa;
+      --ha-card-border-radius: 12px;
+      --warning-color: #ff9800;
+      --error-color: #db4437;
+      --mdc-icon-size: 20px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 20px 24px 40px;
+      background: #e8eaf0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #212121;
+      min-height: 100vh;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 17px;
+      font-weight: 700;
+      color: #212121;
+      display: none;
+    }
+
+    .harness-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    /* ── Left sidebar ─────────────────────────────────────────────── */
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: sticky;
+      top: 20px;
+      max-height: calc(100vh - 60px);
+      overflow-y: auto;
+    }
+
+    .scenario-group {
+      background: white;
+      border-radius: 10px;
+      padding: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .group-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9e9e9e;
+      margin-bottom: 4px;
+    }
+
+    .scenario-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 5px 8px;
+      margin-bottom: 2px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      font-size: 12px;
+      cursor: pointer;
+      color: #424242;
+      transition: background 100ms, border-color 100ms;
+      line-height: 1.4;
+    }
+
+    .scenario-btn:last-child { margin-bottom: 0; }
+    .scenario-btn:hover { background: #f5f5f5; border-color: #e0e0e0; }
+    .scenario-btn.active { background: #e3f2fd; border-color: #90caf9; color: #1565c0; font-weight: 600; }
+
+    /* ── Right: status + card ─────────────────────────────────────── */
+    .card-area {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .status-bar {
+      background: white;
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .status-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9e9e9e;
+      margin-bottom: 3px;
+    }
+
+    .active-scenario-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #212121;
+      margin-bottom: 10px;
+    }
+
+    .ws-log {
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 11px;
+      max-height: 80px;
+      overflow-y: auto;
+      border-top: 1px solid #f0f0f0;
+      padding-top: 6px;
+    }
+
+    .ws-line { padding: 1px 0; }
+    .ws-line--req { color: #1565c0; }
+    .ws-line--res { color: #2e7d32; }
+    .ws-line--err { color: #c62828; }
+
+    sofabaton-control-panel {
+      display: block;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sofabaton Control Panel — Test Harness</h1>
+
+  <div class="harness-layout">
+    <div class="controls" id="controls"></div>
+
+    <div class="card-area">
+      <div class="status-bar">
+        <div class="status-label">Active Scenario</div>
+        <div class="active-scenario-name" id="active-scenario-name">—</div>
+        <div class="status-label">WS Log</div>
+        <div class="ws-log" id="ws-log"></div>
+      </div>
+      <div id="card-host"></div>
+    </div>
+  </div>
+
+  <!--
+    STUB MODULE — must run before tools-card.js so that ha-card / ha-switch /
+    ha-icon / ha-textfield / ha-selector are registered before Lit renders them.
+    ES module scripts execute in DOM order, so this block runs first.
+  -->
+  <script type="module">
+
+    // ── ha-card ─────────────────────────────────────────────────────────────────
+    customElements.define("ha-card", class extends HTMLElement {
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host {
+              display: block;
+              background: var(--ha-card-background, #fff);
+              border-radius: var(--ha-card-border-radius, 12px);
+              box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,0.14));
+              overflow: hidden;
+            }
+          </style>
+          <slot></slot>`;
+      }
+    });
+
+    // ── ha-switch ────────────────────────────────────────────────────────────────
+    // Faithful pill-toggle that matches HA's material design switch appearance:
+    // a 36×14px track that fills with primary-color when checked, plus a 20px
+    // circular thumb that slides right. Lit uses property binding (.checked=${v})
+    // so checked / disabled MUST be JS properties — attributes alone are not enough.
+    customElements.define("ha-switch", class extends HTMLElement {
+      _checked  = false;
+      _disabled = false;
+      _track    = null;
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host {
+              display: inline-flex;
+              align-items: center;
+              vertical-align: middle;
+              cursor: pointer;
+              outline: none;
+            }
+            :host([disabled]), :host(.disabled) { cursor: default; }
+            .track {
+              position: relative;
+              width: 36px; height: 14px;
+              border-radius: 7px;
+              background: rgba(0,0,0,0.28);
+              transition: background 180ms ease;
+              flex-shrink: 0;
+            }
+            .track.on  { background: color-mix(in srgb, var(--primary-color,#03a9f4) 52%, transparent); }
+            .track.off { background: rgba(0,0,0,0.28); }
+            .track.dis { opacity: 0.38; }
+            .thumb {
+              position: absolute;
+              top: -3px; left: 0;
+              width: 20px; height: 20px;
+              border-radius: 50%;
+              background: #e0e0e0;
+              box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+              transition: transform 180ms ease, background 180ms ease;
+            }
+            .track.on .thumb {
+              transform: translateX(16px);
+              background: var(--primary-color, #03a9f4);
+            }
+          </style>
+          <div class="track off"><div class="thumb"></div></div>`;
+        this._track = s.querySelector(".track");
+        this._syncUI();
+        this._track.addEventListener("click", () => {
+          if (this._disabled) return;
+          this._checked = !this._checked;
+          this._syncUI();
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+
+      get checked()  { return this._checked; }
+      set checked(v) { this._checked = Boolean(v); this._syncUI(); }
+
+      get disabled()  { return this._disabled; }
+      set disabled(v) { this._disabled = Boolean(v); this._syncUI(); }
+
+      _syncUI() {
+        if (!this._track) return;
+        this._track.className = "track " + (this._checked ? "on" : "off") + (this._disabled ? " dis" : "");
+      }
+
+      static get observedAttributes() { return ["checked", "disabled"]; }
+      attributeChangedCallback(name) {
+        if (name === "checked")  this.checked  = this.hasAttribute("checked");
+        if (name === "disabled") this.disabled = this.hasAttribute("disabled");
+      }
+    });
+
+    // ── ha-icon ──────────────────────────────────────────────────────────────────
+    // Uses shadow DOM so light DOM (Lit-managed template content) is never touched.
+    // Static icon="mdi:..." attributes trigger attributeChangedCallback during
+    // template cloning; without shadow DOM that would add an <i> to the template
+    // clone, shifting Lit's TreeWalker and corrupting Part→element associations.
+    customElements.define("ha-icon", class extends HTMLElement {
+      static get observedAttributes() { return ["icon"]; }
+
+      connectedCallback() {
+        if (!this.shadowRoot) this._buildShadow();
+        this._syncIcon();
+      }
+      attributeChangedCallback() { this._syncIcon(); }
+
+      _buildShadow() {
+        const s = this.attachShadow({ mode: "open" });
+        // Shadow DOM doesn't inherit the document's MDI CSS rules (::before
+        // pseudo-elements for icon characters). We must import the stylesheet
+        // inside the shadow root. The browser serves it from cache after the
+        // first load, so there's no network cost per-element.
+        s.innerHTML = `
+          <style>
+            @import url('https://cdn.jsdelivr.net/npm/@mdi/font/css/materialdesignicons.min.css');
+            :host {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              width: var(--mdc-icon-size, 20px);
+              height: var(--mdc-icon-size, 20px);
+              flex-shrink: 0;
+              color: currentColor;
+            }
+            i { font-size: var(--mdc-icon-size, 20px); line-height: 1; color: inherit; }
+          </style>
+          <i></i>`;
+      }
+
+      _syncIcon() {
+        if (!this.shadowRoot) return;
+        const raw  = this.getAttribute("icon") ?? "";
+        const name = raw.replace(/^mdi:/, "");
+        const icon = this.shadowRoot.querySelector("i");
+        if (icon) icon.className = `mdi mdi-${name}`;
+      }
+    });
+
+    // ── ha-textfield ─────────────────────────────────────────────────────────────
+    // Used in the WiFi Commands details modal for the command display name.
+    // MUST use shadow DOM — setting this.innerHTML in light DOM destroys Lit's
+    // managed Parts and causes "setAttribute is not a function" on re-render.
+    customElements.define("ha-textfield", class extends HTMLElement {
+      _value     = "";
+      _label     = "";
+      _maxLength = 255;
+      _input     = null;
+      _labelEl   = null;
+
+      get value()      { return this._input ? this._input.value : this._value; }
+      set value(v)     { this._value = String(v ?? ""); if (this._input) this._input.value = this._value; }
+      get label()      { return this._label; }
+      set label(v)     { this._label = String(v ?? ""); if (this._labelEl) this._labelEl.textContent = this._label; }
+      get maxLength()  { return this._maxLength; }
+      set maxLength(v) { this._maxLength = Number(v) || 255; if (this._input) this._input.maxLength = this._maxLength; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; }
+            .label { font-size:12px; color:var(--secondary-text-color,#727272);
+                     margin-bottom:4px; font-weight:600; }
+            input { display:block; width:100%; padding:8px 10px; box-sizing:border-box;
+                    border:1px solid var(--divider-color,#e0e0e0); border-radius:8px;
+                    font:inherit; font-size:14px;
+                    background:var(--ha-card-background,#fff); color:inherit; }
+            input:focus { outline:2px solid var(--primary-color,#03a9f4); border-color:transparent; }
+          </style>
+          <div class="label"></div>
+          <input type="text">`;
+        this._labelEl = s.querySelector(".label");
+        this._input   = s.querySelector("input");
+        this._labelEl.textContent = this._label;
+        this._input.value         = this._value;
+        this._input.maxLength     = this._maxLength;
+        this._input.addEventListener("input", () =>
+          this.dispatchEvent(new Event("input", { bubbles: true, composed: true })));
+        this._input.addEventListener("change", () => {
+          this._value = this._input.value;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+    });
+
+    // ── ha-input ─────────────────────────────────────────────────────────────────
+    // New HA text-input component (replaces ha-textfield in newer HA versions).
+    // The wifi tab checks customElements.get("ha-input") to decide which to use.
+    // Mirrors the ha-textfield stub with the ha-input CSS var naming convention.
+    customElements.define("ha-input", class extends HTMLElement {
+      _value     = "";
+      _label     = "";
+      _maxLength = 255;
+      _input     = null;
+      _labelEl   = null;
+
+      get value()      { return this._input ? this._input.value : this._value; }
+      set value(v)     { this._value = String(v ?? ""); if (this._input) this._input.value = this._value; }
+      get label()      { return this._label; }
+      set label(v)     { this._label = String(v ?? ""); if (this._labelEl) this._labelEl.textContent = this._label; }
+      get maxLength()  { return this._maxLength; }
+      set maxLength(v) { this._maxLength = Number(v) || 255; if (this._input) this._input.maxLength = this._maxLength; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; }
+            .label { font-size:12px; color:var(--secondary-text-color,#727272);
+                     margin-bottom:4px; font-weight:600; }
+            input { display:block; width:100%;
+                    padding: var(--ha-input-padding-top,8px) 10px var(--ha-input-padding-bottom,8px);
+                    box-sizing:border-box;
+                    border:1px solid var(--divider-color,#e0e0e0); border-radius:8px;
+                    font:inherit; font-size:14px;
+                    background:var(--ha-card-background,#fff); color:inherit; }
+            input:focus { outline:2px solid var(--primary-color,#03a9f4); border-color:transparent; }
+          </style>
+          <div class="label"></div>
+          <input type="text">`;
+        this._labelEl = s.querySelector(".label");
+        this._input   = s.querySelector("input");
+        this._labelEl.textContent = this._label;
+        this._input.value         = this._value;
+        this._input.maxLength     = this._maxLength;
+        this._input.addEventListener("input", () =>
+          this.dispatchEvent(new Event("input", { bubbles: true, composed: true })));
+        this._input.addEventListener("change", () => {
+          this._value = this._input.value;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+    });
+
+    // ── ha-select + mwc-list-item ───────────────────────────────────────────────
+    // Used by the Save view to pick the target IR device. Mirrors ha-textfield's
+    // appearance so a select and a textfield in the same row align visually.
+    customElements.define("mwc-list-item", class extends HTMLElement {
+      _value = "";
+      get value()  { return this._value; }
+      set value(v) { this._value = String(v ?? ""); }
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; padding: 8px 12px; cursor: pointer; font-size: 14px; }
+            :host(:hover) { background: rgba(0,0,0,0.04); }
+          </style>
+          <slot></slot>`;
+      }
+    });
+
+    customElements.define("ha-select", class extends HTMLElement {
+      _value    = "";
+      _label    = "";
+      _disabled = false;
+      _select   = null;
+      _labelEl  = null;
+      _items    = [];
+
+      get value()    { return this._select ? this._select.value : this._value; }
+      set value(v)   { this._value = String(v ?? ""); if (this._select) this._select.value = this._value; }
+      get label()    { return this._label; }
+      set label(v)   { this._label = String(v ?? ""); if (this._labelEl) this._labelEl.textContent = this._label; }
+      get disabled() { return this._disabled; }
+      set disabled(v){ this._disabled = Boolean(v); if (this._select) this._select.disabled = this._disabled; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; }
+            .label { font-size:12px; color:var(--secondary-text-color,#727272);
+                     margin-bottom:4px; font-weight:600; }
+            select { display:block; width:100%; padding:8px 10px; box-sizing:border-box;
+                     border:1px solid var(--divider-color,#e0e0e0); border-radius:8px;
+                     font:inherit; font-size:14px;
+                     background:var(--ha-card-background,#fff); color:inherit; }
+            select:focus { outline:2px solid var(--primary-color,#03a9f4); border-color:transparent; }
+          </style>
+          <div class="label"></div>
+          <select></select>`;
+        this._labelEl = s.querySelector(".label");
+        this._select  = s.querySelector("select");
+        this._labelEl.textContent = this._label;
+        this._select.disabled = this._disabled;
+        this._syncOptions();
+        this._select.addEventListener("change", () => {
+          this._value = this._select.value;
+          this.dispatchEvent(new CustomEvent("selected", {
+            detail: { value: this._value }, bubbles: true, composed: true,
+          }));
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+        // Re-scan slotted items whenever children mutate
+        const mo = new MutationObserver(() => this._syncOptions());
+        mo.observe(this, { childList: true, subtree: true, characterData: true });
+      }
+
+      _syncOptions() {
+        if (!this._select) return;
+        const items = [...this.querySelectorAll("mwc-list-item, ha-dropdown-item")];
+        this._select.innerHTML = '<option value="" disabled hidden>Select one</option>'
+          + items.map(it => `<option value="${(it.value ?? "")}">${it.textContent}</option>`).join("");
+        // Restore selection
+        this._select.value = this._value;
+      }
+    });
+
+    // ── ha-textarea ──────────────────────────────────────────────────────────────
+    // Used by the blobs tab for the Test / Save blob bodies.
+    customElements.define("ha-textarea", class extends HTMLElement {
+      _value     = "";
+      _label     = "";
+      _input     = null;
+      _labelEl   = null;
+
+      get value()  { return this._input ? this._input.value : this._value; }
+      set value(v) { this._value = String(v ?? ""); if (this._input) this._input.value = this._value; }
+      get label()  { return this._label; }
+      set label(v) { this._label = String(v ?? ""); if (this._labelEl) this._labelEl.textContent = this._label; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; }
+            .label { font-size:12px; color:var(--secondary-text-color,#727272);
+                     margin-bottom:4px; font-weight:600; }
+            textarea { display:block; width:100%; min-height:120px; padding:10px 12px; box-sizing:border-box;
+                       border:1px solid var(--divider-color,#e0e0e0); border-radius:8px;
+                       font:inherit; font-size:13px; line-height:1.5;
+                       background:var(--ha-card-background,#fff); color:inherit;
+                       resize:vertical; }
+            textarea:focus { outline:2px solid var(--primary-color,#03a9f4); border-color:transparent; }
+          </style>
+          <div class="label"></div>
+          <textarea></textarea>`;
+        this._labelEl = s.querySelector(".label");
+        this._input   = s.querySelector("textarea");
+        this._labelEl.textContent = this._label;
+        this._input.value         = this._value;
+        this._input.addEventListener("input", () =>
+          this.dispatchEvent(new Event("input", { bubbles: true, composed: true })));
+        this._input.addEventListener("change", () => {
+          this._value = this._input.value;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+    });
+
+    customElements.define("ha-checkbox", class extends HTMLElement {
+      _checked = false;
+      _disabled = false;
+      _input = null;
+
+      get checked() { return this._checked; }
+      set checked(v) { this._checked = Boolean(v); if (this._input) this._input.checked = this._checked; }
+      get disabled() { return this._disabled; }
+      set disabled(v) { this._disabled = Boolean(v); if (this._input) this._input.disabled = this._disabled; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: inline-flex; align-items: center; }
+            input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color, #03a9f4); }
+          </style>
+          <input type="checkbox">`;
+        this._input = s.querySelector("input");
+        this._input.checked = this._checked;
+        this._input.disabled = this._disabled;
+        this._input.addEventListener("click", (event) => event.stopPropagation());
+        this._input.addEventListener("change", () => {
+          this._checked = this._input.checked;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+    });
+
+    customElements.define("ha-radio", class extends HTMLElement {
+      _checked = false;
+      _disabled = false;
+      _name = "";
+      _input = null;
+
+      static get observedAttributes() { return ["name"]; }
+
+      get checked() { return this._checked; }
+      set checked(v) { this._checked = Boolean(v); if (this._input) this._input.checked = this._checked; }
+      get disabled() { return this._disabled; }
+      set disabled(v) { this._disabled = Boolean(v); if (this._input) this._input.disabled = this._disabled; }
+      get name() { return this._name; }
+      set name(v) { this._name = String(v ?? ""); if (this._input) this._input.name = this._name; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: inline-flex; align-items: center; }
+            input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color, #03a9f4); }
+          </style>
+          <input type="radio">`;
+        this._input = s.querySelector("input");
+        this._input.checked = this._checked;
+        this._input.disabled = this._disabled;
+        this._input.name = this._name;
+        this._input.addEventListener("click", (event) => event.stopPropagation());
+        this._input.addEventListener("change", () => {
+          this._checked = this._input.checked;
+          this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        });
+      }
+
+      attributeChangedCallback(name, _oldValue, newValue) {
+        if (name === "name") this.name = newValue ?? "";
+      }
+    });
+
+    customElements.define("ha-formfield", class extends HTMLElement {
+      _label = "";
+      _labelEl = null;
+
+      static get observedAttributes() { return ["label"]; }
+
+      get label() { return this._label; }
+      set label(v) { this._label = String(v ?? ""); if (this._labelEl) this._labelEl.textContent = this._label; }
+
+      connectedCallback() {
+        if (this.shadowRoot) return;
+        const s = this.attachShadow({ mode: "open" });
+        s.innerHTML = `
+          <style>
+            :host { display: block; width: 100%; }
+            label {
+              width: 100%;
+              min-width: 0;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 10px 14px;
+              color: var(--primary-text-color, #212121);
+              cursor: inherit;
+            }
+            .label { min-width: 0; flex: 1 1 auto; }
+          </style>
+          <label><slot></slot><span class="label"></span></label>`;
+        this._labelEl = s.querySelector(".label");
+        this._labelEl.textContent = this._label;
+      }
+
+      attributeChangedCallback(name, _oldValue, newValue) {
+        if (name === "label") this.label = newValue ?? "";
+      }
+    });
+
+    // ── ha-selector ──────────────────────────────────────────────────────────────
+    // Minimal stub — shadow DOM only, so Lit's light-DOM Parts are never touched.
+    // Renders a functional <select> for "select" type, a placeholder for others
+    // (e.g. ui_action). The _hideUiActionTypeSelector logic in the wifi tab tries
+    // to manipulate HA's real shadow DOM internals — harmless no-op here.
+    customElements.define("ha-selector", class extends HTMLElement {
+      _hass    = null;
+      _selDef  = null;
+      _label   = "";
+      _value   = null;
+
+      get hass()     { return this._hass; }
+      set hass(v)    { this._hass = v; }
+      get selector() { return this._selDef; }
+      set selector(v){ this._selDef = v; this._syncShadow(); }
+      get label()    { return this._label; }
+      set label(v)   { this._label = String(v ?? ""); this._syncShadow(); }
+      get value()    { return this._value; }
+      set value(v)   { this._value = v; this._syncSelection(); }
+
+      connectedCallback() {
+        if (!this.shadowRoot) {
+          this.attachShadow({ mode: "open" });
+          this._buildShadow();
+        }
+      }
+
+      _buildShadow() {
+        const s = this.shadowRoot;
+        s.innerHTML = `
+          <style>
+            :host { display: block; }
+            .label { font-size:12px; color:var(--secondary-text-color,#727272);
+                     margin-bottom:4px; font-weight:600; }
+            select { display:block; width:100%; padding:8px 10px; box-sizing:border-box;
+                     border:1px solid var(--divider-color,#e0e0e0); border-radius:8px;
+                     font:inherit; font-size:14px;
+                     background:var(--ha-card-background,#fff); color:inherit; }
+            .placeholder { padding:10px 12px; border:1px dashed var(--divider-color,#e0e0e0);
+                           border-radius:8px; color:var(--secondary-text-color,#727272);
+                           font-size:13px; }
+          </style>
+          <div class="label"></div>
+          <div class="body"></div>`;
+        this._syncShadow();
+      }
+
+      _syncShadow() {
+        const s = this.shadowRoot;
+        if (!s) return;
+        const labelEl = s.querySelector(".label");
+        const bodyEl  = s.querySelector(".body");
+        if (labelEl) labelEl.textContent = this._label;
+        if (!bodyEl) return;
+        const selType = this._selDef ? Object.keys(this._selDef)[0] : "unknown";
+        if (selType === "select" && this._selDef?.select?.options?.length) {
+          const options = this._selDef.select.options;
+          const cur     = String(this._value ?? "__none__");
+          bodyEl.innerHTML = `
+            <select>
+              ${options.map(o => `<option value="${o.value}"${o.value === cur ? " selected" : ""}>${o.label}</option>`).join("")}
+            </select>`;
+          bodyEl.querySelector("select")?.addEventListener("change", (e) => {
+            this._value = e.target.value;
+            this.dispatchEvent(new CustomEvent("value-changed",
+              { detail: { value: this._value }, bubbles: true, composed: true }));
+          });
+        } else {
+          bodyEl.innerHTML = `<div class="placeholder">${selType} selector (stub)</div>`;
+        }
+      }
+
+      _syncSelection() {
+        const sel = this.shadowRoot?.querySelector("select");
+        if (sel) sel.value = String(this._value ?? "__none__");
+      }
+    });
+
+  </script>
+
+  <!-- Card bundle — runs after stubs module above.
+       The ?v= bust forces browsers to skip cache when the file is updated. -->
+  <script type="module" src="../custom_components/sofabaton_x1s/www/tools-card.js?v=27"></script>
+
+  <!-- Harness logic — runs after both modules above -->
+  <script type="module">
+
+    // ── Shared mock state entities ───────────────────────────────────────────────
+
+    // Activities are read by wifi-commands-tab from remote entity attributes.
+    const ACTIVITIES = [
+      { id: 101, name: "Watch TV"        },
+      { id: 102, name: "Listen to Music" },
+      { id: 103, name: "Game Mode"       },
+      { id: 104, name: "Good Night"      },
+    ];
+
+    const STATES_CONNECTED = {
+      "remote.living_room": {
+        state: "on",
+        attributes: {
+          entry_id:              "hub-1",
+          cache_generation:      1,
+          proxy_client_connected: false,
+          hub_version:           "X1S",
+          hub_version_confident: true,
+          activities:            ACTIVITIES,
+        },
+      },
+    };
+
+    const STATES_PROXY = {
+      "remote.living_room": {
+        state: "on",
+        attributes: {
+          entry_id:              "hub-1",
+          cache_generation:      1,
+          proxy_client_connected: true,
+          hub_version:           "X1S",
+          hub_version_confident: true,
+          activities:            ACTIVITIES,
+        },
+      },
+    };
+
+    const STATES_VERSION_UNKNOWN = {
+      "remote.living_room": {
+        state: "on",
+        attributes: {
+          entry_id:              "hub-1",
+          cache_generation:      1,
+          proxy_client_connected: false,
+          hub_version:           "",
+          hub_version_confident: false,  // ← triggers version warning banner
+          activities:            ACTIVITIES,
+        },
+      },
+    };
+
+    const STATES_REMOTE_UNAVAILABLE = {
+      "remote.living_room": {
+        state: "unavailable",  // ← causes _remoteUnavailable() to return true
+        attributes: {
+          entry_id:   "hub-1",
+          activities: ACTIVITIES,
+        },
+      },
+    };
+
+    // ── Hub descriptors ──────────────────────────────────────────────────────────
+
+    const HUB_1 = {
+      entry_id:       "hub-1",
+      name:           "Living Room",
+      version:        "03.03.04",
+      ip_address:     "192.168.1.110",
+      activity_count: 4,
+      device_count:   3,
+      settings: {
+        proxy_enabled:       false,
+        hex_logging_enabled: false,
+        wifi_device_enabled: false,
+      },
+    };
+
+    // tools_frontend_version must match the ?v= cache-bust on the script tag.
+    // The store compares this against LOADED_TOOLS_FRONTEND_VERSION (read from the
+    // script URL's ?v= param) and sets toolsFrontendVersionMismatch if they differ.
+    const TOOLS_FRONTEND_VERSION = "27";
+
+    const BASE_STATE = {
+      persistent_cache_enabled: true,
+      tools_frontend_version: TOOLS_FRONTEND_VERSION,
+      hubs: [HUB_1],
+    };
+
+    // ── Persistent-cache contents ────────────────────────────────────────────────
+
+    const BASE_CONTENTS = {
+      enabled: true,
+      hubs: [{
+        entry_id: "hub-1",
+        name:     "Living Room",
+        activities: [
+          { id: 101, name: "Watch TV",        favorite_count: 3, macro_count: 1 },
+          { id: 102, name: "Listen to Music", favorite_count: 2, macro_count: 0 },
+          { id: 103, name: "Game Mode",       favorite_count: 5, macro_count: 2 },
+          { id: 104, name: "Good Night",      favorite_count: 1, macro_count: 0 },
+        ],
+        devices_list: [
+          { id: 1, name: "Television",         command_count: 6,  device_class: "ir"   },
+          { id: 2, name: "Soundbar",           command_count: 4,  device_class: "ir"   },
+          { id: 7, name: "WiFi Remote Device", command_count: 12, device_class: "wifi" },
+        ],
+        commands: {
+          "1": { "10": "Power Toggle", "11": "Volume Up",   "12": "Volume Down",
+                 "13": "Mute",        "14": "Input HDMI1", "15": "Input HDMI2" },
+          "2": { "20": "Power",       "21": "Volume Up",   "22": "Volume Down", "23": "Mute" },
+          "7": { "70": "Home",        "71": "Back",  "72": "Up",     "73": "Down",
+                 "74": "Left",        "75": "Right", "76": "OK",     "77": "Play",
+                 "78": "Pause",       "79": "Stop",  "80": "Rewind", "81": "Fast Forward" },
+        },
+        buttons: {
+          "101": [0xae, 0xb2, 0xaf, 0xb1, 0xb0],
+          "102": [0xb6, 0xb9],
+        },
+        activity_favorites: {
+          "101": [
+            { button_id: 174, command_id: 10, device_id: 1, label: "Power"  },
+            { button_id: 175, command_id: 11, device_id: 1, label: "Vol Up" },
+            { button_id: 180, command_id: 74, device_id: 7, label: "Left"   },
+          ],
+        },
+        activity_macros: {
+          "101": [{ command_id: 11, label: "Volume Up Macro" }],
+          "103": [{ command_id: 20, label: "Bar Power" }, { command_id: 77, label: "Play" }],
+        },
+      }],
+    };
+
+    const SAMPLE_BACKUP_BUNDLE = {
+      kind: "hub_bundle",
+      schema_version: 5,
+      devices: [
+        { device: { device_id: 1, name: "TV", device_class: "ir" } },
+        { device: { device_id: 2, name: "AVR", device_class: "ir" } },
+        { device: { device_id: 3, name: "Streamer", device_class: "wifi_ip" } },
+      ],
+      activities: [
+        { device: { device_id: 101, name: "Watch TV", entity_type: "activity" }, referenced_source_device_ids: [1, 2] },
+        { device: { device_id: 102, name: "Game Mode", entity_type: "activity" }, referenced_source_device_ids: [2, 3] },
+      ],
+    };
+
+    const BACKUP_PROGRESS_RUNNING = {
+      operation_id: "backup-1",
+      kind: "backup_export",
+      entry_id: "hub-1",
+      status: "running",
+      phase: "devices",
+      message: "Backing up devices…",
+      completed_steps: 2,
+      total_steps: 4,
+    };
+
+    const BACKUP_PROGRESS_SUCCESS = {
+      operation_id: "backup-2",
+      kind: "backup_export",
+      entry_id: "hub-1",
+      status: "success",
+      phase: "completed",
+      message: "Backup completed.",
+      completed_steps: 4,
+      total_steps: 4,
+      filename: "living-room-backup.json",
+      backup_downloaded: false,
+      backup: SAMPLE_BACKUP_BUNDLE,
+    };
+
+    const RESTORE_PROGRESS_RUNNING = {
+      operation_id: "restore-1",
+      kind: "backup_restore",
+      entry_id: "hub-1",
+      status: "running",
+      phase: "activities",
+      message: "Restoring activities…",
+      completed_steps: 3,
+      total_steps: 5,
+    };
+
+    const RESTORE_PROGRESS_SUCCESS = {
+      operation_id: "restore-2",
+      kind: "backup_restore",
+      entry_id: "hub-1",
+      status: "success",
+      phase: "completed",
+      message: "Restore completed.",
+      completed_steps: 5,
+      total_steps: 5,
+    };
+
+    // ── WiFi Commands mock data ──────────────────────────────────────────────────
+
+    // Per-device sync states (embedded in WifiDeviceSummary)
+    const WIFI_SYNC_IDLE = {
+      status: "idle", current_step: 0, total_steps: 0,
+      message: "No sync needed.", commands_hash: "abc123",
+      managed_command_hashes: ["abc123"], sync_needed: false,
+    };
+    const WIFI_SYNC_NEEDED = {
+      status: "idle", current_step: 0, total_steps: 0,
+      message: "Config changes not yet synced.", commands_hash: "abc123",
+      managed_command_hashes: ["def456"], sync_needed: true,
+    };
+    const WIFI_SYNC_RUNNING = {
+      status: "running", current_step: 4, total_steps: 12,
+      message: "Writing command 4…", commands_hash: "abc123",
+      managed_command_hashes: [], sync_needed: false,
+    };
+    const WIFI_SYNC_SUCCESS = {
+      status: "success", current_step: 12, total_steps: 12,
+      message: "Sync completed successfully.", commands_hash: "abc123",
+      managed_command_hashes: ["abc123"], sync_needed: false,
+    };
+    const WIFI_SYNC_FAILED = {
+      status: "failed", current_step: 3, total_steps: 12,
+      message: "Timeout during sync.", commands_hash: "abc123",
+      managed_command_hashes: [], sync_needed: true,
+    };
+
+    // WifiDeviceSummary objects — used in command_devices/list response
+    const WIFI_DEVICE_LR = {
+      device_key: "dev-lr", device_name: "Living Room Remote",
+      configured_slot_count: 3, deployed_device_id: 12345,
+      ...WIFI_SYNC_IDLE,
+    };
+    const WIFI_DEVICE_BR = {
+      device_key: "dev-br", device_name: "Bedroom Remote",
+      configured_slot_count: 0, deployed_device_id: null,
+      status: "idle", current_step: 0, total_steps: 0,
+      message: "Never synced.", commands_hash: "",
+      managed_command_hashes: [], sync_needed: false,
+    };
+
+    // Device lists for various scenarios
+    const WIFI_DEVICES_HEALTHY = [WIFI_DEVICE_LR, WIFI_DEVICE_BR];
+
+    const WIFI_DEVICES_SYNC_NEEDED = [
+      { ...WIFI_DEVICE_LR, ...WIFI_SYNC_NEEDED },
+      WIFI_DEVICE_BR,
+    ];
+
+    const WIFI_DEVICES_SYNC_RUNNING = [
+      { ...WIFI_DEVICE_LR, ...WIFI_SYNC_RUNNING },
+      WIFI_DEVICE_BR,
+    ];
+
+    const WIFI_DEVICES_SYNC_FAILED = [
+      { ...WIFI_DEVICE_LR, ...WIFI_SYNC_FAILED },
+      WIFI_DEVICE_BR,
+    ];
+
+    const WIFI_DEVICES_SINGLE = [WIFI_DEVICE_LR];
+
+    // 3 configured command slots (slots 4-10 are empty / default)
+    // New shape: is_power_on, is_power_off, input_activity_id added in branch
+    const WIFI_COMMANDS_CONFIGURED = [
+      {
+        name: "Netflix", add_as_favorite: true, hard_button: "home",
+        long_press_enabled: false,
+        is_power_on: false, is_power_off: false, input_activity_id: "",
+        activities: ["101", "102"],
+        action: { action: "perform-action", perform_action: "media_player.select_source",
+                  target: { entity_id: ["media_player.living_room_tv"] },
+                  data: { source: "Netflix" } },
+        long_press_action: { action: "perform-action" },
+      },
+      {
+        name: "Spotify", add_as_favorite: true, hard_button: "play",
+        long_press_enabled: true,
+        is_power_on: false, is_power_off: false, input_activity_id: "",
+        activities: ["102", "103"],
+        action: { action: "perform-action", perform_action: "media_player.media_play",
+                  target: { entity_id: ["media_player.living_room_tv"] } },
+        long_press_action: { action: "perform-action", perform_action: "media_player.media_pause",
+                             target: { entity_id: ["media_player.living_room_tv"] } },
+      },
+      {
+        name: "Lights Off", add_as_favorite: false, hard_button: "ok",
+        long_press_enabled: false,
+        is_power_on: false, is_power_off: false, input_activity_id: "",
+        activities: ["104"],
+        action: { action: "perform-action", perform_action: "light.turn_off",
+                  target: { entity_id: ["light.living_room"] } },
+        long_press_action: { action: "perform-action" },
+      },
+    ];
+
+    // Power-flagged and input-activity slots — exercises the new slot icons
+    const WIFI_COMMANDS_POWER = [
+      {
+        name: "TV On", add_as_favorite: false, hard_button: "ok",
+        long_press_enabled: false,
+        is_power_on: true, is_power_off: false, input_activity_id: "",
+        activities: ["101"],
+        action: { action: "perform-action", perform_action: "media_player.turn_on",
+                  target: { entity_id: ["media_player.living_room_tv"] } },
+        long_press_action: { action: "perform-action" },
+      },
+      {
+        name: "TV Off", add_as_favorite: false, hard_button: "back",
+        long_press_enabled: false,
+        is_power_on: false, is_power_off: true, input_activity_id: "",
+        activities: ["101"],
+        action: { action: "perform-action", perform_action: "media_player.turn_off",
+                  target: { entity_id: ["media_player.living_room_tv"] } },
+        long_press_action: { action: "perform-action" },
+      },
+      {
+        name: "Watch TV", add_as_favorite: true, hard_button: "play",
+        long_press_enabled: false,
+        is_power_on: false, is_power_off: false, input_activity_id: "101",
+        activities: ["101"],
+        action: { action: "perform-action", perform_action: "media_player.select_source",
+                  target: { entity_id: ["media_player.living_room_tv"] },
+                  data: { source: "HDMI 1" } },
+        long_press_action: { action: "perform-action" },
+      },
+    ];
+
+    // ── Sample logs ──────────────────────────────────────────────────────────────
+
+    const SAMPLE_LOGS = [
+      { time: "2026-04-16 12:00:01", level: "info",    message: "Hub connected successfully",          entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:02", level: "debug",   message: "Polling hub state",                  entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:05", level: "warning", message: "Response timeout, retrying request", entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:06", level: "info",    message: "Retry succeeded",                    entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:10", level: "error",   message: "Connection lost to hub",             entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:11", level: "info",    message: "Attempting reconnect",               entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:14", level: "debug",   message: "WebSocket PONG received",            entry_id: "hub-1" },
+      { time: "2026-04-16 12:00:20", level: "info",    message: "Hub reconnected",                    entry_id: "hub-1" },
+    ];
+
+    // ── WS log ───────────────────────────────────────────────────────────────────
+
+    const wsLogEl  = document.getElementById("ws-log");
+    let   wsBuffer = [];
+
+    function wsLog(type, dir) {
+      const prefix = dir === "req" ? "→" : dir === "err" ? "✕" : "←";
+      const el = Object.assign(document.createElement("div"), {
+        className:   `ws-line ws-line--${dir}`,
+        textContent: `${prefix} ${type}`,
+      });
+      wsBuffer.push(el);
+      if (wsBuffer.length > 14) wsBuffer.shift();
+      wsLogEl.innerHTML = "";
+      wsBuffer.forEach(l => wsLogEl.appendChild(l));
+      wsLogEl.scrollTop = wsLogEl.scrollHeight;
+    }
+
+    // ── Mock hass factory ─────────────────────────────────────────────────────────
+
+    function buildMockHass(scenario) {
+      const handlers = scenario.handlers ?? {};
+      return {
+        states:     scenario.states ?? {},
+        connection: scenario.subscribe
+          ? { subscribeMessage: scenario.subscribe }
+          : null,
+
+        callWS(message) {
+          const type = String(message.type ?? "");
+          wsLog(type, "req");
+
+          const handler = handlers[type];
+          if (handler) {
+            let p;
+            try { p = handler(message); } catch (e) {
+              wsLog(type, "err");
+              return Promise.reject(e);
+            }
+            if (p && typeof p.then === "function") {
+              return p.then(
+                v => { wsLog(type, "res"); return v; },
+                e => { wsLog(type, "err"); throw e;  },
+              );
+            }
+            wsLog(type, "res");
+            return Promise.resolve(p);
+          }
+
+          // ── Global defaults ───────────────────────────────────────────────────
+          if (type === "sofabaton_x1s/control_panel/state") {
+            return Promise.resolve(scenario.state ?? BASE_STATE)
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+          if (type === "sofabaton_x1s/persistent_cache/contents") {
+            return Promise.resolve(scenario.contents ?? BASE_CONTENTS)
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+          if (type === "sofabaton_x1s/logs/get") {
+            return Promise.resolve({ lines: scenario.logLines ?? [] })
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+
+          // WiFi Commands defaults — device list + per-device commands
+          if (type === "sofabaton_x1s/command_devices/list") {
+            return Promise.resolve({
+              devices:     scenario.wifiDevices ?? WIFI_DEVICES_HEALTHY,
+              max_devices: scenario.maxWifiDevices ?? 5,
+            }).then(v => { wsLog(type, "res"); return v; });
+          }
+          if (type === "sofabaton_x1s/command_config/get") {
+            // Return commands keyed by device_key if provided; else fall back
+            const key = String(message.device_key ?? "");
+            const map = scenario.wifiCommandsByKey ?? {};
+            const cmds = map[key] ?? scenario.wifiCommands ?? [];
+            return Promise.resolve({ commands: cmds })
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+          if (type === "sofabaton_x1s/command_sync/progress") {
+            const key = String(message.device_key ?? "");
+            const map = scenario.wifiSyncByKey ?? {};
+            const state = map[key] ?? scenario.wifiSyncState ?? WIFI_SYNC_IDLE;
+            return Promise.resolve(state)
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+          if (type === "sofabaton_x1s/command_device/create") {
+            const newKey = `dev-new-${Date.now()}`;
+            return Promise.resolve({ device_key: newKey })
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+          if (type === "sofabaton_x1s/command_device/delete") {
+            return Promise.resolve({ ok: true })
+              .then(v => { wsLog(type, "res"); return v; });
+          }
+
+          wsLog(type, "res");
+          return Promise.resolve({ ok: true });
+        },
+
+        // callService needed by wifi-commands-tab → sync_command_config
+        callService(domain, service, data) {
+          const key = `${domain}.${service}`;
+          wsLog(key, "req");
+          const svcHandler = handlers[key];
+          if (svcHandler) return svcHandler(data);
+          wsLog(key, "res");
+          return Promise.resolve({ ok: true });
+        },
+      };
+    }
+
+    // ── loadScenario ──────────────────────────────────────────────────────────────
+
+    async function loadScenario(scenario) {
+      wsBuffer = [];
+      wsLogEl.innerHTML = "";
+
+      // Clear persisted view state so each scenario starts fresh.
+      // The store reads from localStorage on init; without this, tab selection
+      // from a previous scenario would bleed into the next one.
+      try { localStorage.removeItem("sofabaton_x1s:tools_card:view_state:v1"); } catch (_) {}
+
+      const host = document.getElementById("card-host");
+      host.innerHTML = "";
+
+      const card = document.createElement("sofabaton-control-panel");
+      card.setConfig({});
+      window._harnessCard = card;
+
+      // Set hass BEFORE appending: connectedCallback fires with hass present,
+      // so store.connected() sees hass && !state → loadState() fires automatically.
+      card.hass = buildMockHass(scenario);
+      host.appendChild(card);
+
+      await new Promise(r => setTimeout(r, 100));
+
+      if (scenario.postLoad) await scenario.postLoad(card);
+
+      document.getElementById("active-scenario-name").textContent = scenario.label;
+      document.querySelectorAll(".scenario-btn").forEach(btn =>
+        btn.classList.toggle("active", btn.dataset.id === String(scenario.id))
+      );
+    }
+
+    // ── postLoad helpers ──────────────────────────────────────────────────────────
+
+    async function clickTab(card, label) {
+      const btn = [...card.shadowRoot.querySelectorAll(".tab-btn")]
+        .find(b => {
+          const span = b.querySelector(".tab-btn-label");
+          return (span ? span.textContent : b.textContent).trim() === label;
+        });
+      if (!btn) { console.warn(`clickTab: tab "${label}" not found`); return; }
+      btn.click();
+      await card.updateComplete;
+    }
+
+    async function clickAccordion(card, sectionId) {
+      const header = card.shadowRoot.querySelector(`#acc-${sectionId} .acc-header`);
+      header?.click();
+      await card.updateComplete;
+    }
+
+    async function clickEntity(card, key) {
+      const summary = card.shadowRoot.querySelector(`#entity-${key} .entity-summary`);
+      summary?.click();
+      await card.updateComplete;
+    }
+
+    async function clickEntityRefresh(card, key) {
+      const block = card.shadowRoot.querySelector(`#entity-${key}`);
+      const btn   = block?.querySelector(".icon-btn");
+      btn?.click();
+      await card.updateComplete;
+    }
+
+    // Click an ha-switch found near labelText inside the card's shadow root.
+    // Our ha-switch stub renders a .track div (not an <input>); we click its
+    // shadow track which fires the change event via the stub's own click handler.
+    async function clickSettingsSwitch(card, labelText) {
+      const tiles = [...card.shadowRoot.querySelectorAll(".setting-tile, .tile, [class*='setting']")];
+      let tile = tiles.find(t => t.textContent.includes(labelText));
+      if (!tile) {
+        const allText = [...card.shadowRoot.querySelectorAll("*")]
+          .find(el => el.childNodes.length && [...el.childNodes].some(n => n.textContent?.trim() === labelText));
+        tile = allText?.closest("[class]") ?? null;
+      }
+      const sw = tile?.querySelector("ha-switch") ?? null;
+      if (sw?.shadowRoot) {
+        // Our stub uses a .track div — clicking it triggers the stub's own change event
+        const track = sw.shadowRoot.querySelector(".track");
+        track?.click();
+      }
+      await new Promise(r => setTimeout(r, 20));
+      await card.updateComplete;
+    }
+
+    // Find the wifi-commands sub-element inside the card's shadow DOM.
+    function wifiTab(card) {
+      return card.shadowRoot.querySelector("sofabaton-wifi-commands-tab");
+    }
+
+    // Navigate into a specific device in the device-list view by matching device name.
+    // The tab shows .device-card buttons; we find the one whose text contains deviceName.
+    async function clickWifiDevice(card, deviceName) {
+      const wt = wifiTab(card);
+      if (!wt) { console.warn("clickWifiDevice: wifi tab not found"); return; }
+      await wt.updateComplete;
+      await new Promise(r => setTimeout(r, 60));
+      const cards = [...wt.shadowRoot.querySelectorAll(".device-card")];
+      const target = cards.find(c => c.textContent.includes(deviceName));
+      if (!target) { console.warn(`clickWifiDevice: device "${deviceName}" not found`); return; }
+      target.click();
+      await wt.updateComplete;
+      await new Promise(r => setTimeout(r, 80));
+      await wt.updateComplete;
+    }
+
+    // Click the bottom-dock "Add device" trigger in the device list view.
+    async function clickWifiAddDevice(card) {
+      const wt = wifiTab(card);
+      if (!wt) return;
+      await wt.updateComplete;
+      const trigger = wt.shadowRoot.querySelector(".bottom-dock-trigger");
+      trigger?.click();
+      await wt.updateComplete;
+    }
+
+    // Click the delete button on a device card by device name.
+    async function clickWifiDeleteDevice(card, deviceName) {
+      const wt = wifiTab(card);
+      if (!wt) return;
+      await wt.updateComplete;
+      const cards = [...wt.shadowRoot.querySelectorAll(".device-card")];
+      const target = cards.find(c => c.textContent.includes(deviceName));
+      const delBtn = target?.querySelector(".device-delete-btn");
+      delBtn?.click();
+      await wt.updateComplete;
+    }
+
+    // Click the first configured slot in the command grid view to open the details modal.
+    async function clickFirstConfiguredSlot(card) {
+      const wt = wifiTab(card);
+      if (!wt) return;
+      await wt.updateComplete;
+      const slot = wt.shadowRoot.querySelector(".slot-btn:not(.slot-empty) .slot-main")
+                ?? wt.shadowRoot.querySelector(".slot-main");
+      slot?.click();
+      await wt.updateComplete;
+    }
+
+    // ── Scenarios ─────────────────────────────────────────────────────────────────
+
+    function backupTab(card) {
+      return card.shadowRoot.querySelector("sofabaton-backup-tab");
+    }
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    async function openBackupTab(card, section = "make") {
+      await clickTab(card, "Backup");
+      await new Promise(r => setTimeout(r, 80));
+      const tab = backupTab(card);
+      if (!tab) { console.warn("openBackupTab: backup tab not found"); return null; }
+      tab.openSection = section;
+      tab.requestUpdate();
+      await tab.updateComplete;
+      return tab;
+    }
+
+    async function seedRestoreBundle(tab, mode = "merge") {
+      tab._restoreBundle = clone(SAMPLE_BACKUP_BUNDLE);
+      tab._restoreFilename = "living-room-backup.json";
+      tab._restoreMode = mode;
+      tab._restoreActivityIds = SAMPLE_BACKUP_BUNDLE.activities.map((activity) => activity.device.device_id);
+      tab._restoreManualDeviceIds = SAMPLE_BACKUP_BUNDLE.devices.map((device) => device.device.device_id);
+      tab._restoreError = null;
+      tab._restoreSuccess = null;
+      tab._restoreProgress = null;
+      tab.requestUpdate();
+      await tab.updateComplete;
+    }
+
+    const SCENARIOS = [
+
+      // ── A: Hub Status (in Settings) ────────────────────────────────────────────
+
+      {
+        id: 1, group: "Hub Status",
+        label: "1. Connected",
+        states: STATES_CONNECTED,
+      },
+      {
+        id: 2, group: "Hub Status",
+        label: "2. Disconnected",
+        states: {},
+      },
+      {
+        id: 3, group: "Hub Status",
+        label: "3. Proxy bridged",
+        states: STATES_PROXY,
+      },
+
+      // ── B: Settings ────────────────────────────────────────────────────────────
+
+      {
+        id: 4, group: "Settings",
+        label: "4. All settings off",
+        states: STATES_CONNECTED,
+      },
+      {
+        id: 5, group: "Settings",
+        label: "5. WiFi Device ON",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+      },
+      {
+        id: 6, group: "Settings",
+        label: "6. Pending/busy (tiles disabled)",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/control_panel/set_setting": () => new Promise(() => {}),
+        },
+        async postLoad(card) {
+          // Trigger the WiFi Device tile toggle. We look for ha-switch elements
+          // inside the Settings tab panel; the wifi_device toggle is the last one.
+          // Our ha-switch stub uses a .track div (not <input>), so click the track.
+          const switches = [...card.shadowRoot.querySelectorAll("ha-switch")];
+          const wifiSw = switches.at(-1);  // wifi_device_enabled is the last switch
+          if (wifiSw?.shadowRoot) {
+            const track = wifiSw.shadowRoot.querySelector(".track");
+            track?.click();
+          }
+          await new Promise(r => setTimeout(r, 20));
+          await card.updateComplete;
+        },
+      },
+      {
+        id: 7, group: "Settings",
+        label: "7. Hub not connected (actions disabled)",
+        states: {},
+      },
+
+      // ── C: Cache Tab ───────────────────────────────────────────────────────────
+
+      {
+        id: 8, group: "Cache Tab",
+        label: "8. Populated — Devices open",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          await clickTab(card, "Cache");
+          await clickAccordion(card, "devices");
+        },
+      },
+      {
+        id: 9, group: "Cache Tab",
+        label: "9. WiFi device expanded (12 cmds)",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          await clickTab(card, "Cache");
+          await clickAccordion(card, "devices");
+          await clickEntity(card, "dev-7");
+        },
+      },
+      {
+        id: 10, group: "Cache Tab",
+        label: "10. Stale data banner",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          await clickTab(card, "Cache");
+          card._store._refreshGraceUntil = 0;
+          card.hass = {
+            states: {
+              "remote.living_room": {
+                state: "on",
+                attributes: { entry_id: "hub-1", cache_generation: 2,
+                              proxy_client_connected: false, activities: ACTIVITIES },
+              },
+            },
+            connection: null,
+            callWS() { return Promise.resolve({ ok: true }); },
+            callService() { return Promise.resolve({ ok: true }); },
+          };
+          await card.updateComplete;
+        },
+      },
+      {
+        id: 11, group: "Cache Tab",
+        label: "11. Refresh busy — WiFi device spinner",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/persistent_cache/refresh": () => new Promise(() => {}),
+        },
+        async postLoad(card) {
+          await clickTab(card, "Cache");
+          await clickAccordion(card, "devices");
+          await clickEntityRefresh(card, "dev-7");
+        },
+      },
+      {
+        id: 12, group: "Cache Tab",
+        label: "12. Cache disabled → redirects to Settings",
+        states: STATES_CONNECTED,
+        state: { ...BASE_STATE, persistent_cache_enabled: false },
+        async postLoad(card) {
+          await clickTab(card, "Cache");
+        },
+      },
+
+      // ── D: Logs Tab ────────────────────────────────────────────────────────────
+
+      {
+        id: 13, group: "Logs Tab",
+        label: "13. Mixed lines + live append",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/logs/get": () => ({ lines: SAMPLE_LOGS }),
+        },
+        subscribe: async (callback) => {
+          setTimeout(() => callback({
+            time: "2026-04-16 12:00:25", level: "info",
+            message: "Live log line appended via subscribe", entry_id: "hub-1",
+          }), 250);
+          return () => {};
+        },
+        async postLoad(card) {
+          await clickTab(card, "Logs");
+          await new Promise(r => setTimeout(r, 350));
+          await card.updateComplete;
+        },
+      },
+
+      // ── E: Edge States ─────────────────────────────────────────────────────────
+
+      {
+        id: 14, group: "Edge States",
+        label: "14. Multi-hub (hub picker)",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [
+            HUB_1,
+            { entry_id: "hub-2", name: "Bedroom", version: "03.03.02",
+              ip_address: "192.168.1.111", activity_count: 2, device_count: 1,
+              settings: { proxy_enabled: false, hex_logging_enabled: false, wifi_device_enabled: false } },
+          ],
+        },
+      },
+      {
+        id: 15, group: "Edge States",
+        label: "15. Loading…",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/control_panel/state": () => new Promise(() => {}),
+        },
+      },
+      {
+        id: 16, group: "Edge States",
+        label: "16. Error state",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/control_panel/state": () =>
+            Promise.reject(new Error("Backend unavailable (simulated)")),
+        },
+      },
+      {
+        id: 17, group: "Edge States",
+        label: "17. Version mismatch (stale cache)",
+        states: STATES_CONNECTED,
+        // Return a tools_frontend_version that doesn't match the loaded bundle (?v=4).
+        // The store will set toolsFrontendVersionMismatch:true and the card shows
+        // a "Refresh required" screen instead of the normal control panel UI.
+        state: { ...BASE_STATE, tools_frontend_version: "99" },
+      },
+
+      // ── F: WiFi Commands Tab ────────────────────────────────────────────────────
+      // The branch redesign adds a device-list layer: you first see a list of
+      // WifiDeviceSummary cards, then navigate into one to edit its command slots.
+
+      {
+        id: "backup-compose", group: "Backup / Restore",
+        label: "Backup composer",
+        states: STATES_CONNECTED,
+        postLoad: card => openBackupTab(card, "make"),
+      },
+      {
+        id: "backup-progress", group: "Backup / Restore",
+        label: "Backup progress",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, active_backup_operation: { ...BACKUP_PROGRESS_RUNNING } }],
+        },
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "make");
+          if (!tab) return;
+          tab._backupProgress = clone(BACKUP_PROGRESS_RUNNING);
+          tab._backupError = null;
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: "backup-complete", group: "Backup / Restore",
+        label: "Backup complete",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "make");
+          if (!tab) return;
+          tab._backupProgress = clone(BACKUP_PROGRESS_SUCCESS);
+          tab._backupError = null;
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: "restore-selection", group: "Backup / Restore",
+        label: "Restore selection",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "restore");
+          if (!tab) return;
+          await seedRestoreBundle(tab, "merge");
+        },
+      },
+      {
+        id: "restore-progress", group: "Backup / Restore",
+        label: "Restore progress",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, active_backup_operation: { ...RESTORE_PROGRESS_RUNNING } }],
+        },
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "restore");
+          if (!tab) return;
+          await seedRestoreBundle(tab, "replace");
+          tab._restoreProgress = clone(RESTORE_PROGRESS_RUNNING);
+          tab._restoreSuccess = null;
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: "restore-complete", group: "Backup / Restore",
+        label: "Restore complete",
+        states: STATES_CONNECTED,
+        async postLoad(card) {
+          const tab = await openBackupTab(card, "restore");
+          if (!tab) return;
+          await seedRestoreBundle(tab, "replace");
+          tab._restoreProgress = clone(RESTORE_PROGRESS_SUCCESS);
+          tab._restoreSuccess = "Restore completed.";
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 18, group: "WiFi Commands",
+        label: "18. Device list — 2 devices",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_HEALTHY,
+        postLoad: card => clickTab(card, "Wifi Commands"),
+      },
+      {
+        id: 19, group: "WiFi Commands",
+        label: "19. Device list — sync needed",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_SYNC_NEEDED,
+        postLoad: card => clickTab(card, "Wifi Commands"),
+      },
+      {
+        id: 20, group: "WiFi Commands",
+        label: "20. Device list — sync running",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        // Keep reporting RUNNING on every poll so the UI stays stable
+        wifiDevices: WIFI_DEVICES_SYNC_RUNNING,
+        handlers: {
+          "sofabaton_x1s/command_devices/list": () => Promise.resolve({
+            devices: WIFI_DEVICES_SYNC_RUNNING, max_devices: 5,
+          }),
+        },
+        postLoad: card => clickTab(card, "Wifi Commands"),
+      },
+      {
+        id: 21, group: "WiFi Commands",
+        label: "21. Inside device — command grid",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_HEALTHY,
+        wifiCommandsByKey: { "dev-lr": WIFI_COMMANDS_CONFIGURED },
+        wifiSyncByKey:     { "dev-lr": WIFI_SYNC_IDLE },
+        async postLoad(card) {
+          await clickTab(card, "Wifi Commands");
+          await clickWifiDevice(card, "Living Room Remote");
+        },
+      },
+      {
+        id: 22, group: "WiFi Commands",
+        label: "22. Inside device — details modal",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_HEALTHY,
+        wifiCommandsByKey: { "dev-lr": WIFI_COMMANDS_CONFIGURED },
+        wifiSyncByKey:     { "dev-lr": WIFI_SYNC_IDLE },
+        async postLoad(card) {
+          await clickTab(card, "Wifi Commands");
+          await clickWifiDevice(card, "Living Room Remote");
+          await clickFirstConfiguredSlot(card);
+        },
+      },
+      {
+        id: 23, group: "WiFi Commands",
+        label: "23. Inside device — sync needed",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: [{ ...WIFI_DEVICE_LR, ...WIFI_SYNC_NEEDED }, WIFI_DEVICE_BR],
+        wifiCommandsByKey: { "dev-lr": WIFI_COMMANDS_CONFIGURED },
+        wifiSyncByKey:     { "dev-lr": WIFI_SYNC_NEEDED },
+        async postLoad(card) {
+          await clickTab(card, "Wifi Commands");
+          await clickWifiDevice(card, "Living Room Remote");
+        },
+      },
+      {
+        id: 24, group: "WiFi Commands",
+        label: "24. Create device modal",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_HEALTHY,
+        async postLoad(card) {
+          await clickTab(card, "Wifi Commands");
+          await clickWifiAddDevice(card);
+        },
+      },
+      {
+        id: 25, group: "WiFi Commands",
+        label: "25. Delete device confirmation",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_HEALTHY,
+        async postLoad(card) {
+          await clickTab(card, "Wifi Commands");
+          await clickWifiDeleteDevice(card, "Bedroom Remote");
+        },
+      },
+      {
+        id: 26, group: "WiFi Commands",
+        label: "26. Power-flagged + input slots",
+        states: STATES_CONNECTED,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: [{ ...WIFI_DEVICE_LR, configured_slot_count: 3 }],
+        wifiCommandsByKey: { "dev-lr": WIFI_COMMANDS_POWER },
+        wifiSyncByKey:     { "dev-lr": WIFI_SYNC_IDLE },
+        async postLoad(card) {
+          await clickTab(card, "Wifi Commands");
+          await clickWifiDevice(card, "Living Room Remote");
+        },
+      },
+      {
+        id: 27, group: "WiFi Commands",
+        label: "27. Hub version warning",
+        states: STATES_VERSION_UNKNOWN,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, version: "", settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: WIFI_DEVICES_HEALTHY,
+        postLoad: card => clickTab(card, "Wifi Commands"),
+      },
+      {
+        id: 28, group: "WiFi Commands",
+        label: "28. Remote unavailable",
+        states: STATES_REMOTE_UNAVAILABLE,
+        state: {
+          ...BASE_STATE,
+          hubs: [{ ...HUB_1, settings: { ...HUB_1.settings, wifi_device_enabled: true } }],
+        },
+        wifiDevices: [],
+        postLoad: card => clickTab(card, "Wifi Commands"),
+      },
+
+      // ── E: Blobs ─────────────────────────────────────────────────────────────────
+
+      {
+        id: 30, group: "Blobs",
+        label: "30. Empty (no command picked)",
+        states: STATES_CONNECTED,
+        postLoad: card => clickTab(card, "Blobs"),
+      },
+      {
+        id: 31, group: "Blobs",
+        label: "31. Cache disabled",
+        states: STATES_CONNECTED,
+        state: { ...BASE_STATE, persistent_cache_enabled: false },
+        contents: { ...BASE_CONTENTS, enabled: false },
+        postLoad: card => clickTab(card, "Blobs"),
+      },
+      {
+        id: 32, group: "Blobs",
+        label: "32. Fetch result",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/blobs/fetch": (msg) => ({
+            device_id: Number(msg.device_id ?? 1),
+            requested_command_id: Number(msg.command_id ?? 10),
+            total_commands: 1,
+            received_command_count: 1,
+            complete: true,
+            commands: [{
+              command_label: "Power Toggle",
+              device_id: Number(msg.device_id ?? 1),
+              command_id: Number(msg.command_id ?? 10),
+              device_class: "IR",
+              blob_kind: "ir",
+              command_blob: "AAEC003F00FE00FE00FE0042EE",
+              parsed_blob: "P:Sony12 R:40000 D:1 F:18 MUL:2",
+              replay_tail_checksum: 0x1234,
+              command_checksum: 0xABCD,
+            }],
+          }),
+        },
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          await tab.updateComplete;
+          tab._selectedDeviceId = 1;
+          tab._selectedCommandId = 10;
+          tab.requestUpdate();
+          await tab.updateComplete;
+          await tab._runFetch();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 33, group: "Blobs",
+        label: "33. Test section open",
+        states: STATES_CONNECTED,
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          tab._openSection = "test";
+          tab._testBlobInput = "P:Sony12 R:40000 D:1 F:18 MUL:2";
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 34, group: "Blobs",
+        label: "34. Save section open",
+        states: STATES_CONNECTED,
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          tab._openSection = "save";
+          tab._saveDeviceIdInput = "1";
+          tab._saveCommandName = "Custom Power";
+          tab._saveBlobInput = "P:Sony12 R:40000 D:1 F:18 MUL:2";
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 35, group: "Blobs",
+        label: "35. Test error state",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/blobs/play": () => Promise.reject(new Error("invalid blob: bad protocol descriptor")),
+        },
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          tab._openSection = "test";
+          tab._testBlobInput = "garbage";
+          tab.requestUpdate();
+          await tab.updateComplete;
+          await tab._runTest();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 36, group: "Blobs",
+        label: "36. Save success flash",
+        states: STATES_CONNECTED,
+        handlers: {
+          "sofabaton_x1s/blobs/persist": (msg) => ({
+            status: "ok",
+            device_id: Number(msg.device_id ?? 1),
+            command_id: 99,
+            command_name: String(msg.command_name ?? "Custom"),
+            page_count: 1,
+          }),
+        },
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          tab._openSection = "save";
+          tab._saveDeviceIdInput = "1";
+          tab._saveCommandName = "Custom Power";
+          tab._saveBlobInput = "P:Sony12 R:40000 D:1 F:18 MUL:2";
+          tab.requestUpdate();
+          await tab.updateComplete;
+          await tab._runSave();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 38, group: "Blobs",
+        label: "38. X2 hub (descriptor hints)",
+        states: {
+          "remote.living_room": {
+            state: "on",
+            attributes: { ...STATES_CONNECTED["remote.living_room"].attributes, hub_version: "X2" },
+          },
+        },
+        state: { ...BASE_STATE, hubs: [{ ...HUB_1, version: "X2" }] },
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          tab._openSection = "test";
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+      {
+        id: 37, group: "Blobs",
+        label: "37. Proxy connected (Test/Save blocked)",
+        states: STATES_PROXY,
+        postLoad: async (card) => {
+          await clickTab(card, "Blobs");
+          const tab = card.shadowRoot.querySelector("sofabaton-blobs-tab");
+          if (!tab) return;
+          tab._openSection = "test";
+          tab.requestUpdate();
+          await tab.updateComplete;
+        },
+      },
+    ];
+
+    // ── Build sidebar ─────────────────────────────────────────────────────────────
+
+    const controlsEl = document.getElementById("controls");
+    const groupEls   = {};
+
+    for (const s of SCENARIOS) {
+      if (!groupEls[s.group]) {
+        const el = document.createElement("div");
+        el.className = "scenario-group";
+        el.innerHTML = `<div class="group-label">${s.group}</div>`;
+        groupEls[s.group] = el;
+        controlsEl.appendChild(el);
+      }
+      const btn = Object.assign(document.createElement("button"), {
+        className:   "scenario-btn",
+        textContent: s.label,
+      });
+      btn.dataset.id = String(s.id);
+      btn.addEventListener("click", () => loadScenario(s));
+      groupEls[s.group].appendChild(btn);
+    }
+
+    // Auto-load scenario 1 on page open
+    loadScenario(SCENARIOS[0]);
+
+  </script>
+</body>
+</html>

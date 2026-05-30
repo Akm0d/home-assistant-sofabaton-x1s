@@ -20,7 +20,6 @@ from .const import (
     CONF_MDNS_VERSION,
     DEFAULT_PROXY_UDP_PORT,
     DEFAULT_HUB_LISTEN_BASE,
-    DEFAULT_HUB_VERSION,
     CONF_ENABLE_X2_DISCOVERY,
     CONF_ROKU_LISTEN_PORT,
     HUB_VERSION_X1,
@@ -73,7 +72,15 @@ def _prepare_discovered_hub(discovery_info: ZeroconfServiceInfo) -> Dict[str, An
 
     name = props.get("NAME") or discovery_info.name.split(".")[0]
     mac = props.get("MAC") or discovery_info.name
-    version = classify_hub_version(props)
+    try:
+        version = classify_hub_version(props)
+    except ValueError as err:
+        # Surface unknown firmware lineages instead of silently
+        # inheriting an existing variant's wire layout. A discovery
+        # we cannot classify is skipped here and re-evaluated on the
+        # next advertisement once the user upgrades the integration.
+        _LOGGER.warning("Ignoring discovery for unrecognised hub: %s", err)
+        return None
 
     return {
         "name": name,
@@ -122,13 +129,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             mac = generate_static_mac(host, port)
             props = {"MAC": mac}
 
+            # Manual entry has no mDNS advertisement, so the variant is
+            # not yet known. Leave ``version`` unset and let the post-
+            # connect banner resolve it on first proxy handshake.
             self._chosen_hub = {
                 "name": host,
                 "host": host,
                 "port": port,
                 "props": props,
                 "mac": mac,
-                "version": DEFAULT_HUB_VERSION,
+                "version": None,
             }
             return await self.async_step_ports()
 
@@ -195,8 +205,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(mac)
             self._abort_if_unique_id_configured()
 
-            # build data
-            version = hub_info.get("version") or classify_hub_version(hub_info.get("props", {}))
+            # build data. ``version`` may be ``None`` for manual entries
+            # where no mDNS advertisement was seen; the proxy resolves
+            # it on first connect via the hub banner.
+            version = hub_info.get("version")
+            if not version:
+                props = hub_info.get("props", {})
+                try:
+                    version = classify_hub_version(props)
+                except ValueError:
+                    version = None
             data = {
                 CONF_MAC: mac,
                 CONF_NAME: hub_info["name"],

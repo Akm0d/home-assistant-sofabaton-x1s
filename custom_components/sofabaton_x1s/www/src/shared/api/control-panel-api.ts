@@ -1,6 +1,14 @@
 import type {
+  BackupBundlePayload,
+  BackupOperationStateResponse,
+  BackupOperationStartResponse,
+  BackupProgressEvent,
+  BackupRestoreResult,
   CacheContentsResponse,
   ControlPanelStateResponse,
+  BlobFetchResponse,
+  BlobPersistResponse,
+  BlobPlayResponse,
   HassLike,
   HubAction,
   LogsResponse,
@@ -37,6 +45,74 @@ export class ControlPanelApi {
       type: "sofabaton_x1s/control_panel/run_action",
       entry_id: entryId,
       action,
+    });
+  }
+
+  fetchBlob(entryId: string, deviceId: number, commandId?: number | null) {
+    return this.hass.callWS<BlobFetchResponse>({
+      type: "sofabaton_x1s/blobs/fetch",
+      entry_id: entryId,
+      device_id: deviceId,
+      ...(commandId != null ? { command_id: commandId } : {}),
+    });
+  }
+
+  playIrBlob(entryId: string, blob: string) {
+    return this.hass.callWS<BlobPlayResponse>({
+      type: "sofabaton_x1s/blobs/play",
+      entry_id: entryId,
+      blob,
+    });
+  }
+
+  persistIrBlob(entryId: string, deviceId: number, commandName: string, blob: string) {
+    return this.hass.callWS<BlobPersistResponse>({
+      type: "sofabaton_x1s/blobs/persist",
+      entry_id: entryId,
+      device_id: deviceId,
+      command_name: commandName,
+      blob,
+    });
+  }
+
+  startBackupExport(entryId: string, deviceIds?: number[] | null) {
+    return this.hass.callWS<BackupOperationStartResponse>({
+      type: "sofabaton_x1s/backup/export",
+      entry_id: entryId,
+      ...(deviceIds?.length ? { device_ids: deviceIds } : {}),
+    });
+  }
+
+  startBackupRestore(entryId: string, backup: BackupBundlePayload, mode: "replace" | "merge") {
+    return this.hass.callWS<BackupOperationStartResponse>({
+      type: "sofabaton_x1s/backup/restore",
+      entry_id: entryId,
+      backup,
+      mode,
+    });
+  }
+
+  subscribeBackupProgress(operationId: string, onMessage: (payload: BackupProgressEvent) => void) {
+    if (!this.hass.connection?.subscribeMessage) {
+      return Promise.reject(new Error("Backup progress is unavailable without a websocket connection"));
+    }
+    return this.hass.connection.subscribeMessage(
+      onMessage,
+      { type: "sofabaton_x1s/backup/progress_subscribe", operation_id: operationId },
+    );
+  }
+
+  getBackupState(entryId: string) {
+    return this.hass.callWS<BackupOperationStateResponse>({
+      type: "sofabaton_x1s/backup/state",
+      entry_id: entryId,
+    });
+  }
+
+  clearBackupResult(operationId: string) {
+    return this.hass.callWS<{ ok: boolean }>({
+      type: "sofabaton_x1s/backup/clear_result",
+      operation_id: operationId,
     });
   }
 

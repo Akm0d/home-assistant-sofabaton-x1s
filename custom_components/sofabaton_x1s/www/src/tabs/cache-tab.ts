@@ -1,6 +1,15 @@
 import { html } from "lit";
 import type { CacheHubState, SectionId } from "../shared/ha-context";
-import { activityButtons, activityFavorites, activityMacros, buttonName, deviceCommands, hubActivities, hubDevices } from "../shared/utils/control-panel-selectors";
+import {
+  activityButtons,
+  activityFavorites,
+  activityMacros,
+  buttonName,
+  deviceClassIcon,
+  deviceCommands,
+  hubActivities,
+  hubDevices,
+} from "../shared/utils/control-panel-selectors";
 import { renderAccordionSection } from "../components/accordion-section";
 
 function badge(type: string, value: string | number) {
@@ -19,6 +28,8 @@ export function renderCacheTab(params: {
   openSection: SectionId | null;
   openEntity: string | null;
   selectedHubProxyConnected: boolean;
+  enablingPersistentCache: boolean;
+  onEnablePersistentCache: () => void;
   onRefreshStale: () => void;
   onToggleSection: (sectionId: SectionId) => void;
   onToggleEntity: (key: string) => void;
@@ -27,7 +38,23 @@ export function renderCacheTab(params: {
 }) {
   if (params.loading) return html`<div class="cache-state">Loading…</div>`;
   if (params.error) return html`<div class="cache-state error">${params.error}</div>`;
-  if (!params.persistentCacheEnabled) return html`<div class="cache-state"><div class="cache-state-icon">💾</div><div class="cache-state-title">Persistent cache is off</div><div class="cache-state-sub">Enable it from the Settings tab to browse cached activities and devices.</div></div>`;
+  if (!params.persistentCacheEnabled) {
+    return html`
+      <div class="cache-state cache-enable-state">
+        <div class="cache-enable-icon"><ha-icon icon="mdi:database-cog-outline"></ha-icon></div>
+        <div class="cache-state-title">Persistent cache is off</div>
+        <div class="cache-state-sub">Turn it on to browse cached activities and devices, and to unlock Backup and Blobs workflows that depend on it.</div>
+        <button
+          class="cache-enable-btn"
+          ?disabled=${params.enablingPersistentCache || params.hubCommandBusy}
+          @click=${params.onEnablePersistentCache}
+        >
+          <ha-icon icon="mdi:database-check-outline"></ha-icon>
+          <span>${params.enablingPersistentCache ? "Enabling…" : "Enable persistent cache"}</span>
+        </button>
+      </div>
+    `;
+  }
   if (!params.hub) return html`<div class="cache-state">No hubs found.</div>`;
 
   const renderActivity = (activity: { id: number; name?: string; favorite_count?: number; macro_count?: number }) => {
@@ -60,17 +87,26 @@ export function renderCacheTab(params: {
     `;
   };
 
-  const renderDevice = (device: { id: number; name?: string; command_count?: number }) => {
+  const renderDevice = (device: {
+    id: number;
+    name?: string;
+    command_count?: number;
+    device_class?: string;
+  }) => {
     const id = Number(device.id);
     const key = `dev-${id}`;
     const isOpen = params.openEntity === key;
     const locked = params.hubCommandBusy || params.selectedHubProxyConnected;
     const isSpinning = params.refreshBusy && params.activeRefreshLabel === key;
     const commands = deviceCommands(params.hub, id);
+    const icon = deviceClassIcon(device.device_class);
     return html`
       <div class="entity-block${isOpen ? " open" : ""}" id=${`entity-${key}`}>
         <div class="entity-summary" @click=${() => params.onToggleEntity(key)}>
-          <span class="entity-name">${device.name || `Device ${id}`}</span>
+          <span class="entity-name">
+            <span class="entity-name-icon"><ha-icon icon=${icon}></ha-icon></span>
+            <span class="entity-name-label">${device.name || `Device ${id}`}</span>
+          </span>
           <span class="entity-meta">
             ${badge("DevID", id)}
             <span class="entity-count">${Number(device.command_count || 0)} cmds</span>
@@ -90,8 +126,8 @@ export function renderCacheTab(params: {
     <div class="tab-panel">
       ${params.staleData ? html`<div class="stale-banner"><span class="stale-banner-text">Cache was updated externally. Refresh to see latest data.</span><button class="stale-banner-btn" @click=${params.onRefreshStale}>Refresh</button></div>` : null}
       <div class="cache-panel">
-        ${renderAccordionSection({ sectionId: "activities", title: "Activities", count: activities.length, isOpen: params.openSection === "activities", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("activities"), onRefresh: () => params.onRefreshSection("activities"), body: activities.map(renderActivity) })}
-        ${renderAccordionSection({ sectionId: "devices", title: "Devices", count: devices.length, isOpen: params.openSection === "devices", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("devices"), onRefresh: () => params.onRefreshSection("devices"), body: devices.map(renderDevice) })}
+        ${renderAccordionSection({ sectionId: "activities", title: "Activities", icon: "mdi:play-circle-outline", count: activities.length, isOpen: params.openSection === "activities", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("activities"), onRefresh: () => params.onRefreshSection("activities"), body: activities.map(renderActivity) })}
+        ${renderAccordionSection({ sectionId: "devices", title: "Devices", icon: "mdi:audio-video", count: devices.length, isOpen: params.openSection === "devices", disabled: params.hubCommandBusy || params.selectedHubProxyConnected, spinning: params.refreshBusy && !params.activeRefreshLabel, onToggle: () => params.onToggleSection("devices"), onRefresh: () => params.onRefreshSection("devices"), body: devices.map(renderDevice) })}
       </div>
     </div>
   `;

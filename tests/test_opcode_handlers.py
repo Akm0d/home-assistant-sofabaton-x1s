@@ -42,17 +42,23 @@ from custom_components.sofabaton_x1s.lib.opcode_handlers import (
     AckReadyHandler,
     CatalogActivityHandler,
     CatalogDeviceHandler,
+    IdleBehaviorHandler,
     KeymapHandler,
     MacroHandler,
+    RequestIdleBehaviorHandler,
+    SetIdleBehaviorHandler,
     X1CatalogActivityHandler,
     X1CatalogDeviceHandler,
     X2RemoteListRowHandler,
+    _decode_x1s_activity_label,
+    _decode_x1s_needs_confirm_flag,
 )
 from custom_components.sofabaton_x1s.lib.protocol_const import (
     ButtonName,
     OP_ACTIVITY_MAP_PAGE,
     OP_KEYMAP_EXTRA,
     OP_KEYMAP_CONT,
+    OP_CATALOG_ROW_DEVICE,
     OP_KEYMAP_TBL_B,
     OP_KEYMAP_TBL_D,
     OP_KEYMAP_TBL_E,
@@ -60,9 +66,12 @@ from custom_components.sofabaton_x1s.lib.protocol_const import (
     OP_KEYMAP_TBL_G,
     OP_CATALOG_ROW_ACTIVITY,
     OP_ACK_READY,
+    OP_IDLE_BEHAVIOR,
     OP_REQ_ACTIVITIES,
     OP_REQ_BUTTONS,
     OP_REQ_COMMANDS,
+    OP_REQ_IDLE_BEHAVIOR,
+    OP_SET_IDLE_BEHAVIOR,
     OP_MACROS_A1,
     OP_MACROS_B1,
     OP_MARKER,
@@ -712,36 +721,6 @@ def test_devbtn_extra_contains_pause_and_red() -> None:
     assert proxy.state.buttons.get(0x65) == {ButtonName.PAUSE, ButtonName.RED}
 
 
-def test_macro_handler_reassembles_and_records_macros() -> None:
-    proxy = X1Proxy(
-        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
-    )
-    handler = MacroHandler()
-
-    act = 0x34
-    record_one = bytes([0x01]) + "Power On".encode("utf-16le") + b"\x00\x00"
-    record_two = bytes([0x02]) + "Watch TV".encode("utf-16le") + b"\x00\x00"
-    combined = record_one + record_two
-
-    payload_one = combined[: len(combined) // 2]
-    payload_two = combined[len(combined) // 2 :]
-
-    raw_one = _build_macro_raw((OP_MACROS_A1 >> 8) & 0xFF, 1, 2, act, payload_one)
-    raw_two = _build_macro_raw((OP_MACROS_B1 >> 8) & 0xFF, 2, 2, act, payload_two)
-
-    opcode_one = (OP_MACROS_A1 >> 8) << 8 | (OP_MACROS_A1 & 0xFF)
-    opcode_two = (OP_MACROS_B1 >> 8) << 8 | (OP_MACROS_B1 & 0xFF)
-
-    handler.handle(_build_context(proxy, raw_one, opcode_one, "MACROS_A1"))
-    assert proxy.state.get_activity_macros(act) == []
-
-    handler.handle(_build_context(proxy, raw_two, opcode_two, "MACROS_B1"))
-    macros = proxy.state.get_activity_macros(act)
-
-    assert any(entry["command_id"] == 0x01 and entry["label"] == "Power On" for entry in macros)
-    assert any(entry["command_id"] == 0x02 and entry["label"] == "Watch TV" for entry in macros)
-
-
 def test_macro_handler_drains_completed_burst_immediately(monkeypatch) -> None:
     proxy = X1Proxy(
         "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
@@ -789,7 +768,12 @@ def test_macro_handler_drains_completed_burst_immediately(monkeypatch) -> None:
 
 def test_macro_handler_parses_sample_activity_67() -> None:
     proxy = X1Proxy(
-        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+        "127.0.0.1",
+        proxy_udp_port=0,
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1S,
     )
     handler = MacroHandler()
 
@@ -810,7 +794,12 @@ def test_macro_handler_parses_sample_activity_67() -> None:
 
 def test_macro_handler_parses_sample_activity_67_long_label() -> None:
     proxy = X1Proxy(
-        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+        "127.0.0.1",
+        proxy_udp_port=0,
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1S,
     )
     handler = MacroHandler()
 
@@ -837,7 +826,12 @@ def test_macro_handler_parses_sample_activity_67_long_label() -> None:
 
 def test_macro_handler_parses_sample_activity_67_additional_long_label() -> None:
     proxy = X1Proxy(
-        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+        "127.0.0.1",
+        proxy_udp_port=0,
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1S,
     )
     handler = MacroHandler()
 
@@ -868,7 +862,12 @@ def test_macro_handler_parses_sample_activity_67_additional_long_label() -> None
 
 def test_macro_handler_parses_sample_activity_69() -> None:
     proxy = X1Proxy(
-        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+        "127.0.0.1",
+        proxy_udp_port=0,
+        proxy_enabled=False,
+        diag_dump=False,
+        diag_parse=False,
+        hub_version=HUB_VERSION_X1S,
     )
     handler = MacroHandler()
 
@@ -927,12 +926,52 @@ def test_x1_device_row_updates_state_and_burst() -> None:
 
     handler.handle(frame)
 
+    expected_raw_body = bytes(frame.payload[3:])
     assert proxy._device_pending_rows[0x09] == {
         "id": 0x01,
         "brand": "Streaming Stick 4K",
         "name": "Roku",
+        "device_class": "wifi_roku",
+        "device_class_code": 0x0A,
+        "raw_body": expected_raw_body,
     }
     assert proxy._burst.kind == "devices"
+
+
+def test_catalog_device_handler_decodes_shared_device_class_code() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = CatalogDeviceHandler()
+    proxy._begin_device_request()
+
+    payload = bytearray(218)
+    payload[0] = 0x01
+    payload[3] = 0x01
+    payload[6:8] = (0x0007).to_bytes(2, "big")
+    payload[10] = 0x1A
+    raw = bytearray([0xA5, 0x5A, 0xD5, 0x0B]) + payload + bytearray([0x00])
+    raw[36 : 36 + len("Philips hue".encode("utf-16be"))] = "Philips hue".encode("utf-16be")
+    raw[96 : 96 + len("Philips hue".encode("utf-16be"))] = "Philips hue".encode("utf-16be")
+
+    handler.handle(
+        FrameContext(
+            proxy=proxy,
+            opcode=OP_CATALOG_ROW_DEVICE,
+            direction="Hâ†’A",
+            payload=bytes(payload),
+            raw=bytes(raw),
+            name="CATALOG_ROW_DEVICE",
+        )
+    )
+
+    assert proxy.state.devices[0x07] == {
+        "brand": "Philips hue",
+        "name": "Philips hue",
+        "device_class": "wifi_hue",
+        "device_class_code": 0x1A,
+        "raw_body": bytes(payload[3:]),
+    }
 
 
 def test_x1_activity_row_updates_state_and_hint() -> None:
@@ -1090,10 +1129,20 @@ def test_catalog_activity_handler_finishes_burst_immediately_on_final_row() -> N
     handler.handle(_build_context(proxy, second, OP_CATALOG_ROW_ACTIVITY, "CATALOG_ROW_ACTIVITY"))
 
     assert proxy._burst.active is False
-    assert proxy.state.activities == {
+    # state.activities also carries raw_body bytes for downstream
+    # schema parsing (e.g. backup); strip it here to keep the
+    # assertion focused on the catalog-row decode.
+    activities_view = {
+        act_id: {k: v for k, v in entry.items() if k != "raw_body"}
+        for act_id, entry in proxy.state.activities.items()
+    }
+    assert activities_view == {
         0x65: {"name": "Watch TV", "active": False, "needs_confirm": False},
         0x66: {"name": "Play Xbox", "active": True, "needs_confirm": False},
     }
+    for entry in proxy.state.activities.values():
+        assert isinstance(entry.get("raw_body"), (bytes, bytearray))
+        assert len(entry["raw_body"]) >= 1
     assert proxy.state.current_activity_hint == 0x66
 
 def test_catalog_activity_handler_decodes_utf16_labels() -> None:
@@ -1168,6 +1217,85 @@ def test_catalog_activity_handler_decodes_utf16_labels() -> None:
                 if int(value["id"]) == (act_id & 0xFF)
             )
             assert row["name"] == expected_label
+
+
+def test_decode_x1s_activity_label_decodes_utf16be_slot() -> None:
+    slot = "Watch TV".encode("utf-16-be").ljust(60, b"\x00")
+    assert _decode_x1s_activity_label(slot) == "Watch TV"
+
+
+def test_decode_x1s_activity_label_truncates_at_first_null_codepoint() -> None:
+    # Slot is filled with two UTF-16BE strings separated by NUL; only the first wins.
+    first = "Watch Apple TV".encode("utf-16-be")
+    second = "Stale".encode("utf-16-be")
+    slot = (first + b"\x00\x00" + second).ljust(60, b"\x00")
+    assert _decode_x1s_activity_label(slot) == "Watch Apple TV"
+
+
+def test_decode_x1s_activity_label_returns_empty_for_zeroed_slot() -> None:
+    assert _decode_x1s_activity_label(b"\x00" * 60) == ""
+
+
+def test_decode_x1s_activity_label_handles_odd_length_safely() -> None:
+    # Defensive: short / odd-length input must not raise; the schema slot is 60B
+    # but a malformed frame might be shorter.
+    assert _decode_x1s_activity_label(b"\x00\x57\x00") == "W"
+
+
+def test_decode_x1s_needs_confirm_flag_true_at_tail_marker() -> None:
+    payload = bytearray(214)
+    # Tail region: payload[152..212). Place fc XX fc YY near the end of it.
+    payload[170:174] = bytes([0xFC, 0x01, 0xFC, 0x01])
+    assert _decode_x1s_needs_confirm_flag(bytes(payload)) is True
+
+
+def test_decode_x1s_needs_confirm_flag_false_when_cleared() -> None:
+    payload = bytearray(214)
+    payload[170:174] = bytes([0xFC, 0x00, 0xFC, 0x00])
+    assert _decode_x1s_needs_confirm_flag(bytes(payload)) is False
+
+
+def test_decode_x1s_needs_confirm_flag_ignores_markers_outside_tail() -> None:
+    # An fc XX fc YY pattern that lands BEFORE the tail region must not be
+    # interpreted as the confirm flag, even though the legacy "last 80 bytes"
+    # window would have caught it.
+    payload = bytearray(214)
+    payload[100:104] = bytes([0xFC, 0x01, 0xFC, 0x01])  # noise before tail
+    assert _decode_x1s_needs_confirm_flag(bytes(payload)) is False
+
+
+def test_decode_x1s_needs_confirm_flag_handles_short_payload() -> None:
+    # A truncated frame with no tail region should not raise; return False.
+    assert _decode_x1s_needs_confirm_flag(b"\x00" * 80) is False
+
+
+def test_clear_x1s_confirm_flag_zeroes_the_flag_only() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    payload = bytearray(214)
+    payload[170:174] = bytes([0xFC, 0x01, 0xFC, 0x01])
+    payload[42] = 0xAB  # canary inside label slot — must be preserved
+
+    cleared = proxy._clear_x1s_confirm_flag(bytes(payload))
+
+    assert cleared[173] == 0x00  # flag byte
+    assert cleared[170:173] == bytes([0xFC, 0x01, 0xFC])  # surrounding marker intact
+    assert cleared[42] == 0xAB
+    assert _decode_x1s_needs_confirm_flag(cleared) is False
+
+
+def test_clear_x1s_confirm_flag_leaves_markers_outside_tail_alone() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    payload = bytearray(214)
+    payload[100:104] = bytes([0xFC, 0x01, 0xFC, 0x01])  # outside the tail window
+
+    cleared = proxy._clear_x1s_confirm_flag(bytes(payload))
+
+    # Nothing in the tail to clear, and the out-of-region marker is untouched.
+    assert cleared[100:104] == bytes([0xFC, 0x01, 0xFC, 0x01])
 
 
 def test_activity_map_ignores_control_tuples_from_x1_tail() -> None:
@@ -1262,6 +1390,94 @@ def test_x1_catalog_device_handler_keeps_mdns_hub_version() -> None:
     handler.handle(frame)
 
     assert proxy.hub_version == HUB_VERSION_X1S
+
+
+def test_idle_behavior_reply_updates_device_cache() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = IdleBehaviorHandler()
+    proxy.state.devices[0x0C] = {
+        "name": "TV",
+        "device_class": "ir",
+        "device_class_code": 0x0D,
+    }
+
+    frame = _build_payload_context(proxy, OP_IDLE_BEHAVIOR, bytes([0x0C, 0x03]), "IDLE_BEHAVIOR")
+    handler.handle(frame)
+
+    assert proxy.state.devices[0x0C]["idle_behavior"] == 3
+    assert proxy.state.devices[0x0C]["power_mode"] == 3
+    assert proxy.state.devices[0x0C]["power_model"] == 3
+
+
+def test_set_idle_behavior_handler_updates_cache_from_app_command() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = SetIdleBehaviorHandler()
+    proxy.state.devices[0x0C] = {"name": "TV"}
+
+    frame = _build_payload_context(
+        proxy,
+        OP_SET_IDLE_BEHAVIOR,
+        bytes([0x0C, 0x02]),
+        "SET_IDLE_BEHAVIOR",
+    )
+    handler.handle(frame)
+
+    assert proxy.state.devices[0x0C]["idle_behavior"] == 2
+
+
+def test_request_idle_behavior_handler_is_non_mutating() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    handler = RequestIdleBehaviorHandler()
+
+    frame = _build_payload_context(
+        proxy,
+        OP_REQ_IDLE_BEHAVIOR,
+        bytes([0x0C]),
+        "REQ_IDLE_BEHAVIOR",
+    )
+    handler.handle(frame)
+
+    assert proxy.state.devices == {}
+
+
+def test_device_snapshot_commit_preserves_cached_idle_behavior() -> None:
+    proxy = X1Proxy(
+        "127.0.0.1", proxy_udp_port=0, proxy_enabled=False, diag_dump=False, diag_parse=False
+    )
+    proxy.state.devices[0x0C] = {
+        "name": "TV",
+        "brand": "Sony",
+        "idle_behavior": 3,
+        "power_mode": 3,
+        "power_model": 3,
+    }
+    proxy.record_idle_behavior_value(0x0C, 3)
+    proxy._begin_device_request()
+
+    accepted = proxy.ingest_device_row(
+        row_idx=1,
+        expected_rows=1,
+        dev_id=0x0C,
+        device={
+            "brand": "Sony",
+            "name": "TV",
+            "device_class": "ir",
+            "device_class_code": 0x0D,
+        },
+    )
+    assert accepted is True
+
+    proxy._on_devices_burst_end("devices")
+
+    assert proxy.state.devices[0x0C]["idle_behavior"] == 3
+    assert proxy.state.devices[0x0C]["power_mode"] == 3
+    assert proxy.state.devices[0x0C]["power_model"] == 3
 
 
 def test_keymap_handler_parses_x2_followup_d73d_page_buttons() -> None:
