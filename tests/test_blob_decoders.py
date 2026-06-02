@@ -33,6 +33,10 @@ from custom_components.sofabaton_x1s.lib.blob_decoders import (  # noqa: E402
     encode_decoded_blob,
     format_decoded_for_display,
     is_decodable_class,
+    render_ir_descriptive_blob_body,
+    render_wifi_ip_blob_body,
+    render_wifi_ip_http_text,
+    render_wifi_roku_blob_body,
     try_decode_blob,
 )
 from custom_components.sofabaton_x1s.lib.commands import (  # noqa: E402
@@ -248,6 +252,28 @@ def test_wifi_roku_edit_path_roundtrip():
     assert re_decoded["trailer_hex"] == "d3"
 
 
+def test_render_wifi_roku_blob_body_matches_data_hex_minus_trailer():
+    """The blob-body builder produces ``data_hex`` minus the trailer."""
+
+    raw = _to_bytes(WIFI_ROKU_HEX)
+    # The fixture's trailer is 1 byte.
+    expected_body = raw[:-1]
+    assert render_wifi_roku_blob_body(
+        path="launch/cb383539684b/10/0/short",
+    ) == expected_body
+
+
+def test_render_wifi_roku_blob_body_rejects_overlength_path():
+    with pytest.raises(ValueError):
+        render_wifi_roku_blob_body(path="x" * 256)
+
+
+def test_render_wifi_roku_blob_body_accepts_max_length_path():
+    body = render_wifi_roku_blob_body(path="x" * 255)
+    assert body[0] == 0xFF
+    assert body[1:] == b"x" * 255
+
+
 def test_wifi_roku_short_blob_returns_none():
     # 1-byte length prefix says 5 bytes follow but only 2 are present.
     assert try_decode_blob(DEVICE_CLASS_WIFI_ROKU, b"\x05ab") is None
@@ -426,6 +452,48 @@ def test_ir_descriptive_preserves_denonk_with_existing_checksum():
     assert encode_decoded_blob(decoded) == raw
 
 
+def test_render_ir_descriptive_blob_body_matches_writer_minus_trailing_nulls():
+    """The canonical byte-layout helper reproduces the synthesis writer's
+    output minus the four trailing 0x00 bytes the synthesis path appends.
+
+    The synthesis writer (``commands.build_descriptive_ir_blob_body``)
+    composes ``render_ir_descriptive_blob_body`` + four 0x00 bytes.
+    Pinning that relationship explicitly catches any future drift in
+    either side.
+    """
+
+    descriptor = "P:Sony12 R:40000 D:1 F:18 MUL:2"
+    synthesized = build_descriptive_ir_blob_body(descriptor)
+    via_render = render_ir_descriptive_blob_body(descriptor)
+    assert synthesized == via_render + b"\x00\x00\x00\x00"
+
+
+def test_render_ir_descriptive_blob_body_does_not_canonicalize():
+    """The canonical helper preserves the descriptor verbatim.
+
+    Canonicalization only happens in the synthesis path
+    (``commands.build_descriptive_ir_blob_body``); the byte-layout
+    helper MUST emit the descriptor it was given so the round-trip
+    encoder can reproduce captured bytes exactly. A DenonK descriptor
+    without ``CHECKSUM:`` would be a different byte sequence on
+    output if the canonical helper canonicalized.
+    """
+
+    descriptor_no_checksum = "P:DenonK R:37000 C0:84 C1:50 C2:0 D:4 S:1 F:5"
+    body = render_ir_descriptive_blob_body(descriptor_no_checksum)
+    # The declared length bytes match the input length, with no
+    # CHECKSUM: field appended.
+    declared_len = int.from_bytes(body[:2], "big")
+    assert declared_len == len(descriptor_no_checksum)
+    assert body[8 : 8 + declared_len].decode("ascii") == descriptor_no_checksum
+    assert b"CHECKSUM:" not in body
+
+
+def test_render_ir_descriptive_blob_body_rejects_overlength_descriptor():
+    with pytest.raises(ValueError):
+        render_ir_descriptive_blob_body("P:" + "x" * 0x10000)
+
+
 def test_ir_descriptive_short_blob_returns_none():
     # Too short to contain even the 8-byte header.
     assert try_decode_blob(DEVICE_CLASS_IR, b"\x00\x05") is None
@@ -460,6 +528,90 @@ def test_encode_decoded_blob_rejects_missing_fields():
 # ---------------------------------------------------------------------------
 # Display rendering — used by the Fetch Blob tools card
 # ---------------------------------------------------------------------------
+
+
+def test_render_wifi_ip_http_text_matches_real_blob_bytes():
+    """The canonical writer reproduces the HTTP-text bytes in a real backup row.
+
+    Pins the contract on the public ``render_wifi_ip_http_text``
+    helper: feeding it the structured fields from a captured row
+    yields exactly the bytes that appear at offset 8 of the row's
+    ``data_hex`` (length declared in bytes 6..8). This is what
+    enables both the backup encoder and the wifi-create protocol
+    flow to agree on rendering rules.
+    """
+
+    raw = _to_bytes(WIFI_IP_BODYLESS_HEX)
+    declared_len = int.from_bytes(raw[6:8], "big")
+    expected_http_text = raw[8 : 8 + declared_len]
+
+    assert render_wifi_ip_http_text(
+        host="192.168.2.77",
+        port=8060,
+        method="POST",
+        path="/launch/fc012c39d390/1/0/short",
+        header="",
+        content_type="application/x-www-form-urlencoded",
+        body="",
+    ) == expected_http_text
+
+
+def test_render_wifi_ip_blob_body_matches_data_hex_minus_trailer():
+    """The blob-body builder produces ``data_hex`` minus the trailer byte."""
+
+    raw = _to_bytes(WIFI_IP_BODYLESS_HEX)
+    expected_body = raw[:-1]  # strip the 1-byte trailer
+
+    assert render_wifi_ip_blob_body(
+        host="192.168.2.77",
+        port=8060,
+        method="POST",
+        path="/launch/fc012c39d390/1/0/short",
+        content_type="application/x-www-form-urlencoded",
+    ) == expected_body
+
+
+def test_render_wifi_ip_http_text_recomputes_content_length():
+    """Editing the body changes Content-Length deterministically."""
+
+    text_short = render_wifi_ip_http_text(
+        host="10.0.0.1",
+        port=80,
+        method="POST",
+        path="/api",
+        content_type="application/json",
+        body='{"a":1}',  # 7 bytes
+    )
+    text_long = render_wifi_ip_http_text(
+        host="10.0.0.1",
+        port=80,
+        method="POST",
+        path="/api",
+        content_type="application/json",
+        body='{"a":1,"b":2}',  # 13 bytes
+    )
+    assert b"Content-Length:7\r\n\r\n" in text_short
+    assert b"Content-Length:13\r\n\r\n" in text_long
+
+
+def test_render_wifi_ip_blob_body_rejects_invalid_host():
+    with pytest.raises(ValueError):
+        render_wifi_ip_blob_body(
+            host="not.a.valid.address.too.many.octets",
+            port=80,
+            method="GET",
+            path="/",
+        )
+
+
+def test_render_wifi_ip_blob_body_rejects_invalid_port():
+    with pytest.raises(ValueError):
+        render_wifi_ip_blob_body(
+            host="1.2.3.4",
+            port=70000,
+            method="GET",
+            path="/",
+        )
 
 
 def test_format_decoded_wifi_ip_bodyless():

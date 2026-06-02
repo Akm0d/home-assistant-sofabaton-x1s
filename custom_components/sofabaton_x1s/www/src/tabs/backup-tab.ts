@@ -444,6 +444,26 @@ class SofabatonBackupTab extends LitElement {
       line-height: 1.5;
     }
 
+    .backup-downloaded-note,
+    .backup-expired-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .backup-downloaded-note {
+      color: var(--success-color, #43a047);
+    }
+    .backup-expired-note {
+      color: var(--warning-color, #ff9800);
+    }
+    .backup-downloaded-note ha-icon,
+    .backup-expired-note ha-icon {
+      --mdc-icon-size: 16px;
+    }
+
     .mode-option-btn {
       width: 100%;
       min-width: 0;
@@ -617,14 +637,12 @@ class SofabatonBackupTab extends LitElement {
   private _restoreActivityIds: number[] = [];
   private _restoreManualDeviceIds: number[] = [];
   private _progressUnsub: (() => void) | null = null;
-  private _downloadUrl: string | null = null;
   private _loadedBackupEntryId = "";
   private _backupHydrating = false;
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this._teardownProgressSubscription();
-    this._revokeDownloadUrl();
   }
 
   protected updated(changed: Map<string, unknown>) {
@@ -703,19 +721,35 @@ class SofabatonBackupTab extends LitElement {
             ${isRunning && this._backupProgress
               ? this._renderProgressCard(this._backupProgress, "backup")
               : isSuccess
-                ? html`
+                ? (() => {
+                    const hasBundle = !!this._backupProgress?.backup;
+                    const wasDownloaded = !!this._backupProgress?.backup_downloaded;
+                    const expired = !!this._backupProgress?.backup_expired;
+                    return html`
                   <div class="backup-complete-card">
                     <div class="backup-complete-icon"><ha-icon icon="mdi:check-decagram-outline"></ha-icon></div>
                     <div class="backup-complete-title">Backup completed</div>
                     <div class="backup-complete-sub">${summary}</div>
+                    ${expired
+                      ? html`<div class="backup-expired-note">
+                          <ha-icon icon="mdi:clock-alert-outline"></ha-icon>
+                          Backup expired. Start a new backup to download again.
+                        </div>`
+                      : wasDownloaded
+                        ? html`<div class="backup-downloaded-note">
+                            <ha-icon icon="mdi:check-circle-outline"></ha-icon>
+                            Downloaded
+                          </div>`
+                        : nothing}
                     <div class="action-row">
-                      <button class="primary-btn" ?disabled=${!this._backupProgress?.backup} @click=${this._downloadLatestBackup}>
-                        Download backup
+                      <button class="primary-btn" ?disabled=${!hasBundle} @click=${this._downloadLatestBackup}>
+                        ${wasDownloaded ? "Download again" : "Download backup"}
                       </button>
                       <button class="secondary-btn" @click=${this._resetBackupComposer}>Complete</button>
                     </div>
                   </div>
-                `
+                `;
+                  })()
                 : html`
                   <div class="backup-config-view">
                   <div class="backup-scope-group">
@@ -1255,7 +1289,6 @@ class SofabatonBackupTab extends LitElement {
     if (!this.hub) return;
     this._backupError = null;
     this._backupProgress = null;
-    this._revokeDownloadUrl();
     const deviceIds = this._backupScope === "whole_hub" ? null : this._backupDeviceIds;
     this.setHubCommandBusy?.(true, "Starting backup…");
     try {
@@ -1374,22 +1407,43 @@ class SofabatonBackupTab extends LitElement {
   }
 
   private async _downloadLatestBackup() {
-    const backup = this._backupProgress?.backup;
-    if (!backup) return;
-    this._revokeDownloadUrl();
-    this._downloadUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = this._downloadUrl;
-    anchor.download = String(this._backupProgress?.filename || "sofabaton_backup.json");
-    anchor.click();
+    const operationId = this._backupProgress?.operation_id;
+    if (!operationId || !this.hass) return;
+    const filename = String(this._backupProgress?.filename || "sofabaton_backup.json");
+    const path = `/api/sofabaton_x1s/backup/download/${encodeURIComponent(operationId)}`;
+    let url = path;
     try {
-      if (this._backupProgress?.operation_id) {
-        await this.api().clearBackupResult(this._backupProgress.operation_id);
-        this._backupProgress = { ...this._backupProgress, backup_downloaded: true };
-      }
-    } catch {
-      // Keep the local copy available even if backend cleanup fails.
+      const signed = await this.hass.callWS<{ path: string }>({
+        type: "auth/sign_path",
+        path,
+        // Generous expiry. The 60s default created a flaky window where
+        // slow user interactions or share-sheet handoffs could let the
+        // signature expire before the WebView delegate fetched it.
+        expires: 600,
+      });
+      if (signed?.path) url = signed.path;
+    } catch (error) {
+      console.error("[sofabaton] auth/sign_path failed", error);
+      return;
     }
+    // Replicates HA's own fileDownload helper (used by HA core for
+    // backup / diagnostics / camera snapshot downloads). Attached anchor,
+    // target=_blank, default bubbling click. The HA mobile apps'
+    // WebView delegates intercept the response via Content-Disposition.
+    const anchor = document.createElement("a");
+    anchor.target = "_blank";
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.dispatchEvent(new MouseEvent("click"));
+    document.body.removeChild(anchor);
+    // No clearBackupResult call here: the browser's download fetch is
+    // async on the network thread, and racing the registry cleanup
+    // against it would (and did) cause the view to 410 the request
+    // before the bytes were read. The server marks the bundle as
+    // downloaded and schedules its own short TTL after successfully
+    // serving the response. The push subscription will update
+    // _backupProgress.backup_downloaded for us when that happens.
   }
 
   private _backupResultSummary(bundle: BackupBundlePayload | null | undefined) {
@@ -1403,7 +1457,6 @@ class SofabatonBackupTab extends LitElement {
     this._backupProgress = null;
     this._backupScope = "whole_hub";
     this._backupDeviceIds = backupDeviceOptions(this.cacheHub).map((device) => device.id);
-    this._revokeDownloadUrl();
   };
 
   private _resetRestoreComposer = () => {
@@ -1469,11 +1522,6 @@ class SofabatonBackupTab extends LitElement {
     }
   }
 
-  private _revokeDownloadUrl() {
-    if (!this._downloadUrl) return;
-    URL.revokeObjectURL(this._downloadUrl);
-    this._downloadUrl = null;
-  }
 }
 
 if (!customElements.get("sofabaton-backup-tab")) {

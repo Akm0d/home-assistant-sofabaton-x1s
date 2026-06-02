@@ -1464,7 +1464,6 @@ var SofabatonBackupTab = class extends i3 {
     this._restoreActivityIds = [];
     this._restoreManualDeviceIds = [];
     this._progressUnsub = null;
-    this._downloadUrl = null;
     this._loadedBackupEntryId = "";
     this._backupHydrating = false;
     this._toggleAllBackupDevices = () => {
@@ -1487,7 +1486,6 @@ var SofabatonBackupTab = class extends i3 {
       this._backupProgress = null;
       this._backupScope = "whole_hub";
       this._backupDeviceIds = backupDeviceOptions(this.cacheHub).map((device) => device.id);
-      this._revokeDownloadUrl();
     };
     this._resetRestoreComposer = () => {
       this._restoreError = null;
@@ -1920,6 +1918,26 @@ var SofabatonBackupTab = class extends i3 {
       line-height: 1.5;
     }
 
+    .backup-downloaded-note,
+    .backup-expired-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .backup-downloaded-note {
+      color: var(--success-color, #43a047);
+    }
+    .backup-expired-note {
+      color: var(--warning-color, #ff9800);
+    }
+    .backup-downloaded-note ha-icon,
+    .backup-expired-note ha-icon {
+      --mdc-icon-size: 16px;
+    }
+
     .mode-option-btn {
       width: 100%;
       min-width: 0;
@@ -2069,7 +2087,6 @@ var SofabatonBackupTab = class extends i3 {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._teardownProgressSubscription();
-    this._revokeDownloadUrl();
   }
   updated(changed) {
     if (changed.has("hub")) {
@@ -2132,19 +2149,31 @@ var SofabatonBackupTab = class extends i3 {
             </div>
             ${!this.persistentCacheEnabled || !this.cacheHub ? this._renderStatus("warning", "mdi:database-off-outline", "Enable persistent cache to choose backup contents from the card.") : A}
             ${this._backupError ? this._renderStatus("error", "mdi:alert-circle-outline", this._backupError) : A}
-            ${isRunning && this._backupProgress ? this._renderProgressCard(this._backupProgress, "backup") : isSuccess ? T`
+            ${isRunning && this._backupProgress ? this._renderProgressCard(this._backupProgress, "backup") : isSuccess ? (() => {
+      const hasBundle = !!this._backupProgress?.backup;
+      const wasDownloaded = !!this._backupProgress?.backup_downloaded;
+      const expired = !!this._backupProgress?.backup_expired;
+      return T`
                   <div class="backup-complete-card">
                     <div class="backup-complete-icon"><ha-icon icon="mdi:check-decagram-outline"></ha-icon></div>
                     <div class="backup-complete-title">Backup completed</div>
                     <div class="backup-complete-sub">${summary}</div>
+                    ${expired ? T`<div class="backup-expired-note">
+                          <ha-icon icon="mdi:clock-alert-outline"></ha-icon>
+                          Backup expired. Start a new backup to download again.
+                        </div>` : wasDownloaded ? T`<div class="backup-downloaded-note">
+                            <ha-icon icon="mdi:check-circle-outline"></ha-icon>
+                            Downloaded
+                          </div>` : A}
                     <div class="action-row">
-                      <button class="primary-btn" ?disabled=${!this._backupProgress?.backup} @click=${this._downloadLatestBackup}>
-                        Download backup
+                      <button class="primary-btn" ?disabled=${!hasBundle} @click=${this._downloadLatestBackup}>
+                        ${wasDownloaded ? "Download again" : "Download backup"}
                       </button>
                       <button class="secondary-btn" @click=${this._resetBackupComposer}>Complete</button>
                     </div>
                   </div>
-                ` : T`
+                `;
+    })() : T`
                   <div class="backup-config-view">
                   <div class="backup-scope-group">
                     <div class="backup-scope-options">
@@ -2617,7 +2646,6 @@ var SofabatonBackupTab = class extends i3 {
     if (!this.hub) return;
     this._backupError = null;
     this._backupProgress = null;
-    this._revokeDownloadUrl();
     const deviceIds = this._backupScope === "whole_hub" ? null : this._backupDeviceIds;
     this.setHubCommandBusy?.(true, "Starting backup\u2026");
     try {
@@ -2730,21 +2758,32 @@ var SofabatonBackupTab = class extends i3 {
     }
   }
   async _downloadLatestBackup() {
-    const backup = this._backupProgress?.backup;
-    if (!backup) return;
-    this._revokeDownloadUrl();
-    this._downloadUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = this._downloadUrl;
-    anchor.download = String(this._backupProgress?.filename || "sofabaton_backup.json");
-    anchor.click();
+    const operationId = this._backupProgress?.operation_id;
+    if (!operationId || !this.hass) return;
+    const filename = String(this._backupProgress?.filename || "sofabaton_backup.json");
+    const path = `/api/sofabaton_x1s/backup/download/${encodeURIComponent(operationId)}`;
+    let url = path;
     try {
-      if (this._backupProgress?.operation_id) {
-        await this.api().clearBackupResult(this._backupProgress.operation_id);
-        this._backupProgress = { ...this._backupProgress, backup_downloaded: true };
-      }
-    } catch {
+      const signed = await this.hass.callWS({
+        type: "auth/sign_path",
+        path,
+        // Generous expiry. The 60s default created a flaky window where
+        // slow user interactions or share-sheet handoffs could let the
+        // signature expire before the WebView delegate fetched it.
+        expires: 600
+      });
+      if (signed?.path) url = signed.path;
+    } catch (error) {
+      console.error("[sofabaton] auth/sign_path failed", error);
+      return;
     }
+    const anchor = document.createElement("a");
+    anchor.target = "_blank";
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.dispatchEvent(new MouseEvent("click"));
+    document.body.removeChild(anchor);
   }
   _backupResultSummary(bundle) {
     const activityCount = Array.isArray(bundle?.activities) ? bundle.activities.length : 0;
@@ -2788,11 +2827,6 @@ var SofabatonBackupTab = class extends i3 {
     } finally {
       this._backupHydrating = false;
     }
-  }
-  _revokeDownloadUrl() {
-    if (!this._downloadUrl) return;
-    URL.revokeObjectURL(this._downloadUrl);
-    this._downloadUrl = null;
   }
 };
 if (!customElements.get("sofabaton-backup-tab")) {

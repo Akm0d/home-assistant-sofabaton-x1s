@@ -273,30 +273,44 @@ def _parse_wifi_ip_http_text(
     return method, path, header_field, content_type, body
 
 
-def _encode_wifi_ip(decoded: Dict[str, Any]) -> bytes:
-    host = str(decoded["host"])
-    port = int(decoded["port"])
-    method = str(decoded["method"])
-    path = str(decoded["path"])
-    header = str(decoded.get("header") or "")
-    content_type = str(decoded.get("content_type") or "")
-    body = str(decoded.get("body") or "")
-    trailer = bytes.fromhex(str(decoded.get("trailer_hex") or "").replace(" ", ""))
+def render_wifi_ip_http_text(
+    *,
+    host: str,
+    port: int,
+    method: str,
+    path: str,
+    header: str = "",
+    content_type: str = "",
+    body: str = "",
+) -> bytes:
+    """Render the HTTP-request text region of a ``wifi_ip`` command.
 
-    # Render IP bytes.
-    host_parts = host.split(".")
-    if len(host_parts) != 4:
-        raise ValueError(f"wifi_ip host is not a dotted quad: {host!r}")
-    try:
-        ip_bytes = bytes(int(part) & 0xFF for part in host_parts)
-    except ValueError as exc:
-        raise ValueError(f"wifi_ip host octet not an int: {host!r}") from exc
-    if not all(0 <= b <= 255 for b in ip_bytes):
-        raise ValueError(f"wifi_ip host octet out of range: {host!r}")
-    if port < 0 or port > 0xFFFF:
-        raise ValueError(f"wifi_ip port out of range: {port}")
+    Returns just the bytes that go between the IP/port/length header
+    and the trailing checksum — i.e. the substring of ``data_hex``
+    starting at offset 8 and ending at offset ``8 + http_len``.
 
-    # Render HTTP text per the writer rule (see module-level comment).
+    This is the canonical writer for these bytes. Both the backup
+    encoder (:func:`_encode_wifi_ip`) and the wifi-create protocol
+    flow (which sends this same text to the hub when defining a new
+    IP command) MUST go through it so the two paths never disagree
+    on rendering rules.
+
+    The rendering rule, mirrored from the hub's own writer:
+
+    .. code-block::
+
+        "{method} {path} HTTP/1.1\\r\\n"
+        "Host:{host}:{port}\\r\\n"
+        "{header}\\r\\n"                          (only if header non-empty)
+        "Content-Type:{content_type}\\r\\n"       (only if content_type non-empty)
+        "Content-Length:{len(body)}\\r\\n\\r\\n{body}"  (only if body non-empty)
+        "\\r\\n"                                  (unconditional terminator)
+
+    ``Content-Length`` is recomputed from ``len(body)`` — never
+    accepted as an input — so editing the body always produces a
+    well-formed request. The trailing ``\\r\\n`` is always emitted.
+    """
+
     chunks: list[str] = []
     chunks.append("{0} {1} HTTP/1.1\r\n".format(method, path))
     chunks.append("Host:{0}:{1}\r\n".format(host, port))
@@ -307,16 +321,75 @@ def _encode_wifi_ip(decoded: Dict[str, Any]) -> bytes:
     if body:
         chunks.append("Content-Length:{0}\r\n\r\n".format(len(body)) + body)
     chunks.append("\r\n")
-    text = "".join(chunks)
-    text_bytes = text.encode("ascii")
+    return "".join(chunks).encode("ascii")
 
+
+def render_wifi_ip_blob_body(
+    *,
+    host: str,
+    port: int,
+    method: str,
+    path: str,
+    header: str = "",
+    content_type: str = "",
+    body: str = "",
+) -> bytes:
+    """Render the structural body of a ``wifi_ip`` command blob.
+
+    Returns ``IP(4) + port(2 BE) + http_len(2 BE) + http_text`` — the
+    persisted-blob bytes that precede the per-record checksum
+    trailer. Callers that need the full ``data_hex`` form should
+    append their own trailer byte (the inner-record checksum, which
+    is computed over the outer command record and is NOT part of this
+    helper's contract).
+
+    This is the entry point for the wifi-create protocol flow when it
+    needs to build the IP block of a ``DEFINE_IP_CMD`` payload. The
+    backup encoder uses it too, then appends ``trailer_hex`` from the
+    captured row.
+    """
+
+    host_parts = host.split(".")
+    if len(host_parts) != 4:
+        raise ValueError(f"wifi_ip host is not a dotted quad: {host!r}")
+    try:
+        ip_bytes = bytes(int(part) & 0xFF for part in host_parts)
+    except ValueError as exc:
+        raise ValueError(f"wifi_ip host octet not an int: {host!r}") from exc
+    if not all(0 <= octet <= 255 for octet in ip_bytes):
+        raise ValueError(f"wifi_ip host octet out of range: {host!r}")
+    if port < 0 or port > 0xFFFF:
+        raise ValueError(f"wifi_ip port out of range: {port}")
+
+    text_bytes = render_wifi_ip_http_text(
+        host=host,
+        port=port,
+        method=method,
+        path=path,
+        header=header,
+        content_type=content_type,
+        body=body,
+    )
     out = bytearray()
     out += ip_bytes
     out += port.to_bytes(2, "big")
     out += len(text_bytes).to_bytes(2, "big")
     out += text_bytes
-    out += trailer
     return bytes(out)
+
+
+def _encode_wifi_ip(decoded: Dict[str, Any]) -> bytes:
+    body_bytes = render_wifi_ip_blob_body(
+        host=str(decoded["host"]),
+        port=int(decoded["port"]),
+        method=str(decoded["method"]),
+        path=str(decoded["path"]),
+        header=str(decoded.get("header") or ""),
+        content_type=str(decoded.get("content_type") or ""),
+        body=str(decoded.get("body") or ""),
+    )
+    trailer = bytes.fromhex(str(decoded.get("trailer_hex") or "").replace(" ", ""))
+    return body_bytes + trailer
 
 
 # ---- wifi_roku (class 0x0A) ----------------------------------------------
@@ -325,6 +398,33 @@ def _encode_wifi_ip(decoded: Dict[str, Any]) -> bytes:
 #   [0]      = path length L
 #   [1..1+L] = URL path fragment (ASCII), e.g. "launch/<appid>"
 #   [1+L..]  = opaque trailer
+
+
+def render_wifi_roku_blob_body(*, path: str) -> bytes:
+    """Render the structural body of a ``wifi_roku`` command blob.
+
+    Returns ``len(path)(1) + path`` — the persisted-blob bytes that
+    precede the per-record checksum trailer. Callers that need the
+    full ``data_hex`` form should append their own trailer bytes
+    (the inner-record checksum, which is computed over the outer
+    command record and is NOT part of this helper's contract).
+
+    This is the entry point for the X1 wifi_roku create flow when it
+    needs to build the action-path region of its ``define-command``
+    payload. The backup encoder uses it too, then appends
+    ``trailer_hex`` from the captured row.
+
+    Note: paths are encoded as ASCII with no leading slash — Roku ECP
+    paths are written as ``launch/<appid>``, ``keypress/<key>``, etc.
+    """
+
+    path_bytes = path.encode("ascii")
+    if len(path_bytes) > 0xFF:
+        raise ValueError(f"wifi_roku path too long ({len(path_bytes)} bytes)")
+    out = bytearray()
+    out.append(len(path_bytes))
+    out += path_bytes
+    return bytes(out)
 
 
 def _decode_wifi_roku(data: bytes) -> Dict[str, Any]:
@@ -345,16 +445,9 @@ def _decode_wifi_roku(data: bytes) -> Dict[str, Any]:
 
 
 def _encode_wifi_roku(decoded: Dict[str, Any]) -> bytes:
-    path = str(decoded["path"])
+    body = render_wifi_roku_blob_body(path=str(decoded["path"]))
     trailer = bytes.fromhex(str(decoded.get("trailer_hex") or "").replace(" ", ""))
-    path_bytes = path.encode("ascii")
-    if len(path_bytes) > 0xFF:
-        raise ValueError(f"wifi_roku path too long ({len(path_bytes)} bytes)")
-    out = bytearray()
-    out.append(len(path_bytes))
-    out += path_bytes
-    out += trailer
-    return bytes(out)
+    return body + trailer
 
 
 # ---- wifi_hue (class 0x1A) and wifi_sonos (class 0x1B) -------------------
@@ -457,6 +550,45 @@ def _encode_wifi_hue_like(decoded: Dict[str, Any]) -> bytes:
 _DESCRIPTIVE_IR_MAGIC = b"\x00\x00\x11\x00\x94\x70"
 
 
+def render_ir_descriptive_blob_body(descriptor: str) -> bytes:
+    """Render the structural body of a descriptive IR command blob.
+
+    Returns ``declared_length(2 BE) + magic(6) + descriptor_bytes`` —
+    the persisted-blob bytes that precede the writer's trailing-nulls
+    convention and any readback framing.
+
+    This is the canonical byte-layout writer for descriptive replay
+    payloads. Two call sites share it:
+
+    * :func:`_encode_descriptive_ir` (round-trip path) — emits this
+      body, then appends ``trailer_hex`` from the captured row. The
+      trailer typically starts with four ``0x00`` bytes (the writer's
+      trailing-nulls convention) plus whatever framing bytes the
+      readback path added.
+    * :func:`lib.commands.build_descriptive_ir_blob_body` (synthesis
+      path) — runs whitespace normalization, ``P:`` validation, and
+      DenonK canonicalization on the descriptor first, then emits
+      this body followed by the writer's four trailing ``0x00``
+      bytes. Synthesis callers MUST keep that convention; round-trip
+      callers MUST NOT — they re-emit whatever trailer was captured.
+
+    The helper itself is intentionally minimal: it knows the byte
+    layout and nothing about policy. Callers add canonicalization,
+    validation, and trailer convention on top.
+    """
+
+    descriptor_bytes = descriptor.encode("ascii")
+    if len(descriptor_bytes) > 0xFFFF:
+        raise ValueError(
+            f"ir descriptor too long ({len(descriptor_bytes)} bytes)"
+        )
+    return (
+        len(descriptor_bytes).to_bytes(2, "big")
+        + _DESCRIPTIVE_IR_MAGIC
+        + descriptor_bytes
+    )
+
+
 def _decode_descriptive_ir(data: bytes) -> Dict[str, Any]:
     if len(data) < 8:
         raise ValueError("ir blob too short for descriptive header")
@@ -482,19 +614,9 @@ def _decode_descriptive_ir(data: bytes) -> Dict[str, Any]:
 
 
 def _encode_descriptive_ir(decoded: Dict[str, Any]) -> bytes:
-    descriptor = str(decoded["descriptor"])
+    body = render_ir_descriptive_blob_body(str(decoded["descriptor"]))
     trailer = bytes.fromhex(str(decoded.get("trailer_hex") or "").replace(" ", ""))
-    descriptor_bytes = descriptor.encode("ascii")
-    if len(descriptor_bytes) > 0xFFFF:
-        raise ValueError(
-            f"ir descriptor too long ({len(descriptor_bytes)} bytes)"
-        )
-    out = bytearray()
-    out += len(descriptor_bytes).to_bytes(2, "big")
-    out += _DESCRIPTIVE_IR_MAGIC
-    out += descriptor_bytes
-    out += trailer
-    return bytes(out)
+    return body + trailer
 
 
 # ---------------------------------------------------------------------------
@@ -676,5 +798,9 @@ __all__ = [
     "encode_decoded_blob",
     "format_decoded_for_display",
     "is_decodable_class",
+    "render_ir_descriptive_blob_body",
+    "render_wifi_ip_blob_body",
+    "render_wifi_ip_http_text",
+    "render_wifi_roku_blob_body",
     "try_decode_blob",
 ]

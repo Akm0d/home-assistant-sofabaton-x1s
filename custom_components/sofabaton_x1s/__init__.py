@@ -11,8 +11,10 @@ from uuid import uuid4
 
 import voluptuous as vol
 
+from aiohttp import web
+
 from homeassistant.components import frontend
-from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
@@ -150,9 +152,10 @@ class _BackupOperationRegistry:
         operation["state"] = state
         self._notify(operation_id)
         if str(state.get("status") or "") in {"success", "failed"}:
-            keep_result = bool(state.get("backup")) and str(state.get("kind") or "") == "backup_export"
-            if not keep_result:
-                self._schedule_cleanup(operation_id)
+            # Every terminal operation gets the same 300s retention. The
+            # bundle (if any) ages out on its own — we don't shorten the
+            # timer post-download because that races in-flight clients.
+            self._schedule_cleanup(operation_id)
 
     def update_from_thread(self, operation_id: str, **payload: Any) -> None:
         self.hass.loop.call_soon_threadsafe(lambda: self.update(operation_id, **payload))
@@ -195,6 +198,25 @@ class _BackupOperationRegistry:
         return True
 
     @callback
+    def flag_backup_downloaded(self, operation_id: str) -> bool:
+        """Mark a backup as downloaded so the UI can show a confirmation.
+
+        Does NOT touch the cleanup timer — the bundle ages out on the
+        original 300s schedule so the user can re-download within that
+        window if their first save-as didn't land.
+        """
+        operation = self._ops.get(operation_id)
+        if operation is None:
+            return False
+        state = dict(operation.get("state") or {})
+        if state.get("backup_downloaded"):
+            return True
+        state["backup_downloaded"] = True
+        operation["state"] = state
+        self._notify(operation_id)
+        return True
+
+    @callback
     def _notify(self, operation_id: str) -> None:
         operation = self._ops.get(operation_id)
         if operation is None:
@@ -220,6 +242,18 @@ class _BackupOperationRegistry:
 
         @callback
         def _cleanup(_now) -> None:
+            op = self._ops.get(operation_id)
+            if op is not None:
+                state = dict(op.get("state") or {})
+                # If the bundle is still present, let subscribers know it's
+                # being thrown away. The UI uses this to swap the
+                # "Download backup" button for an "expired" note instead
+                # of failing silently with a stale enabled button.
+                if state.get("backup"):
+                    state.pop("backup", None)
+                    state["backup_expired"] = True
+                    op["state"] = state
+                    self._notify(operation_id)
             self._ops.pop(operation_id, None)
 
         operation["cleanup_unsub"] = async_call_later(self.hass, delay_seconds, _cleanup)
@@ -249,6 +283,61 @@ def _backup_operation_registry(hass: HomeAssistant) -> _BackupOperationRegistry:
     registry = _BackupOperationRegistry(hass)
     domain_data[_BACKUP_OPERATIONS_KEY] = registry
     return registry
+
+
+class SofabatonBackupDownloadView(HomeAssistantView):
+    """Serve completed backup bundles from the in-memory registry.
+
+    Mirrors HA core's pattern (backup / diagnostics / camera snapshot):
+    server endpoint returning Content-Disposition: attachment, fetched
+    via auth/sign_path + fileDownload helper on the frontend. The HA
+    mobile apps' WebView delegates (setDownloadListener on Android,
+    WKDownloadDelegate on iOS) intercept the response and surface it as
+    a native download. Blob URLs do not trigger those delegates.
+    """
+
+    url = "/api/sofabaton_x1s/backup/download/{operation_id}"
+    name = "api:sofabaton_x1s:backup_download"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request: web.Request, operation_id: str) -> web.Response:
+        _LOGGER.info(
+            "[%s] backup download view hit: operation_id=%s authenticated=%s",
+            DOMAIN,
+            operation_id,
+            request.get("ha_authenticated", "unknown"),
+        )
+        registry = _backup_operation_registry(self.hass)
+        operation = registry.get(operation_id)
+        if operation is None:
+            _LOGGER.warning("[%s] backup download: unknown operation_id=%s", DOMAIN, operation_id)
+            return web.Response(status=404, text="unknown operation")
+        state = operation.get("state") or {}
+        if str(state.get("kind") or "") != "backup_export":
+            return web.Response(status=404, text="not a backup")
+        if str(state.get("status") or "") != "success":
+            return web.Response(status=404, text="backup not ready")
+        bundle = state.get("backup")
+        if not bundle:
+            _LOGGER.warning("[%s] backup download: bundle already cleared for %s", DOMAIN, operation_id)
+            return web.Response(status=410, text="backup no longer available")
+        filename = str(state.get("filename") or "sofabaton_backup.json")
+        body = json.dumps(bundle, indent=2).encode("utf-8")
+        _LOGGER.info("[%s] backup download: serving %s (%d bytes)", DOMAIN, filename, len(body))
+        # Flag the bundle as downloaded for the UI's "✓ Downloaded"
+        # indicator. Does NOT shorten the retention timer — the user can
+        # re-download for the full original 300s window if their first
+        # save-as didn't land.
+        registry.flag_backup_downloaded(operation_id)
+        return web.Response(
+            body=body,
+            content_type="application/json",
+            charset="utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 def _hub_supports_unicode_wifi_names(hub: SofabatonHub) -> bool:
@@ -1739,6 +1828,10 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     _register_websocket_commands(hass)
 
+    if not hass.data[DOMAIN].get("backup_download_view_registered"):
+        hass.http.register_view(SofabatonBackupDownloadView(hass))
+        hass.data[DOMAIN]["backup_download_view_registered"] = True
+
     if not hass.data[DOMAIN].get("stop_listener_registered"):
         async def _async_handle_hass_stop(_event: Any) -> None:
             persisted = await _async_persist_all_hub_cache(hass)
@@ -2010,8 +2103,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, "command_to_button", _async_handle_command_to_button)
     if not hass.services.has_service(DOMAIN, "sync_command_config"):
         hass.services.async_register(DOMAIN, "sync_command_config", _async_handle_sync_command_config)
-    #if not hass.services.has_service(DOMAIN, "create_ip_button"):
-    #    hass.services.async_register(DOMAIN, "create_ip_button", _async_handle_create_ip_button)
 
     hass.data[DOMAIN][entry.entry_id] = hub
 
@@ -2069,7 +2160,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, "delete_favorite")
             hass.services.async_remove(DOMAIN, "command_to_button")
             hass.services.async_remove(DOMAIN, "sync_command_config")
-            #hass.services.async_remove(DOMAIN, "create_ip_button")
             async_teardown_diagnostics(hass)
             if _get_lovelace_resource_mode(hass) == _LOVELACE_STORAGE_MODE:
                 if hass.data[DOMAIN].get("storage_resources_registered"):
@@ -2573,51 +2663,6 @@ async def _async_handle_sync_command_config(call: ServiceCall):
         device_key=str(payload.get("device_key") or device_key or ""),
         device_name=device_name,
     )
-
-async def _async_handle_create_ip_button(call: ServiceCall):
-    hass = call.hass
-    hub = await _async_resolve_hub_from_call(hass, call)
-    if hub is None:
-        raise ValueError("Could not resolve Sofabaton hub from service call")
-
-    device_id = call.data.get("device_id")
-    device_name = call.data["device_name"].strip()
-    button_name = call.data["button_name"].strip()
-    method = call.data.get("method", "GET").upper()
-    url = call.data["url"]
-    headers = {str(k): str(v) for k, v in (call.data.get("headers") or {}).items()}
-
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("URL must include scheme and host (http/https)")
-
-    allowed_methods = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
-    if method not in allowed_methods:
-        raise ValueError(f"Unsupported HTTP method '{method}'")
-
-    if not isinstance(headers, dict):
-        raise ValueError("headers must be a mapping")
-
-    if device_id is not None:
-        result = await hass.async_add_executor_job(
-            hub._proxy.add_ip_button_to_device,
-            int(device_id),
-            button_name,
-            method,
-            url,
-            headers,
-        )
-    else:
-        result = await hass.async_add_executor_job(
-            hub._proxy.create_ip_button,
-            device_name,
-            button_name,
-            method,
-            url,
-            headers,
-        )
-
-    return result or {}
 
 async def _async_resolve_hub_from_call(hass: HomeAssistant, call: ServiceCall):
     return await _async_resolve_hub_from_data(hass, call.data)
