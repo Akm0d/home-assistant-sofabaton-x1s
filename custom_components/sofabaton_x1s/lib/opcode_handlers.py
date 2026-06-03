@@ -987,7 +987,6 @@ class RequestActivityMapHandler(BaseFrameHandler):
         payload = frame.payload
         act_id = payload[0] if payload else 0
         proxy._log.info("[ACTMAP] A→H requesting mapping act=0x%02X (%d)", act_id, act_id)
-        proxy._log.info("[ACTMAP] A→H request %s", frame.raw.hex(" "))
 
 
 @register_handler(opcodes=(OP_ACTIVITY_MAP_PAGE, OP_ACTIVITY_MAP_PAGE_X1S), directions=("H→A",))
@@ -1000,8 +999,6 @@ class ActivityMapHandler(BaseFrameHandler):
 
         if len(payload) < 8:
             return
-        proxy._log.info("[ACTMAP] H→A response %s", frame.raw.hex(" "))
-
         act_lo = self._burst_activity(proxy)
         if act_lo is None:
             act_lo = self._pending_activity(proxy)

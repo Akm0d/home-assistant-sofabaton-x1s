@@ -205,13 +205,12 @@ class IrBlobMixin:
         if not result.success:
             if result.rejected:
                 self._log.warning(
-                    "[%s] hub rejected page %d/%d dev=0x%02X lib=0x%02X reject=%s",
+                    "[%s] hub rejected page %d/%d dev=0x%02X lib=0x%02X",
                     log_prefix,
                     (result.failed_index or 0) + 1,
                     len(steps),
                     device_id & 0xFF,
                     library_type & 0xFF,
-                    (result.reject_payload or b"").hex(" "),
                 )
             else:
                 self._log.warning(

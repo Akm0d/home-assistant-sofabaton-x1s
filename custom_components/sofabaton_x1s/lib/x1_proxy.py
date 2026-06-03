@@ -80,7 +80,6 @@ from .protocol_const import (
     normalize_device_class,
     opcode_family,
     opcode_family_name,
-    opcode_hi,
     opcode_lo,
     OP_ACK_READY,
     OP_BANNER,
@@ -694,11 +693,10 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                 )
                 if is_status_reject:
                     self._log.warning(
-                        "%s[STEP] %s hub rejected status=0x%02X payload=%s",
+                        "%s[STEP] %s hub rejected status=0x%02X",
                         LogTag.WIFI,
                         step_name,
                         first_byte,
-                        matched_payload.hex(" "),
                     )
                     return SendStepResult(
                         outcome=AckOutcome.rejected,
@@ -760,7 +758,6 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         expects_burst: bool = False,
         burst_kind: str | None = None,
     ) -> bool:
-        frame = self._build_frame(opcode, payload) if self.diag_dump else None
         sent = self._burst.queue_or_send(
             opcode=opcode,
             payload=payload,
@@ -771,8 +768,6 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         )
         if sent:
             self._log.debug("%s queued %s (0x%04X) %dB", LogTag.CMD, OPNAMES.get(opcode, f"OP_{opcode:04X}"), opcode, len(payload))
-            if frame is not None:
-                self._log.debug("%s queued %s", LogTag.WIRE, _hexdump(frame))
         else:
             self._log.debug(
                 "%s ignoring %s: proxy client is connected",
@@ -1765,7 +1760,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         )
         self.transport.send_local(frame)
         if self.diag_dump:
-            self._log.debug("%s →hub %s", LogTag.WIRE, _hexdump(frame))
+            self._log.debug("%s A→H %s", LogTag.WIRE, _hexdump(frame))
 
     def _handle_hub_frame(self, data: bytes, cid: int) -> None:
         if self.diag_dump:
@@ -1833,9 +1828,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
             if debug_enabled:
                 name = OPNAMES.get(op)
                 fam_name = opcode_family_name(op)
-                hi = opcode_hi(op)
-                fam = opcode_family(op)
-                note = f"#{scid}→#{ecid}" if scid != ecid else f"#{ecid}"
+                note = f"chunk={scid}→{ecid}" if scid != ecid else f"chunk={ecid}"
                 parsed = parse_command_burst_frame(
                     op,
                     raw,
@@ -1846,17 +1839,24 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
                     name = parsed_macro.display_name
 
                 # Lead with the most specific label we can resolve: a named opcode,
-                # else its family, else an explicit "unmapped" marker. We long ago
-                # classified most traffic by family, so "unmapped" is now reserved
+                # else its family, else an explicit "unknown" marker. We long ago
+                # classified most traffic by family, so "unknown" is now reserved
                 # for genuinely unknown low-bytes rather than the default.
+                #
+                # Each branch produces a self-contained label that includes the
+                # opcode hex exactly once — don't re-append (0x%04X) outside.
                 if name is not None:
-                    label = name if fam_name is None else f"{name} fam={fam_name}"
+                    label = (
+                        f"{name} (0x{op:04X})"
+                        if fam_name is None
+                        else f"{name} (0x{op:04X}) family={fam_name}"
+                    )
                 elif fam_name is not None:
-                    label = f"{fam_name} op=0x{op:04X}"
+                    label = f"family={fam_name} op=0x{op:04X}"
                 else:
-                    label = f"unmapped op=0x{op:04X} hi=0x{hi:02X} fam=0x{fam:02X}"
+                    label = f"unknown op=0x{op:04X}"
                 self._log.debug(
-                    "%s %s %s (0x%04X) len=%d %s", LogTag.FRAME, direction, label, op, len(raw), note
+                    "%s %s %s len=%d %s", LogTag.FRAME, direction, label, len(raw), note
                 )
                 if parsed is not None:
                     totals = (

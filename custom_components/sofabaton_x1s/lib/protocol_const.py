@@ -355,10 +355,13 @@ PLAY_BLOB_PAGE_HEADER_LEN = 3         # [0x01, 0x00, page_no_lo] preface per fra
 PLAY_BLOB_BODY_HEADER_LEN = 12        # body bytes preceding library_data
 PLAY_BLOB_CHUNK_SIZE = PLAY_BLOB_MAX_PAYLOAD - PLAY_BLOB_PAGE_HEADER_LEN  # 247B body slice per frame
 
+FAMILY_BLOB_ROW = 0x0D  # IP-command sync rows, input-config refresh, REQ_BLOB dump pages
+
 FAMILY_NAMES: Dict[int, str] = {
     FAMILY_STATUS_ACK: "STATUS_ACK",
     FAMILY_HUB_NAME_REPLY: "HUB_NAME_REPLY",
     FAMILY_DEV_ROW: "DEVICE_ROW",
+    FAMILY_BLOB_ROW: "BLOB_ROW",
     FAMILY_PLAY_BLOB: "PLAY_BLOB",
     FAMILY_FAV_DELETE: "FAV_DELETE",
     FAMILY_MACROS: "MACROS",

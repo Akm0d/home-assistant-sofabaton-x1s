@@ -10,7 +10,7 @@ import threading
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from ..logging_utils import HubLogger, get_hub_logger
+from ..logging_utils import HubLogger, LogTag, get_hub_logger
 from .hub_listener import get_hub_listener
 from .protocol_const import OP_CALL_ME, SYNC0, SYNC1
 from .notify_demuxer import (
@@ -86,8 +86,6 @@ def _flush_buffer(
     """Try to write the entire buffer to the given socket."""
 
     logger = logger or log
-    total = 0
-    chunks = 0
 
     while buf:
         try:
@@ -96,27 +94,17 @@ def _flush_buffer(
             break
         except OSError as exc:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("[TCP][%s] send failed", label, exc_info=exc)
+                logger.debug("%s[%s] send failed", LogTag.TRANSPORT, label, exc_info=exc)
             buf.clear()
             return True
 
         if not sent:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("[TCP][%s] socket closed during send", label)
+                logger.debug("%s[%s] socket closed during send", LogTag.TRANSPORT, label)
             buf.clear()
             return True
 
-            break
-
-        total += sent
-        chunks += 1
         del buf[:sent]
-
-    if total and logger.isEnabledFor(logging.DEBUG):
-        if chunks == 1:
-            logger.debug("[TCP][%s] sent %dB", label, total)
-        else:
-            logger.debug("[TCP][%s] sent %dB in %d chunks", label, total, chunks)
 
     return False
 
@@ -218,13 +206,13 @@ class TransportBridge:
 
     def enable_proxy(self) -> None:
         self._proxy_enabled = True
-        self._log.info("[PROXY] enabled")
+        self._log.info("%s enabled", LogTag.PROXY)
         if self._discovery_enabled and not self._notify_registered and not self.is_client_connected:
             self._register_demuxer()
 
     def disable_proxy(self) -> None:
         self._proxy_enabled = False
-        self._log.info("[PROXY] disabled (existing TCP sessions stay alive)")
+        self._log.info("%s disabled (existing TCP sessions stay alive)", LogTag.PROXY)
         self._stop_notify_listener()
 
     def can_issue_commands(self) -> bool:
@@ -278,7 +266,7 @@ class TransportBridge:
             try:
                 get_hub_listener().unregister_hub(self.proxy_id)
             except Exception:
-                self._log.exception("[STOP] hub listener unregister failed")
+                self._log.exception("%s hub listener unregister failed", LogTag.TRANSPORT)
             self._listener_registered = False
 
         with self._hub_lock:
@@ -308,7 +296,7 @@ class TransportBridge:
                 self._notify_client_state(False)
 
         self._close_wake_channel()
-        self._log.info("[STOP] transport stopped")
+        self._log.info("%s stopped", LogTag.TRANSPORT)
 
     # ------------------------------------------------------------------
     # Internals
@@ -348,7 +336,8 @@ class TransportBridge:
             return
 
         self._log.info(
-            "[UDP] APP CALL_ME from %s:%d -> app tcp %s:%d",
+            "%s APP CALL_ME from %s:%d -> app tcp %s:%d",
+            LogTag.TRANSPORT,
             src_ip,
             src_port,
             app_ip,
@@ -393,7 +382,7 @@ class TransportBridge:
                         frame += bytes([_sum8(frame)])
                         udp.sendto(frame, (self.real_hub_ip, self.real_hub_udp_port))
                     except OSError:
-                        self._log.debug("[UDP] CALL_ME send failed", exc_info=True)
+                        self._log.debug("%s CALL_ME send failed", LogTag.TRANSPORT, exc_info=True)
                     last = now
                 time.sleep(0.2)
         finally:
@@ -417,7 +406,7 @@ class TransportBridge:
                 count=self.ka_count,
             )
         except Exception:
-            self._log.exception("[TCP] failed to configure hub socket")
+            self._log.exception("%s failed to configure hub socket", LogTag.TRANSPORT)
             try:
                 hub_sock.close()
             except Exception:
@@ -430,7 +419,8 @@ class TransportBridge:
             self._hub_sock = hub_sock
         if existing is not None:
             self._log.warning(
-                "[TCP] replacing existing hub socket on new connection from %s:%d",
+                "%s replacing existing hub socket on new connection from %s:%d",
+                LogTag.TRANSPORT,
                 *hub_addr,
             )
             try:
@@ -444,7 +434,7 @@ class TransportBridge:
 
         self._notify_hub_state(True)
         self._signal_wake()
-        self._log.info("[TCP] connected <- HUB %s:%d (shared listener)", *hub_addr)
+        self._log.info("%s connected <- HUB %s:%d (shared listener)", LogTag.TRANSPORT, *hub_addr)
 
     def _handle_app_session(self, app_addr: Tuple[str, int]) -> None:
         self._stop_notify_listener()
@@ -468,7 +458,7 @@ class TransportBridge:
                     except Exception:
                         pass
                 self._app_sock = s
-            self._log.info("[TCP] connected -> APP %s:%d", *app_addr)
+            self._log.info("%s connected -> APP %s:%d", LogTag.TRANSPORT, *app_addr)
             self._notify_client_state(True)
             self._emit_connect_ready_beacon(app_addr[0])
         except Exception:
@@ -478,7 +468,7 @@ class TransportBridge:
                 pass
             if self._proxy_enabled:
                 self._register_demuxer()
-            self._log.exception("[TCP] failed to connect -> APP %s:%d", *app_addr)
+            self._log.exception("%s failed to connect -> APP %s:%d", LogTag.TRANSPORT, *app_addr)
             return
 
     def _emit_connect_ready_beacon(self, app_ip: str) -> None:
@@ -533,7 +523,7 @@ class TransportBridge:
                     if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
                         data = None
                     else:
-                        self._log.debug("[TCP] hub recv failed", exc_info=exc)
+                        self._log.debug("%s hub recv failed", LogTag.TRANSPORT, exc_info=exc)
                         data = b""
                 if data is None:
                     pass
@@ -567,7 +557,7 @@ class TransportBridge:
                     if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
                         data = None
                     else:
-                        self._log.debug("[TCP] app recv failed", exc_info=exc)
+                        self._log.debug("%s app recv failed", LogTag.TRANSPORT, exc_info=exc)
                         data = b""
                 if data is None:
                     pass
@@ -613,7 +603,8 @@ class TransportBridge:
                                 break
                             if idx and self._log.isEnabledFor(logging.DEBUG):
                                 self._log.debug(
-                                    "[TCP→HUB][client] drop %dB junk before sync",
+                                    "%s drop %dB junk before sync (client→hub)",
+                                    LogTag.PARSE,
                                     idx,
                                 )
                             del buffer[:idx]
@@ -631,7 +622,8 @@ class TransportBridge:
                         # rescan for the next sync pair.
                         if self._log.isEnabledFor(logging.DEBUG):
                             self._log.debug(
-                                "[TCP→HUB][client] drop malformed frame len=%d",
+                                "%s drop malformed frame len=%d (client→hub)",
+                                LogTag.PARSE,
                                 frame_len,
                             )
                         del buffer[0]
