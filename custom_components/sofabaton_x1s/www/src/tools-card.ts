@@ -281,9 +281,6 @@ class SofabatonControlPanelCard extends LitElement {
     return html`
       <ha-card>
         <div class="card-inner" style=${`height:${height}px`}>
-          <div class="card-header">
-            <span class="card-title">Sofabaton Control Panel</span>
-          </div>
           <div class="card-body">
             <div class="backend-unavailable-state">
               <div class="backend-unavailable-icon"><ha-icon icon="mdi:cloud-off-outline"></ha-icon></div>
