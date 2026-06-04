@@ -16,6 +16,9 @@ import {
   bundleDeviceOptions,
   pruneBackupBundle,
   reconcileRestoreSelection,
+  renameBundleActivity,
+  renameBundleDevice,
+  renameBundleHub,
   validateBackupBundle,
 } from "./backup-state";
 
@@ -50,6 +53,10 @@ class SofabatonBackupTab extends LitElement {
     _restoreManualDeviceIds: { state: true },
     _loadedBackupEntryId: { state: true },
     _backupHydrating: { state: true },
+    _editBundle: { state: true },
+    _editFilename: { state: true },
+    _editError: { state: true },
+    _editingKey: { state: true },
   };
 
   static styles = css`
@@ -347,6 +354,77 @@ class SofabatonBackupTab extends LitElement {
       line-height: 1.45;
     }
 
+    .edit-body { padding-top: 0; padding-bottom: 8px; display: flex; flex-direction: column; gap: 8px; align-content: normal; }
+    .edit-config-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+    .edit-config-view .selection-card { flex: 1 1 auto; min-height: 0; }
+    .edit-config-view .selection-list { max-height: none; height: 100%; min-height: 0; }
+    .edit-action-row { display: flex; justify-content: flex-start; gap: 10px; flex-wrap: wrap; }
+    .edit-hub-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 6px 14px 8px;
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-md);
+      background: color-mix(in srgb, var(--secondary-background-color, var(--ha-card-background)) 72%, transparent);
+    }
+    .edit-hub-caption { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--secondary-text-color); }
+    .edit-hub-inline { display: flex; align-items: center; gap: 4px; }
+    .edit-row { display: flex; align-items: center; gap: 4px; padding: 4px 14px; border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent); }
+    .edit-row:first-child { border-top: none; }
+    .edit-row-label {
+      flex: 0 1 auto;
+      min-width: 0;
+      color: var(--primary-text-color);
+      font-size: 13px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .edit-row-meta {
+      margin-left: auto;
+      color: var(--secondary-text-color);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .edit-row-input {
+      flex: 0 1 220px;
+      width: 220px;
+      min-width: 0;
+      max-width: 100%;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+      background: var(--ha-card-background, var(--card-background-color));
+      border: 1px solid color-mix(in srgb, var(--primary-color) 65%, var(--divider-color));
+      border-radius: var(--backup-radius-sm);
+      padding: 4px 10px;
+      outline: none;
+    }
+    .edit-row-input:focus { border-color: var(--primary-color); }
+    .icon-btn {
+      flex: 0 0 auto;
+      display: inline-grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: var(--backup-radius-pill);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--secondary-text-color);
+      cursor: pointer;
+      transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+    .icon-btn:hover:not(:disabled) {
+      color: var(--primary-color);
+      background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    }
+    .icon-btn:disabled { opacity: 0.45; cursor: default; }
+    .icon-btn ha-icon { --mdc-icon-size: 16px; }
+
     .status-box {
       display: flex;
       align-items: flex-start;
@@ -639,6 +717,10 @@ class SofabatonBackupTab extends LitElement {
   private _progressUnsub: (() => void) | null = null;
   private _loadedBackupEntryId = "";
   private _backupHydrating = false;
+  private _editBundle: BackupBundlePayload | null = null;
+  private _editFilename = "";
+  private _editError: string | null = null;
+  private _editingKey: string | null = null;
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
@@ -679,6 +761,7 @@ class SofabatonBackupTab extends LitElement {
       <div class="tab-panel">
         <div class="backup-panel">
           ${this._renderBackupSection()}
+          ${this._renderEditSection()}
           ${this._renderRestoreSection()}
         </div>
       </div>
@@ -929,6 +1012,241 @@ class SofabatonBackupTab extends LitElement {
       </div>
     `;
   }
+
+  private _renderEditSection() {
+    const isOpen = this.openSection === "edit";
+    const bundle = this._editBundle;
+    const activityOptions = bundleActivityOptions(bundle);
+    const deviceOptions = bundleDeviceOptions(bundle);
+    const hubName = String(bundle?.hub?.name || "").trim();
+    return html`
+      <div class="accordion-section ${isOpen ? "open" : ""}">
+        <div class="acc-header" @click=${() => this.setOpenSection("edit")}>
+          <span class="acc-header-icon"><ha-icon icon="mdi:pencil-box-outline"></ha-icon></span>
+          <span class="acc-title">Edit A Backup</span>
+          <span class="flex-spacer"></span>
+          <span class="chevron">▼</span>
+        </div>
+        ${isOpen ? html`
+          <div class="acc-body edit-body">
+            <div class="backup-drawer-sub">
+              ${bundle
+                ? "Rename the hub, activities, and devices in this backup. Edits stay in your browser until you download the modified file."
+                : "Load a backup file to rename its hub, activities, and devices before downloading it again."}
+            </div>
+            ${this._editError ? this._renderStatus("error", "mdi:alert-circle-outline", this._editError) : nothing}
+            <input id="edit-file-input" type="file" accept=".json,application/json" @change=${this._handleEditFilePicked} />
+            ${bundle ? html`
+              <div class="edit-config-view">
+                <div class="edit-hub-row">
+                  <span class="edit-hub-caption">Hub name</span>
+                  <div class="edit-hub-inline">
+                    ${this._renderEditableLabel({
+                      editKey: "hub",
+                      value: hubName || "Unnamed hub",
+                      placeholder: "Hub name",
+                      onSave: (next) => this._applyHubRename(next),
+                    })}
+                  </div>
+                </div>
+                <div class="selection-card">
+                  <div class="selection-list">
+                    ${activityOptions.length
+                      ? html`
+                        <div class="selection-group-header">Activities</div>
+                        ${activityOptions.map((activity) => this._renderEditRow({
+                          editKey: `activity:${activity.id}`,
+                          label: activity.label,
+                          meta: activity.meta,
+                          onSave: (next) => this._applyActivityRename(activity.id, next),
+                        }))}
+                      `
+                      : html`<div class="selection-empty">This backup file has no activities.</div>`}
+                    ${deviceOptions.length
+                      ? html`
+                        <div class="selection-group-header">Devices</div>
+                        ${deviceOptions.map((device) => this._renderEditRow({
+                          editKey: `device:${device.id}`,
+                          label: device.label,
+                          meta: device.meta,
+                          onSave: (next) => this._applyDeviceRename(device.id, next),
+                        }))}
+                      `
+                      : html`<div class="selection-empty">This backup file has no devices.</div>`}
+                  </div>
+                </div>
+                <div class="edit-action-row">
+                  <button class="primary-btn" @click=${this._downloadEditedBundle}>Download edited backup</button>
+                  <button class="secondary-btn" @click=${this._openEditFilePicker}>${this._editFilename || "Choose backup file"}</button>
+                </div>
+              </div>
+            ` : html`
+              <div class="edit-action-row">
+                <button class="secondary-btn" @click=${this._openEditFilePicker}>${this._editFilename || "Choose backup file"}</button>
+              </div>
+            `}
+          </div>
+        ` : nothing}
+      </div>
+    `;
+  }
+
+  private _renderEditRow(params: {
+    editKey: string;
+    label: string;
+    meta?: string;
+    onSave: (value: string) => void;
+  }) {
+    const isEditing = this._editingKey === params.editKey;
+    return html`
+      <div class="edit-row">
+        ${this._renderEditableLabel({
+          editKey: params.editKey,
+          value: params.label,
+          placeholder: "Name",
+          onSave: params.onSave,
+        })}
+        ${params.meta && !isEditing
+          ? html`<span class="edit-row-meta">${params.meta}</span>`
+          : nothing}
+      </div>
+    `;
+  }
+
+  private _renderEditableLabel(params: {
+    editKey: string;
+    value: string;
+    placeholder: string;
+    onSave: (value: string) => void;
+  }) {
+    const isEditing = this._editingKey === params.editKey;
+    if (!isEditing) {
+      return html`
+        <span class="edit-row-label" title=${params.value}>${params.value}</span>
+        <button
+          class="icon-btn"
+          title="Rename"
+          @click=${() => { this._editingKey = params.editKey; }}
+        >
+          <ha-icon icon="mdi:pencil-outline"></ha-icon>
+        </button>
+      `;
+    }
+    const sanitize = (raw: string) => this._sanitizeBundleName(raw);
+    const commit = (input: HTMLInputElement | null) => {
+      const next = sanitize(String(input?.value ?? ""));
+      if (next) params.onSave(next);
+      this._editingKey = null;
+    };
+    return html`
+      <input
+        class="edit-row-input"
+        type="text"
+        .value=${params.value}
+        placeholder=${params.placeholder}
+        maxlength="20"
+        autofocus
+        @input=${(event: Event) => {
+          const input = event.currentTarget as HTMLInputElement;
+          const cleaned = sanitize(input.value);
+          if (cleaned !== input.value) {
+            const caret = Math.max(0, (input.selectionStart ?? cleaned.length) - (input.value.length - cleaned.length));
+            input.value = cleaned;
+            input.setSelectionRange(caret, caret);
+          }
+        }}
+        @keydown=${(event: KeyboardEvent) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit(event.currentTarget as HTMLInputElement);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            this._editingKey = null;
+          }
+        }}
+        @blur=${(event: Event) => commit(event.currentTarget as HTMLInputElement)}
+      />
+      <button
+        class="icon-btn"
+        title="Save"
+        @mousedown=${(event: Event) => event.preventDefault()}
+        @click=${(event: Event) => {
+          const root = (event.currentTarget as HTMLElement).parentElement;
+          const input = root?.querySelector<HTMLInputElement>(".edit-row-input") ?? null;
+          commit(input);
+        }}
+      >
+        <ha-icon icon="mdi:check"></ha-icon>
+      </button>
+    `;
+  }
+
+  private _bundleSupportsUnicodeNames() {
+    const version = String(this._editBundle?.hub?.version || "").toUpperCase();
+    return version.includes("X2") || version.includes("X1S");
+  }
+
+  private _sanitizeBundleName(value: unknown) {
+    const pattern = this._bundleSupportsUnicodeNames()
+      ? /[^\p{L}\p{N}\p{M} +&.'()_-]+/gu
+      : /[^A-Za-z0-9 ]+/g;
+    return String(value ?? "").replace(pattern, "").slice(0, 20);
+  }
+
+  private _openEditFilePicker = () => {
+    this.renderRoot.querySelector<HTMLInputElement>("#edit-file-input")?.click();
+  };
+
+  private _handleEditFilePicked = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (!file) return;
+    this._editError = null;
+    try {
+      const text = await file.text();
+      const bundle = validateBackupBundle(JSON.parse(text));
+      this._editBundle = bundle;
+      this._editFilename = file.name;
+      this._editingKey = null;
+    } catch (error) {
+      this._editBundle = null;
+      this._editFilename = "";
+      this._editingKey = null;
+      this._editError = formatError(error);
+    } finally {
+      if (input) input.value = "";
+    }
+  };
+
+  private _applyHubRename(name: string) {
+    if (!this._editBundle) return;
+    this._editBundle = renameBundleHub(this._editBundle, name);
+  }
+
+  private _applyActivityRename(activityId: number, name: string) {
+    if (!this._editBundle) return;
+    this._editBundle = renameBundleActivity(this._editBundle, activityId, name);
+  }
+
+  private _applyDeviceRename(deviceId: number, name: string) {
+    if (!this._editBundle) return;
+    this._editBundle = renameBundleDevice(this._editBundle, deviceId, name);
+  }
+
+  private _downloadEditedBundle = () => {
+    if (!this._editBundle) return;
+    const json = JSON.stringify(this._editBundle, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const base = this._editFilename.replace(/\.json$/i, "") || "sofabaton_backup";
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${base}_edited.json`;
+    document.body.appendChild(anchor);
+    anchor.dispatchEvent(new MouseEvent("click"));
+    document.body.removeChild(anchor);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   private _renderRestoreSection() {
     const isOpen = this.openSection === "restore";

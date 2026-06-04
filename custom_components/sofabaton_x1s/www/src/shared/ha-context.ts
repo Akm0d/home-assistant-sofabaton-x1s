@@ -1,6 +1,6 @@
 export type TabId = "settings" | "wifi_commands" | "blobs" | "backup" | "cache" | "logs";
 export type SectionId = "activities" | "devices";
-export type BackupSectionId = "make" | "restore";
+export type BackupSectionId = "make" | "edit" | "restore";
 export type BlobsSectionId = "fetch" | "test" | "save";
 export type SettingKey =
   | "persistent_cache"

@@ -142,6 +142,44 @@ export function normalizeHubVersion(value: unknown): string | null {
   return null;
 }
 
+export function renameBundleHub(bundle: BackupBundlePayload, name: string): BackupBundlePayload {
+  const trimmed = String(name ?? "").trim();
+  if (!trimmed) return bundle;
+  return {
+    ...bundle,
+    hub: { ...(bundle.hub ?? {}), name: trimmed },
+  };
+}
+
+function renameInList<T extends { device?: BackupBundleDeviceBlock | null }>(
+  list: T[] | undefined,
+  id: number,
+  name: string,
+): T[] {
+  const trimmed = String(name ?? "").trim();
+  return (list ?? []).map((entry) => {
+    const block = entry?.device;
+    if (!block || Number(block.device_id || 0) !== id) return entry;
+    return { ...entry, device: { ...block, name: trimmed || block.name || `Device ${id}` } };
+  });
+}
+
+export function renameBundleActivity(
+  bundle: BackupBundlePayload,
+  activityId: number,
+  name: string,
+): BackupBundlePayload {
+  return { ...bundle, activities: renameInList(bundle.activities, Number(activityId), name) };
+}
+
+export function renameBundleDevice(
+  bundle: BackupBundlePayload,
+  deviceId: number,
+  name: string,
+): BackupBundlePayload {
+  return { ...bundle, devices: renameInList(bundle.devices, Number(deviceId), name) };
+}
+
 export function assertBackupBundleRestoreCompatible(bundle: BackupBundlePayload, destinationHubVersion: unknown) {
   const sourceVersion = normalizeHubVersion(bundle?.hub?.version);
   if (!sourceVersion) {
