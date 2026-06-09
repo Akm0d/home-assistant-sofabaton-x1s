@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing } from "lit";
 import { renderSecondaryTabContent, renderSecondaryTabShell, secondaryTabStyles, type SecondaryTabItem } from "../components/secondary-tab";
 import type {
+  BlobFetchCommandResult,
   BlobFetchResponse,
   BlobsSectionId,
   CacheHubState,
@@ -810,7 +811,7 @@ class SofabatonBlobsTab extends LitElement {
         ${commands.map((command) => {
           const cmdKey = `cmd-${command.device_id ?? "?"}-${command.command_id ?? "?"}`;
           const copied = this._copyFlashKey === cmdKey;
-          const descriptor = String(command.parsed_blob ?? "").trim();
+          const descriptor = this._renderableDescriptor(command);
           const rawBlob = String(command.command_blob ?? "");
           const hasDescriptor = descriptor !== "";
           const mode: "descriptor" | "hex" = hasDescriptor
@@ -1253,6 +1254,38 @@ class SofabatonBlobsTab extends LitElement {
   private _setResultViewMode(cmdKey: string, mode: "descriptor" | "hex") {
     if (this._resultViewMode[cmdKey] === mode) return;
     this._resultViewMode = { ...this._resultViewMode, [cmdKey]: mode };
+  }
+
+  /**
+   * Build the text shown in the Descriptor view (and used by Copy).
+   *
+   * For wifi_hue / wifi_sonos the hub's pre-formatted `parsed_blob`
+   * splits `body_block` across rendered newlines and indents each
+   * line. That looks tidy but obscures the wire reality: `body_block`
+   * is a single opaque string where every `\r` / `\n` byte is part of
+   * the device-side protocol (it carries its own Content-Length
+   * declaration, line separators, and body bytes). We rebuild the
+   * descriptor client-side so the body_block surfaces as one literal
+   * string with `\r` / `\n` shown as their two-char escape sequences,
+   * matching the editor's "raw wire string" rendering.
+   *
+   * Every other class (wifi_ip, wifi_roku, ir descriptive, and any
+   * non-decodable case) keeps the hub's `parsed_blob` as-is.
+   */
+  private _renderableDescriptor(command: BlobFetchCommandResult): string {
+    const className = String(command.decoded?.class ?? "").toLowerCase();
+    if (className === "wifi_hue" || className === "wifi_sonos") {
+      const fields = (command.decoded?.fields ?? {}) as Record<string, unknown>;
+      const path = String(fields.path ?? "");
+      const bodyBlock = String(fields.body_block ?? "");
+      const lines: string[] = [`path: ${path}`];
+      if (bodyBlock) {
+        const escaped = bodyBlock.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+        lines.push(`body_block: ${escaped}`);
+      }
+      return lines.join("\n");
+    }
+    return String(command.parsed_blob ?? "").trim();
   }
 
   private async _copyText(value: string, flashKey: string) {

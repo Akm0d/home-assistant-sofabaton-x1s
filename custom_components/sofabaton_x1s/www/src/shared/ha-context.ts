@@ -184,6 +184,12 @@ export interface BackupBundleDeviceBlock {
   // order in the app / on the physical remote (within a list of devices
   // and within the activity-device list). Lower value sorts first.
   sort?: number | null;
+  // Dotted-decimal IPv4 address stored in the device head's tail slot.
+  // Populated for the network-IP device classes (wifi_hue / wifi_roku /
+  // wifi_sonos rely on this for Host headers and replay addressing);
+  // null / empty for non-network devices. wifi_ip carries its IP inside
+  // each command blob instead, not here.
+  ip_address?: string | null;
 }
 
 export interface BackupBundleDevicePayload {

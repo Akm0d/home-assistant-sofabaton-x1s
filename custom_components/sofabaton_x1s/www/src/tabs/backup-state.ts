@@ -36,6 +36,232 @@ export interface BackupDeviceCommandItem {
   label: string;
 }
 
+/**
+ * Device-class strings whose command blobs can be round-tripped through
+ * `lib/blob_decoders.py`. Mirrors `DECODABLE_CLASSES` on the Python side.
+ * These names show up verbatim in `restore_data.decoded.class`.
+ */
+export type DecodableCommandClass =
+  | "wifi_ip"
+  | "wifi_roku"
+  | "wifi_hue"
+  | "wifi_sonos"
+  | "ir";
+
+/**
+ * Per-field UI spec for the decoded payload editor.
+ * Field keys mirror the Python decoder's `fields` dict keys exactly.
+ */
+export interface DecodedFieldSpec {
+  key: string;
+  label: string;
+  multiline?: boolean;
+  numeric?: boolean;
+  // True when the wire form of this field separates lines with CRLF.
+  // Set ONLY for fields where the protocol confidently dictates CRLF
+  // (currently: the HTTP `header` field in wifi_ip). On save we
+  // normalize the user's `\n` to `\r\n` so the wire round-trip stays
+  // valid even though the browser's textarea hides the `\r`.
+  crlfOnWire?: boolean;
+  // True for fields that are a single opaque wire string where every
+  // byte is part of the device-side protocol (Hue / Sonos body_block:
+  // the literal string carries its own Content-Length declaration,
+  // its own line separators, and its own body bytes). The editor
+  // displays `\r` and `\n` as their two-character escape sequences so
+  // the user sees the string for what it is, and unescapes on save.
+  // Independent of `multiline` — a multiline textarea is still the
+  // right control because long escaped strings need to wrap visually.
+  escapedDisplay?: boolean;
+  helper?: string;
+}
+
+export interface DecodedFormSpec {
+  title: string;
+  /** Short note shown under the form title to help the user. */
+  subtitle?: string;
+  fields: DecodedFieldSpec[];
+}
+
+/**
+ * Per-class form layouts. The shape mirrors the corresponding decoder
+ * in `lib/blob_decoders.py`. Adding a new decodable class requires:
+ *   (a) extending DecodableCommandClass,
+ *   (b) registering its form here,
+ *   (c) implementing the decoder/encoder on the Python side.
+ */
+export const DECODED_CLASS_FORM_SPECS: Record<DecodableCommandClass, DecodedFormSpec> = {
+  wifi_ip: {
+    title: "HTTP request",
+    subtitle: "Edits replay through the hub's wifi_ip writer. Host, port, and Content-Length are derived; you do not set them here.",
+    fields: [
+      { key: "host", label: "Host (IPv4)", helper: "e.g. 192.168.2.77" },
+      { key: "port", label: "Port", numeric: true },
+      { key: "method", label: "HTTP method", helper: "e.g. GET, POST" },
+      { key: "path", label: "Path" },
+      {
+        key: "header",
+        label: "Extra headers",
+        multiline: true,
+        crlfOnWire: true,
+        helper: "One header per line. Host and Content-Length are added automatically.",
+      },
+      { key: "content_type", label: "Content type" },
+      { key: "body", label: "Body", multiline: true },
+    ],
+  },
+  wifi_roku: {
+    title: "Roku ECP request",
+    fields: [
+      { key: "path", label: "ECP URL path", helper: "e.g. /launch/12 or /keypress/Home" },
+    ],
+  },
+  wifi_hue: {
+    title: "Hue REST request",
+    subtitle: "Body block is injected verbatim between Host headers and the network write.",
+    fields: [
+      { key: "path", label: "URL path" },
+      {
+        key: "body_block",
+        label: "Body block (raw wire string)",
+        multiline: true,
+        escapedDisplay: true,
+        helper: "Single literal string sent to the device. Newlines are shown as \\n. You own the Content-Length value — it must match the body byte count.",
+      },
+    ],
+  },
+  wifi_sonos: {
+    title: "Sonos UPnP request",
+    subtitle: "Body block is injected verbatim between Host headers and the network write.",
+    fields: [
+      { key: "path", label: "URL path" },
+      {
+        key: "body_block",
+        label: "Body block (raw wire string)",
+        multiline: true,
+        escapedDisplay: true,
+        helper: "Single literal string sent to the device. Newlines are shown as \\n. You own the Content-Length value — it must match the body byte count.",
+      },
+    ],
+  },
+  ir: {
+    title: "Descriptive IR payload",
+    subtitle: "Edits replay through the hub's descriptive-IR writer. Only descriptive-protocol payloads (P:… D:… F:…) are decodable; raw learned-IR blobs are not editable here.",
+    fields: [
+      {
+        key: "descriptor",
+        label: "Descriptor",
+        helper: "e.g. P:Sony12 R:40000 D:1 F:18 MUL:2",
+      },
+    ],
+  },
+};
+
+/**
+ * Shape of the `decoded` block as it lives inside `restore_data` in the
+ * bundle JSON. `edited` is set to `true` by the editor to tell the
+ * restore path to re-encode the payload from `fields` instead of using
+ * the canonical `data_hex`.
+ */
+export interface BackupCommandDecodedBlock {
+  className: DecodableCommandClass;
+  fields: Record<string, unknown>;
+  trailerHex: string;
+  edited: boolean;
+}
+
+function normalizeDecodableClass(value: unknown): DecodableCommandClass | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized in DECODED_CLASS_FORM_SPECS) {
+    return normalized as DecodableCommandClass;
+  }
+  return null;
+}
+
+/**
+ * Read a command's `restore_data.decoded` block (if any), in the shape
+ * the editor consumes. Returns `null` for commands that aren't in a
+ * decodable class, or whose decoded block is missing / malformed.
+ */
+export function commandDecodedBlock(
+  bundle: BackupBundlePayload | null,
+  deviceId: number,
+  commandId: number,
+): BackupCommandDecodedBlock | null {
+  if (!bundle) return null;
+  const normalizedDeviceId = Number(deviceId);
+  const normalizedCommandId = Number(commandId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedDeviceId,
+  );
+  if (!device) return null;
+  const command = (device.commands ?? []).find(
+    (entry) => Number(entry?.command_id || 0) === normalizedCommandId,
+  );
+  if (!command) return null;
+  const restoreData = (command as { restore_data?: unknown }).restore_data;
+  if (!restoreData || typeof restoreData !== "object") return null;
+  const decoded = (restoreData as Record<string, unknown>).decoded;
+  if (!decoded || typeof decoded !== "object") return null;
+  const decodedRecord = decoded as Record<string, unknown>;
+  const className = normalizeDecodableClass(decodedRecord.class);
+  if (!className) return null;
+  const fields = decodedRecord.fields;
+  if (!fields || typeof fields !== "object") return null;
+  return {
+    className,
+    fields: { ...(fields as Record<string, unknown>) },
+    trailerHex: String(decodedRecord.trailer_hex ?? ""),
+    edited: Boolean(decodedRecord.edited),
+  };
+}
+
+/**
+ * Write the user's edits into a command's `restore_data.decoded.fields`
+ * and set `decoded.edited = true`. `data_hex` and `trailer_hex` are NOT
+ * touched — the restore path re-encodes from `decoded` when the flag
+ * is set, and re-uses the captured trailer verbatim.
+ *
+ * No-op when the targeted command, device, or decoded block is absent.
+ */
+export function updateCommandDecodedFields(
+  bundle: BackupBundlePayload,
+  deviceId: number,
+  commandId: number,
+  newFields: Record<string, unknown>,
+): BackupBundlePayload {
+  const normalizedDeviceId = Number(deviceId);
+  const normalizedCommandId = Number(commandId);
+  return {
+    ...bundle,
+    devices: (bundle.devices ?? []).map((device) => {
+      if (Number(device?.device?.device_id || 0) !== normalizedDeviceId) return device;
+      return {
+        ...device,
+        commands: (device.commands ?? []).map((command) => {
+          if (Number(command?.command_id || 0) !== normalizedCommandId) return command;
+          const restoreData = (command as { restore_data?: unknown }).restore_data;
+          if (!restoreData || typeof restoreData !== "object") return command;
+          const decoded = (restoreData as Record<string, unknown>).decoded;
+          if (!decoded || typeof decoded !== "object") return command;
+          const decodedRecord = decoded as Record<string, unknown>;
+          const existingFields = (decodedRecord.fields ?? {}) as Record<string, unknown>;
+          return {
+            ...command,
+            restore_data: {
+              ...(restoreData as Record<string, unknown>),
+              decoded: {
+                ...decodedRecord,
+                fields: { ...existingFields, ...newFields },
+                edited: true,
+              },
+            },
+          };
+        }),
+      };
+    }),
+  };
+}
+
 const HUB_VERSION_RANK: Record<string, number> = {
   X1: 1,
   X1S: 2,
@@ -393,6 +619,69 @@ export function deviceCommandItems(
     items.push({ deviceId: normalizedDeviceId, commandId, label });
   }
   return items.sort((left, right) => left.commandId - right.commandId);
+}
+
+/**
+ * Read a device's `device_class` string from the bundle, normalized to
+ * lowercase. Returns `null` when the device is missing.
+ */
+export function bundleDeviceClass(
+  bundle: BackupBundlePayload | null,
+  deviceId: number,
+): string | null {
+  if (!bundle) return null;
+  const normalizedId = Number(deviceId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedId,
+  );
+  if (!device) return null;
+  return String(device.device?.device_class ?? "").trim().toLowerCase() || null;
+}
+
+/**
+ * Read a device's `ip_address` from the bundle's device head. Returns
+ * `null` for missing devices and empty / unset values (so the UI can
+ * treat "no IP" uniformly regardless of whether the field was absent
+ * or empty-string).
+ */
+export function deviceIpAddress(
+  bundle: BackupBundlePayload | null,
+  deviceId: number,
+): string | null {
+  if (!bundle) return null;
+  const normalizedId = Number(deviceId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedId,
+  );
+  if (!device?.device) return null;
+  const raw = String(device.device.ip_address ?? "").trim();
+  return raw || null;
+}
+
+/**
+ * Write a new `ip_address` value into the bundle's device head. Empty
+ * string clears it (mapped to `null` on the way out so the restore-side
+ * `_encode_ip` helper bails the IP marker cleanly). No-op when the
+ * targeted device is absent.
+ */
+export function updateBundleDeviceIp(
+  bundle: BackupBundlePayload,
+  deviceId: number,
+  ip: string,
+): BackupBundlePayload {
+  const normalizedId = Number(deviceId);
+  const trimmed = String(ip ?? "").trim();
+  return {
+    ...bundle,
+    devices: (bundle.devices ?? []).map((device) => {
+      if (Number(device?.device?.device_id || 0) !== normalizedId) return device;
+      if (!device.device) return device;
+      return {
+        ...device,
+        device: { ...device.device, ip_address: trimmed || null },
+      };
+    }),
+  };
 }
 
 /**

@@ -14,12 +14,19 @@ import { operationProgressStyles, renderOperationProgress } from "../components/
 import {
   assertBackupBundleRestoreCompatible,
   activityQuickAccessItems,
+  type BackupCommandDecodedBlock,
   type BackupDeviceCommandItem,
   type BackupSelectionOption,
+  type DecodableCommandClass,
+  type DecodedFieldSpec,
   backupDeviceOptions,
   bundleActivityOptions,
+  bundleDeviceClass,
   bundleDeviceOptions,
+  commandDecodedBlock,
+  DECODED_CLASS_FORM_SPECS,
   deviceCommandItems,
+  deviceIpAddress,
   pruneBackupBundle,
   reconcileRestoreSelection,
   reorderBundleActivities,
@@ -30,6 +37,8 @@ import {
   renameBundleActivityMacro,
   renameBundleDevice,
   renameBundleDeviceCommand,
+  updateBundleDeviceIp,
+  updateCommandDecodedFields,
   validateBackupBundle,
 } from "./backup-state";
 
@@ -40,7 +49,16 @@ type BackupRenameDialogTarget =
   | { kind: "detail"; entityKind: BackupEditTargetKind; entityId: number }
   | { kind: "macro"; activityId: number; buttonId: number }
   | { kind: "favorite"; activityId: number; buttonId: number }
-  | { kind: "command"; deviceId: number; commandId: number };
+  | { kind: "command"; deviceId: number; commandId: number }
+  | { kind: "device_ip"; deviceId: number };
+
+// Device classes whose `ip_address` lives in the device head and is
+// the source of truth for the device's network address. wifi_ip is
+// deliberately excluded: it ships its IP inside each command blob,
+// editable via the per-command structured-payload form.
+const IP_HEAD_DEVICE_CLASSES = new Set(["wifi_hue", "wifi_roku", "wifi_sonos"]);
+
+const IPV4_PATTERN = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 
 const BACKUP_SECTION_ITEMS: SecondaryTabItem<BackupSectionId>[] = [
   { id: "make", icon: "mdi:content-save-move-outline", label: "Make" },
@@ -89,6 +107,8 @@ class SofabatonBackupTab extends LitElement {
     _editRenameDialogDraft: { state: true },
     _editRenameDialogError: { state: true },
     _editRenameDialogTarget: { state: true },
+    _editRenameDialogDecodedDrafts: { state: true },
+    _editRenameDialogDecodedSnapshot: { state: true },
     _haSortableReady: { state: true },
   };
 
@@ -721,6 +741,73 @@ class SofabatonBackupTab extends LitElement {
     .modal-backdrop { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 0, 0, 0.52); }
     .dialog { width: min(760px, calc(100vw - 36px)); max-height: min(82vh, 900px); display: flex; flex-direction: column; border-radius: var(--backup-radius-lg); border: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color, var(--primary-background-color))); box-shadow: var(--ha-card-box-shadow, 0 8px 28px rgba(0,0,0,0.28)); overflow: hidden; }
     .dialog.small { width: min(500px, calc(100vw - 36px)); }
+    .dialog.medium { width: min(640px, calc(100vw - 36px)); }
+    .decoded-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
+    }
+    .decoded-form-head { display: flex; flex-direction: column; gap: 2px; }
+    .decoded-form-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+    }
+    .decoded-form-sub {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      line-height: 1.4;
+    }
+    .decoded-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .decoded-field-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--secondary-text-color);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .decoded-field-input {
+      width: 100%;
+      box-sizing: border-box;
+      font: inherit;
+      font-size: 13px;
+      color: var(--primary-text-color);
+      background: var(--ha-color-form-background, var(--secondary-background-color));
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-sm);
+      padding: 8px 10px;
+    }
+    .decoded-field-input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+    }
+    .decoded-field-input--multiline {
+      font-family: var(--code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+      resize: vertical;
+      min-height: 60px;
+      white-space: pre;
+    }
+    /* Escaped wire-string fields are conceptually one long string with
+       visible \\n escapes. Wrap on the textarea edge rather than
+       overflowing horizontally, and break long URL-like tokens so the
+       string never runs off the right side. */
+    .decoded-field-input--escaped {
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+    .decoded-field-helper {
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      line-height: 1.35;
+    }
     .dialog-header, .dialog-footer { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
     .dialog-header { border-bottom: 1px solid var(--divider-color); }
     .dialog-title { font-size: 16px; flex: 1; color: var(--primary-text-color); }
@@ -998,6 +1085,15 @@ class SofabatonBackupTab extends LitElement {
   private _editRenameDialogDraft = "";
   private _editRenameDialogError = "";
   private _editRenameDialogTarget: BackupRenameDialogTarget | null = null;
+  // Per-field text drafts for the structured-payload editor that shows
+  // inside the rename dialog when the target command is in a decodable
+  // class. Keyed by the spec's `key`. Empty for non-command targets and
+  // for command targets without a decoded block.
+  private _editRenameDialogDecodedDrafts: Record<string, string> = {};
+  // Snapshot of the decoded block at dialog-open time, used to:
+  //   (a) skip the bundle update entirely when nothing changed, and
+  //   (b) decide whether to render the structured-payload form.
+  private _editRenameDialogDecodedSnapshot: BackupCommandDecodedBlock | null = null;
   private _haSortableReady = Boolean(customElements.get("ha-sortable"));
   private readonly _backupScopeRadioName = `sofabaton-backup-scope-${Math.random().toString(36).slice(2)}`;
   private _editSessionRestoreTried = false;
@@ -1481,10 +1577,63 @@ class SofabatonBackupTab extends LitElement {
           <div class="detail-scroll">
             ${params.kind === "activity"
               ? this._renderActivityQuickAccessSection(activityQuickAccess)
-              : this._renderDeviceCommandsSection(deviceCommands)}
+              : html`
+                  ${this._renderDeviceNetworkSection()}
+                  ${this._renderDeviceCommandsSection(deviceCommands)}
+                `}
           </div>
         </div>
         ${this._renderEditRenameDialog()}
+      </div>
+    `;
+  }
+
+  /**
+   * "Network" section shown above Commands in the Device detail view
+   * for hue / roku / sonos devices, where the IP address lives on the
+   * device head and the hub uses it to build Host headers / addressing
+   * at replay time. wifi_ip devices are deliberately excluded — their
+   * IP lives inside each command blob and is edited per-command via
+   * the structured-payload form.
+   */
+  private _renderDeviceNetworkSection() {
+    if (this._editDetailId == null || !this._editBundle) return nothing;
+    const deviceId = Number(this._editDetailId);
+    const deviceClass = bundleDeviceClass(this._editBundle, deviceId) ?? "";
+    if (!IP_HEAD_DEVICE_CLASSES.has(deviceClass)) return nothing;
+    const ip = deviceIpAddress(this._editBundle, deviceId);
+    return html`
+      <div class="quick-access-section">
+        <div class="quick-access-head">
+          <div class="quick-access-title">Network</div>
+          <div class="quick-access-sub">
+            The device's IP address lives in the device record. The hub uses it to address the device at replay time (Host header for Hue / Sonos, base URL for Roku).
+          </div>
+        </div>
+        <div class="quick-access-list">
+          <div class="quick-access-sortable-container">
+            <div class="quick-access-sortable-item">
+              <div class="quick-access-row quick-access-row--no-drag">
+                <div class="quick-access-main">
+                  <div class="quick-access-label-row">
+                    <div class="quick-access-label">${ip ?? "(not set)"}</div>
+                    <div class="quick-access-chip">ip</div>
+                  </div>
+                  <div class="quick-access-meta">IPv4 dotted-decimal address</div>
+                </div>
+                <div class="quick-access-actions">
+                  <button
+                    class="icon-btn"
+                    @click=${() => this._openDeviceIpRenameDialog(deviceId)}
+                    aria-label="Edit IP address"
+                  >
+                    <ha-icon icon="mdi:pencil"></ha-icon>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -1644,9 +1793,13 @@ class SofabatonBackupTab extends LitElement {
   private _renderEditRenameDialog() {
     if (!this._editRenameDialogOpen || !this._editRenameDialogTarget) return nothing;
     const label = this._editRenameDialogLabel();
+    const decoded = this._editRenameDialogDecodedSnapshot;
+    // Expand the dialog only when the structured-payload form is in
+    // play; the simple rename keeps its compact look.
+    const dialogSizeClass = decoded ? "medium" : "small";
     return html`
       <div class="modal-backdrop" @click=${this._closeEditRenameDialog}>
-        <div class="dialog small" @click=${(event: Event) => event.stopPropagation()}>
+        <div class="dialog ${dialogSizeClass}" @click=${(event: Event) => event.stopPropagation()}>
           <div class="dialog-header">
             <div class="dialog-title">${label}</div>
             <button class="dialog-close" @click=${this._closeEditRenameDialog}><ha-icon icon="mdi:close"></ha-icon></button>
@@ -1656,8 +1809,8 @@ class SofabatonBackupTab extends LitElement {
               ? html`
                   <ha-textfield
                     id="sb-backup-edit-name"
-                    .label=${"Name"}
-                    .maxLength=${20}
+                    .label=${this._editRenameFieldLabel()}
+                    .maxLength=${this._editRenameFieldMaxLength()}
                     .value=${this._editRenameDialogDraft}
                     @input=${this._handleEditRenameDialogInput}
                     @change=${this._handleEditRenameDialogInput}
@@ -1668,14 +1821,15 @@ class SofabatonBackupTab extends LitElement {
                   <ha-input
                     id="sb-backup-edit-name"
                     type="text"
-                    .label=${"Name"}
-                    .maxlength=${20}
+                    .label=${this._editRenameFieldLabel()}
+                    .maxlength=${this._editRenameFieldMaxLength()}
                     .value=${this._editRenameDialogDraft}
                     @input=${this._handleEditRenameDialogInput}
                     @change=${this._handleEditRenameDialogInput}
                     @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter") { event.preventDefault(); this._applyEditRenameDialog(); } }}
                   ></ha-input>
                 `}
+            ${decoded ? this._renderDecodedPayloadForm(decoded.className) : nothing}
           </div>
           <div class="dialog-footer">
             <div class="dialog-footer-note">${this._editRenameDialogError}</div>
@@ -1689,6 +1843,55 @@ class SofabatonBackupTab extends LitElement {
     `;
   }
 
+  private _renderDecodedPayloadForm(className: DecodableCommandClass) {
+    const spec = DECODED_CLASS_FORM_SPECS[className];
+    if (!spec) return nothing;
+    return html`
+      <div class="decoded-form">
+        <div class="decoded-form-head">
+          <div class="decoded-form-title">${spec.title}</div>
+          ${spec.subtitle ? html`<div class="decoded-form-sub">${spec.subtitle}</div>` : nothing}
+        </div>
+        ${spec.fields.map((field) => this._renderDecodedField(field))}
+      </div>
+    `;
+  }
+
+  private _renderDecodedField(field: DecodedFieldSpec) {
+    const value = this._editRenameDialogDecodedDrafts[field.key] ?? "";
+    const onInput = (event: Event) => this._handleDecodedFieldInput(event, field.key);
+    const multilineClass = field.escapedDisplay
+      ? "decoded-field-input--multiline decoded-field-input--escaped"
+      : "decoded-field-input--multiline";
+    return html`
+      <label class="decoded-field">
+        <span class="decoded-field-label">${field.label}</span>
+        ${field.multiline
+          ? html`
+              <textarea
+                class="decoded-field-input ${multilineClass}"
+                rows="4"
+                spellcheck="false"
+                .value=${value}
+                @input=${onInput}
+                @change=${onInput}
+              ></textarea>
+            `
+          : html`
+              <input
+                class="decoded-field-input"
+                type=${field.numeric ? "number" : "text"}
+                spellcheck="false"
+                .value=${value}
+                @input=${onInput}
+                @change=${onInput}
+              />
+            `}
+        ${field.helper ? html`<span class="decoded-field-helper">${field.helper}</span>` : nothing}
+      </label>
+    `;
+  }
+
   private _editRenameDialogLabel() {
     const target = this._editRenameDialogTarget;
     if (!target) return "Rename";
@@ -1697,14 +1900,97 @@ class SofabatonBackupTab extends LitElement {
     }
     if (target.kind === "macro") return "Rename Macro";
     if (target.kind === "favorite") return "Rename Favorite";
+    if (target.kind === "device_ip") return "Edit IP address";
     return "Rename Command";
   }
 
+  /** Per-target label & max length used by the dialog's primary text input. */
+  private _editRenameFieldLabel(): string {
+    return this._editRenameDialogTarget?.kind === "device_ip" ? "IP address" : "Name";
+  }
+
+  private _editRenameFieldMaxLength(): number {
+    // "255.255.255.255" is 15 chars; everything else uses the
+    // historical hub-name cap of 20.
+    return this._editRenameDialogTarget?.kind === "device_ip" ? 15 : 20;
+  }
+
+  /**
+   * Diff each spec field against the open-dialog snapshot. Returns a
+   * record of fields that changed (mapped back through the wire-format
+   * coercion in `_draftToFieldValue`), or `null` when nothing changed
+   * and the bundle should be left untouched.
+   */
+  private _collectChangedDecodedFields(
+    snapshot: BackupCommandDecodedBlock,
+  ): Record<string, unknown> | null {
+    const spec = DECODED_CLASS_FORM_SPECS[snapshot.className];
+    if (!spec) return null;
+    const changed: Record<string, unknown> = {};
+    let touched = false;
+    for (const field of spec.fields) {
+      const draft = this._editRenameDialogDecodedDrafts[field.key] ?? "";
+      const original = this._fieldValueToDraft(snapshot.fields[field.key], field);
+      if (draft === original) continue;
+      changed[field.key] = this._draftToFieldValue(draft, field);
+      touched = true;
+    }
+    return touched ? changed : null;
+  }
+
+  /**
+   * Convert a draft string from a form control to the value shape the
+   * decoder expects. `numeric` fields become numbers; `crlfOnWire`
+   * fields get `\n` line endings normalized to `\r\n` so the wire
+   * round-trip stays exact even though the browser textarea hides the
+   * `\r`. Everything else passes through verbatim.
+   */
+  private _draftToFieldValue(draft: string, field: DecodedFieldSpec): unknown {
+    if (field.numeric) {
+      const numeric = Number(draft);
+      return Number.isFinite(numeric) ? numeric : 0;
+    }
+    if (field.escapedDisplay) {
+      // Inverse of the display escape in `_fieldValueToDraft`. We do
+      // NOT touch lone backslashes — body_block content in observed
+      // Hue / Sonos commands never contains literal `\` text, and
+      // honoring `\\` would force the user to double-escape ordinary
+      // backslashes in pasted JSON.
+      let result = draft.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+      // If the user pressed Enter inside the textarea, that produces
+      // a real LF in the input value. Keep it — they meant a newline,
+      // and the next render will re-escape it for display. The above
+      // replace order means typed `\n` text wins over rendered LF,
+      // which is what we want.
+      return result;
+    }
+    if (field.crlfOnWire) {
+      return draft.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
+    }
+    return draft;
+  }
+
+  private _handleDecodedFieldInput = (event: Event, fieldKey: string) => {
+    const input = event.currentTarget as HTMLInputElement | HTMLTextAreaElement;
+    this._editRenameDialogDecodedDrafts = {
+      ...this._editRenameDialogDecodedDrafts,
+      [fieldKey]: input.value,
+    };
+  };
+
   private _handleEditRenameDialogInput = (event: Event) => {
     const input = event.currentTarget as HTMLElement & { value: string };
-    const value = this._sanitizeBundleName(input.value);
-    input.value = value;
-    this._editRenameDialogDraft = value;
+    // Name-style targets get the historical sanitizer (printable set
+    // limited to what the X1 / X1S firmware accepts in stored labels).
+    // The `device_ip` target needs `.` characters and is constrained by
+    // its own IPv4 validation at save time, so it passes through raw.
+    if (this._editRenameDialogTarget?.kind === "device_ip") {
+      this._editRenameDialogDraft = input.value;
+    } else {
+      const value = this._sanitizeBundleName(input.value);
+      input.value = value;
+      this._editRenameDialogDraft = value;
+    }
     this._editRenameDialogError = "";
   };
 
@@ -1720,16 +2006,61 @@ class SofabatonBackupTab extends LitElement {
     this._editRenameDialogOpen = true;
   };
 
+  private _openDeviceIpRenameDialog(deviceId: number) {
+    const normalizedId = Number(deviceId);
+    this._editRenameDialogTarget = { kind: "device_ip", deviceId: normalizedId };
+    this._editRenameDialogDraft = deviceIpAddress(this._editBundle, normalizedId) || "";
+    this._editRenameDialogError = "";
+    // Device-IP dialog never carries the decoded-payload form — make
+    // sure stale snapshot state from a prior command edit can't leak
+    // in and accidentally widen the dialog.
+    this._editRenameDialogDecodedSnapshot = null;
+    this._editRenameDialogDecodedDrafts = {};
+    this._editRenameDialogOpen = true;
+  }
+
   private _openDeviceCommandRenameDialog(commandId: number) {
     if (this._editDetailId == null) return;
     const deviceId = Number(this._editDetailId);
-    this._editRenameDialogTarget = { kind: "command", deviceId, commandId: Number(commandId) };
+    const normalizedCommandId = Number(commandId);
+    this._editRenameDialogTarget = { kind: "command", deviceId, commandId: normalizedCommandId };
     const item = deviceCommandItems(this._editBundle, deviceId).find(
-      (entry) => entry.commandId === Number(commandId),
+      (entry) => entry.commandId === normalizedCommandId,
     );
     this._editRenameDialogDraft = item?.label || "";
     this._editRenameDialogError = "";
+    // Hydrate per-field text drafts from the current decoded block.
+    // For commands that are not in a decodable class, this snapshot
+    // is null and the dialog renders the name-only form.
+    const decoded = commandDecodedBlock(this._editBundle, deviceId, normalizedCommandId);
+    this._editRenameDialogDecodedSnapshot = decoded;
+    this._editRenameDialogDecodedDrafts = decoded
+      ? this._initialDecodedDrafts(decoded)
+      : {};
     this._editRenameDialogOpen = true;
+  }
+
+  private _initialDecodedDrafts(decoded: BackupCommandDecodedBlock): Record<string, string> {
+    const spec = DECODED_CLASS_FORM_SPECS[decoded.className];
+    if (!spec) return {};
+    const drafts: Record<string, string> = {};
+    for (const field of spec.fields) {
+      drafts[field.key] = this._fieldValueToDraft(decoded.fields[field.key], field);
+    }
+    return drafts;
+  }
+
+  private _fieldValueToDraft(value: unknown, field: DecodedFieldSpec): string {
+    if (value == null) return "";
+    if (field.numeric) return String(Number(value) || 0);
+    const stringValue = String(value);
+    if (field.escapedDisplay) {
+      // Surface the wire `\n` / `\r` characters as their two-char
+      // escape sequences so the user can see and edit the literal
+      // string. `_draftToFieldValue` performs the reverse on save.
+      return stringValue.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    }
+    return stringValue;
   }
 
   private _openQuickAccessRenameDialog(kind: BackupQuickAccessKind, buttonId: number) {
@@ -1750,6 +2081,8 @@ class SofabatonBackupTab extends LitElement {
     this._editRenameDialogDraft = "";
     this._editRenameDialogError = "";
     this._editRenameDialogTarget = null;
+    this._editRenameDialogDecodedDrafts = {};
+    this._editRenameDialogDecodedSnapshot = null;
   };
 
   private _openEditFilePicker = () => {
@@ -1817,13 +2150,26 @@ class SofabatonBackupTab extends LitElement {
   }
 
   private _applyEditRenameDialog = () => {
+    const target = this._editRenameDialogTarget;
+    if (!target || !this._editBundle) return;
+    // The IP dialog runs through its own validation / save path; it
+    // does not share the name-sanitizer's empty-string guard because
+    // an empty IP is the legitimate "no IP set" shape for the wire.
+    if (target.kind === "device_ip") {
+      const draft = this._editRenameDialogDraft.trim();
+      if (draft && !IPV4_PATTERN.test(draft)) {
+        this._editRenameDialogError = "Enter a dotted-decimal IPv4 address (e.g. 192.168.1.42), or clear the field to remove the IP.";
+        return;
+      }
+      this._editBundle = updateBundleDeviceIp(this._editBundle, target.deviceId, draft);
+      this._closeEditRenameDialog();
+      return;
+    }
     const next = this._sanitizeBundleName(this._editRenameDialogDraft);
     if (!next) {
       this._editRenameDialogError = "Enter a name to continue.";
       return;
     }
-    const target = this._editRenameDialogTarget;
-    if (!target || !this._editBundle) return;
     if (target.kind === "detail") {
       this._editDetailNameDraft = next;
       if (target.entityKind === "activity") this._applyActivityRename(target.entityId, next);
@@ -1837,7 +2183,25 @@ class SofabatonBackupTab extends LitElement {
       return;
     }
     if (target.kind === "command") {
-      this._editBundle = renameBundleDeviceCommand(this._editBundle, target.deviceId, target.commandId, next);
+      let nextBundle = renameBundleDeviceCommand(this._editBundle, target.deviceId, target.commandId, next);
+      // If the dialog rendered the structured-payload form, diff each
+      // field against the snapshot and only push the bundle update when
+      // at least one value changed. This keeps `edited: true` off
+      // pristine rows (which would otherwise force the restore path
+      // through a re-encode + round-trip verify for no reason).
+      const snapshot = this._editRenameDialogDecodedSnapshot;
+      if (snapshot) {
+        const changedFields = this._collectChangedDecodedFields(snapshot);
+        if (changedFields) {
+          nextBundle = updateCommandDecodedFields(
+            nextBundle,
+            target.deviceId,
+            target.commandId,
+            changedFields,
+          );
+        }
+      }
+      this._editBundle = nextBundle;
       this._closeEditRenameDialog();
       return;
     }

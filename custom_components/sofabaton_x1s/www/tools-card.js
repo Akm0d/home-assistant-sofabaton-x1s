@@ -3328,7 +3328,7 @@ var SofabatonBlobsTab = class extends i4 {
         ${commands.map((command) => {
       const cmdKey = `cmd-${command.device_id ?? "?"}-${command.command_id ?? "?"}`;
       const copied = this._copyFlashKey === cmdKey;
-      const descriptor = String(command.parsed_blob ?? "").trim();
+      const descriptor = this._renderableDescriptor(command);
       const rawBlob = String(command.command_blob ?? "");
       const hasDescriptor = descriptor !== "";
       const mode = hasDescriptor ? this._resultViewMode[cmdKey] ?? "descriptor" : "hex";
@@ -3721,6 +3721,21 @@ var SofabatonBlobsTab = class extends i4 {
   _setResultViewMode(cmdKey, mode) {
     if (this._resultViewMode[cmdKey] === mode) return;
     this._resultViewMode = { ...this._resultViewMode, [cmdKey]: mode };
+  }
+  _renderableDescriptor(command) {
+    const className = String(command.decoded?.class ?? "").toLowerCase();
+    if (className === "wifi_hue" || className === "wifi_sonos") {
+      const fields = command.decoded?.fields ?? {};
+      const path = String(fields.path ?? "");
+      const bodyBlock = String(fields.body_block ?? "");
+      const lines = [`path: ${path}`];
+      if (bodyBlock) {
+        const escaped = bodyBlock.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+        lines.push(`body_block: ${escaped}`);
+      }
+      return lines.join("\n");
+    }
+    return String(command.parsed_blob ?? "").trim();
   }
   async _copyText(value, flashKey) {
     const text = String(value || "");
@@ -4608,6 +4623,162 @@ function deviceCommandItems(bundle, deviceId) {
 function renameBundleDeviceCommand(bundle, deviceId, commandId, name) {
   return updateDeviceCommandLabel(bundle, Number(deviceId), Number(commandId), String(name ?? "").trim());
 }
+function bundleDeviceClass(bundle, deviceId) {
+  if (!bundle) return null;
+  const normalizedId = Number(deviceId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedId,
+  );
+  if (!device) return null;
+  return String(device.device?.device_class ?? "").trim().toLowerCase() || null;
+}
+function deviceIpAddress(bundle, deviceId) {
+  if (!bundle) return null;
+  const normalizedId = Number(deviceId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedId,
+  );
+  if (!device?.device) return null;
+  const raw = String(device.device.ip_address ?? "").trim();
+  return raw || null;
+}
+function updateBundleDeviceIp(bundle, deviceId, ip) {
+  const normalizedId = Number(deviceId);
+  const trimmed = String(ip ?? "").trim();
+  return {
+    ...bundle,
+    devices: (bundle.devices ?? []).map((device) => {
+      if (Number(device?.device?.device_id || 0) !== normalizedId) return device;
+      if (!device.device) return device;
+      return {
+        ...device,
+        device: { ...device.device, ip_address: trimmed || null },
+      };
+    }),
+  };
+}
+const IP_HEAD_DEVICE_CLASSES = /* @__PURE__ */ new Set(["wifi_hue", "wifi_roku", "wifi_sonos"]);
+const IPV4_PATTERN = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+const DECODED_CLASS_FORM_SPECS = {
+  wifi_ip: {
+    title: "HTTP request",
+    subtitle: "Edits replay through the hub's wifi_ip writer. Host, port, and Content-Length are derived; you do not set them here.",
+    fields: [
+      { key: "host", label: "Host (IPv4)", helper: "e.g. 192.168.2.77" },
+      { key: "port", label: "Port", numeric: true },
+      { key: "method", label: "HTTP method", helper: "e.g. GET, POST" },
+      { key: "path", label: "Path" },
+      { key: "header", label: "Extra headers", multiline: true, crlfOnWire: true, helper: "One header per line. Host and Content-Length are added automatically." },
+      { key: "content_type", label: "Content type" },
+      { key: "body", label: "Body", multiline: true },
+    ],
+  },
+  wifi_roku: {
+    title: "Roku ECP request",
+    fields: [
+      { key: "path", label: "ECP URL path", helper: "e.g. /launch/12 or /keypress/Home" },
+    ],
+  },
+  wifi_hue: {
+    title: "Hue REST request",
+    subtitle: "Body block is injected verbatim between Host headers and the network write.",
+    fields: [
+      { key: "path", label: "URL path" },
+      {
+        key: "body_block",
+        label: "Body block (raw wire string)",
+        multiline: true,
+        escapedDisplay: true,
+        helper: "Single literal string sent to the device. Newlines are shown as \\n. You own the Content-Length value — it must match the body byte count.",
+      },
+    ],
+  },
+  wifi_sonos: {
+    title: "Sonos UPnP request",
+    subtitle: "Body block is injected verbatim between Host headers and the network write.",
+    fields: [
+      { key: "path", label: "URL path" },
+      {
+        key: "body_block",
+        label: "Body block (raw wire string)",
+        multiline: true,
+        escapedDisplay: true,
+        helper: "Single literal string sent to the device. Newlines are shown as \\n. You own the Content-Length value — it must match the body byte count.",
+      },
+    ],
+  },
+  ir: {
+    title: "Descriptive IR payload",
+    subtitle: "Edits replay through the hub's descriptive-IR writer. Only descriptive-protocol payloads (P:… D:… F:…) are decodable; raw learned-IR blobs are not editable here.",
+    fields: [
+      { key: "descriptor", label: "Descriptor", helper: "e.g. P:Sony12 R:40000 D:1 F:18 MUL:2" },
+    ],
+  },
+};
+function _normalizeDecodableClass(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized in DECODED_CLASS_FORM_SPECS) return normalized;
+  return null;
+}
+function commandDecodedBlock(bundle, deviceId, commandId) {
+  if (!bundle) return null;
+  const normalizedDeviceId = Number(deviceId);
+  const normalizedCommandId = Number(commandId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedDeviceId,
+  );
+  if (!device) return null;
+  const command = (device.commands ?? []).find(
+    (entry) => Number(entry?.command_id || 0) === normalizedCommandId,
+  );
+  if (!command) return null;
+  const restoreData = command.restore_data;
+  if (!restoreData || typeof restoreData !== "object") return null;
+  const decoded = restoreData.decoded;
+  if (!decoded || typeof decoded !== "object") return null;
+  const className = _normalizeDecodableClass(decoded.class);
+  if (!className) return null;
+  const fields = decoded.fields;
+  if (!fields || typeof fields !== "object") return null;
+  return {
+    className,
+    fields: { ...fields },
+    trailerHex: String(decoded.trailer_hex ?? ""),
+    edited: Boolean(decoded.edited),
+  };
+}
+function updateCommandDecodedFields(bundle, deviceId, commandId, newFields) {
+  const normalizedDeviceId = Number(deviceId);
+  const normalizedCommandId = Number(commandId);
+  return {
+    ...bundle,
+    devices: (bundle.devices ?? []).map((device) => {
+      if (Number(device?.device?.device_id || 0) !== normalizedDeviceId) return device;
+      return {
+        ...device,
+        commands: (device.commands ?? []).map((command) => {
+          if (Number(command?.command_id || 0) !== normalizedCommandId) return command;
+          const restoreData = command.restore_data;
+          if (!restoreData || typeof restoreData !== "object") return command;
+          const decoded = restoreData.decoded;
+          if (!decoded || typeof decoded !== "object") return command;
+          const existingFields = (decoded.fields ?? {});
+          return {
+            ...command,
+            restore_data: {
+              ...restoreData,
+              decoded: {
+                ...decoded,
+                fields: { ...existingFields, ...newFields },
+                edited: true,
+              },
+            },
+          };
+        }),
+      };
+    }),
+  };
+}
 function _reorderBundleTopLevelEntries(bundle, key, orderedIds) {
   const entries = bundle[key] ?? [];
   const newSortById = /* @__PURE__ */ new Map();
@@ -4732,14 +4903,20 @@ var SofabatonBackupTab = class extends i4 {
     this._editRenameDialogDraft = "";
     this._editRenameDialogError = "";
     this._editRenameDialogTarget = null;
+    this._editRenameDialogDecodedDrafts = {};
+    this._editRenameDialogDecodedSnapshot = null;
     this._haSortableReady = Boolean(customElements.get("ha-sortable"));
     this._backupScopeRadioName = `sofabaton-backup-scope-${Math.random().toString(36).slice(2)}`;
     this._editSessionRestoreTried = false;
     this._handleEditRenameDialogInput = (event) => {
       const input = event.currentTarget;
-      const value = this._sanitizeBundleName(input.value);
-      input.value = value;
-      this._editRenameDialogDraft = value;
+      if (this._editRenameDialogTarget?.kind === "device_ip") {
+        this._editRenameDialogDraft = input.value;
+      } else {
+        const value = this._sanitizeBundleName(input.value);
+        input.value = value;
+        this._editRenameDialogDraft = value;
+      }
       this._editRenameDialogError = "";
     };
     this._openDetailRenameDialog = () => {
@@ -4758,6 +4935,15 @@ var SofabatonBackupTab = class extends i4 {
       this._editRenameDialogDraft = "";
       this._editRenameDialogError = "";
       this._editRenameDialogTarget = null;
+      this._editRenameDialogDecodedDrafts = {};
+      this._editRenameDialogDecodedSnapshot = null;
+    };
+    this._handleDecodedFieldInput = (event, fieldKey) => {
+      const input = event.currentTarget;
+      this._editRenameDialogDecodedDrafts = {
+        ...this._editRenameDialogDecodedDrafts,
+        [fieldKey]: input.value,
+      };
     };
     this._openEditFilePicker = () => {
       this.renderRoot.querySelector("#edit-file-input")?.click();
@@ -4789,13 +4975,23 @@ var SofabatonBackupTab = class extends i4 {
       this._closeEditRenameDialog();
     };
     this._applyEditRenameDialog = () => {
+      const target = this._editRenameDialogTarget;
+      if (!target || !this._editBundle) return;
+      if (target.kind === "device_ip") {
+        const draft = this._editRenameDialogDraft.trim();
+        if (draft && !IPV4_PATTERN.test(draft)) {
+          this._editRenameDialogError = "Enter a dotted-decimal IPv4 address (e.g. 192.168.1.42), or clear the field to remove the IP.";
+          return;
+        }
+        this._editBundle = updateBundleDeviceIp(this._editBundle, target.deviceId, draft);
+        this._closeEditRenameDialog();
+        return;
+      }
       const next = this._sanitizeBundleName(this._editRenameDialogDraft);
       if (!next) {
         this._editRenameDialogError = "Enter a name to continue.";
         return;
       }
-      const target = this._editRenameDialogTarget;
-      if (!target || !this._editBundle) return;
       if (target.kind === "detail") {
         this._editDetailNameDraft = next;
         if (target.entityKind === "activity") this._applyActivityRename(target.entityId, next);
@@ -4809,7 +5005,15 @@ var SofabatonBackupTab = class extends i4 {
         return;
       }
       if (target.kind === "command") {
-        this._editBundle = renameBundleDeviceCommand(this._editBundle, target.deviceId, target.commandId, next);
+        let nextBundle = renameBundleDeviceCommand(this._editBundle, target.deviceId, target.commandId, next);
+        const snapshot = this._editRenameDialogDecodedSnapshot;
+        if (snapshot) {
+          const changedFields = this._collectChangedDecodedFields(snapshot);
+          if (changedFields) {
+            nextBundle = updateCommandDecodedFields(nextBundle, target.deviceId, target.commandId, changedFields);
+          }
+        }
+        this._editBundle = nextBundle;
         this._closeEditRenameDialog();
         return;
       }
@@ -5305,10 +5509,54 @@ var SofabatonBackupTab = class extends i4 {
           <div class="detail-scroll">
             ${params.kind === "activity"
               ? this._renderActivityQuickAccessSection(activityQuickAccess)
-              : this._renderDeviceCommandsSection(deviceCommands)}
+              : b2`
+                  ${this._renderDeviceNetworkSection()}
+                  ${this._renderDeviceCommandsSection(deviceCommands)}
+                `}
           </div>
         </div>
         ${this._renderEditRenameDialog()}
+      </div>
+    `;
+  }
+  _renderDeviceNetworkSection() {
+    if (this._editDetailId == null || !this._editBundle) return A;
+    const deviceId = Number(this._editDetailId);
+    const deviceClass = bundleDeviceClass(this._editBundle, deviceId) ?? "";
+    if (!IP_HEAD_DEVICE_CLASSES.has(deviceClass)) return A;
+    const ip = deviceIpAddress(this._editBundle, deviceId);
+    return b2`
+      <div class="quick-access-section">
+        <div class="quick-access-head">
+          <div class="quick-access-title">Network</div>
+          <div class="quick-access-sub">
+            The device's IP address lives in the device record. The hub uses it to address the device at replay time (Host header for Hue / Sonos, base URL for Roku).
+          </div>
+        </div>
+        <div class="quick-access-list">
+          <div class="quick-access-sortable-container">
+            <div class="quick-access-sortable-item">
+              <div class="quick-access-row quick-access-row--no-drag">
+                <div class="quick-access-main">
+                  <div class="quick-access-label-row">
+                    <div class="quick-access-label">${ip ?? "(not set)"}</div>
+                    <div class="quick-access-chip">ip</div>
+                  </div>
+                  <div class="quick-access-meta">IPv4 dotted-decimal address</div>
+                </div>
+                <div class="quick-access-actions">
+                  <button
+                    class="icon-btn"
+                    @click=${() => this._openDeviceIpRenameDialog(deviceId)}
+                    aria-label="Edit IP address"
+                  >
+                    <ha-icon icon="mdi:pencil"></ha-icon>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -5448,9 +5696,11 @@ var SofabatonBackupTab = class extends i4 {
   _renderEditRenameDialog() {
     if (!this._editRenameDialogOpen || !this._editRenameDialogTarget) return A;
     const label = this._editRenameDialogLabel();
+    const decoded = this._editRenameDialogDecodedSnapshot;
+    const dialogSizeClass = decoded ? "medium" : "small";
     return b2`
       <div class="modal-backdrop" @click=${this._closeEditRenameDialog}>
-        <div class="dialog small" @click=${(event) => event.stopPropagation()}>
+        <div class="dialog ${dialogSizeClass}" @click=${(event) => event.stopPropagation()}>
           <div class="dialog-header">
             <div class="dialog-title">${label}</div>
             <button class="dialog-close" @click=${this._closeEditRenameDialog}><ha-icon icon="mdi:close"></ha-icon></button>
@@ -5459,8 +5709,8 @@ var SofabatonBackupTab = class extends i4 {
             ${this._useLegacyTextField() ? b2`
                   <ha-textfield
                     id="sb-backup-edit-name"
-                    .label=${"Name"}
-                    .maxLength=${20}
+                    .label=${this._editRenameFieldLabel()}
+                    .maxLength=${this._editRenameFieldMaxLength()}
                     .value=${this._editRenameDialogDraft}
                     @input=${this._handleEditRenameDialogInput}
                     @change=${this._handleEditRenameDialogInput}
@@ -5475,8 +5725,8 @@ var SofabatonBackupTab = class extends i4 {
                   <ha-input
                     id="sb-backup-edit-name"
                     type="text"
-                    .label=${"Name"}
-                    .maxlength=${20}
+                    .label=${this._editRenameFieldLabel()}
+                    .maxlength=${this._editRenameFieldMaxLength()}
                     .value=${this._editRenameDialogDraft}
                     @input=${this._handleEditRenameDialogInput}
                     @change=${this._handleEditRenameDialogInput}
@@ -5488,6 +5738,7 @@ var SofabatonBackupTab = class extends i4 {
     }}
                   ></ha-input>
                 `}
+            ${decoded ? this._renderDecodedPayloadForm(decoded.className) : A}
           </div>
           <div class="dialog-footer">
             <div class="dialog-footer-note">${this._editRenameDialogError}</div>
@@ -5500,6 +5751,51 @@ var SofabatonBackupTab = class extends i4 {
       </div>
     `;
   }
+  _renderDecodedPayloadForm(className) {
+    const spec = DECODED_CLASS_FORM_SPECS[className];
+    if (!spec) return A;
+    return b2`
+      <div class="decoded-form">
+        <div class="decoded-form-head">
+          <div class="decoded-form-title">${spec.title}</div>
+          ${spec.subtitle ? b2`<div class="decoded-form-sub">${spec.subtitle}</div>` : A}
+        </div>
+        ${spec.fields.map((field) => this._renderDecodedField(field))}
+      </div>
+    `;
+  }
+  _renderDecodedField(field) {
+    const value = this._editRenameDialogDecodedDrafts[field.key] ?? "";
+    const onInput = (event) => this._handleDecodedFieldInput(event, field.key);
+    const multilineClass = field.escapedDisplay
+      ? "decoded-field-input--multiline decoded-field-input--escaped"
+      : "decoded-field-input--multiline";
+    return b2`
+      <label class="decoded-field">
+        <span class="decoded-field-label">${field.label}</span>
+        ${field.multiline ? b2`
+              <textarea
+                class="decoded-field-input ${multilineClass}"
+                rows="4"
+                spellcheck="false"
+                .value=${value}
+                @input=${onInput}
+                @change=${onInput}
+              ></textarea>
+            ` : b2`
+              <input
+                class="decoded-field-input"
+                type=${field.numeric ? "number" : "text"}
+                spellcheck="false"
+                .value=${value}
+                @input=${onInput}
+                @change=${onInput}
+              />
+            `}
+        ${field.helper ? b2`<span class="decoded-field-helper">${field.helper}</span>` : A}
+      </label>
+    `;
+  }
   _editRenameDialogLabel() {
     const target = this._editRenameDialogTarget;
     if (!target) return "Rename";
@@ -5508,18 +5804,83 @@ var SofabatonBackupTab = class extends i4 {
     }
     if (target.kind === "macro") return "Rename Macro";
     if (target.kind === "favorite") return "Rename Favorite";
+    if (target.kind === "device_ip") return "Edit IP address";
     return "Rename Command";
+  }
+  _editRenameFieldLabel() {
+    return this._editRenameDialogTarget?.kind === "device_ip" ? "IP address" : "Name";
+  }
+  _editRenameFieldMaxLength() {
+    return this._editRenameDialogTarget?.kind === "device_ip" ? 15 : 20;
+  }
+  _openDeviceIpRenameDialog(deviceId) {
+    const normalizedId = Number(deviceId);
+    this._editRenameDialogTarget = { kind: "device_ip", deviceId: normalizedId };
+    this._editRenameDialogDraft = deviceIpAddress(this._editBundle, normalizedId) || "";
+    this._editRenameDialogError = "";
+    this._editRenameDialogDecodedSnapshot = null;
+    this._editRenameDialogDecodedDrafts = {};
+    this._editRenameDialogOpen = true;
   }
   _openDeviceCommandRenameDialog(commandId) {
     if (this._editDetailId == null) return;
     const deviceId = Number(this._editDetailId);
-    this._editRenameDialogTarget = { kind: "command", deviceId, commandId: Number(commandId) };
+    const normalizedCommandId = Number(commandId);
+    this._editRenameDialogTarget = { kind: "command", deviceId, commandId: normalizedCommandId };
     const item = deviceCommandItems(this._editBundle, deviceId).find(
-      (entry) => entry.commandId === Number(commandId),
+      (entry) => entry.commandId === normalizedCommandId,
     );
     this._editRenameDialogDraft = item?.label || "";
     this._editRenameDialogError = "";
+    const decoded = commandDecodedBlock(this._editBundle, deviceId, normalizedCommandId);
+    this._editRenameDialogDecodedSnapshot = decoded;
+    this._editRenameDialogDecodedDrafts = decoded ? this._initialDecodedDrafts(decoded) : {};
     this._editRenameDialogOpen = true;
+  }
+  _initialDecodedDrafts(decoded) {
+    const spec = DECODED_CLASS_FORM_SPECS[decoded.className];
+    if (!spec) return {};
+    const drafts = {};
+    for (const field of spec.fields) {
+      drafts[field.key] = this._fieldValueToDraft(decoded.fields[field.key], field);
+    }
+    return drafts;
+  }
+  _fieldValueToDraft(value, field) {
+    if (value == null) return "";
+    if (field.numeric) return String(Number(value) || 0);
+    const stringValue = String(value);
+    if (field.escapedDisplay) {
+      return stringValue.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    }
+    return stringValue;
+  }
+  _collectChangedDecodedFields(snapshot) {
+    const spec = DECODED_CLASS_FORM_SPECS[snapshot.className];
+    if (!spec) return null;
+    const changed = {};
+    let touched = false;
+    for (const field of spec.fields) {
+      const draft = this._editRenameDialogDecodedDrafts[field.key] ?? "";
+      const original = this._fieldValueToDraft(snapshot.fields[field.key], field);
+      if (draft === original) continue;
+      changed[field.key] = this._draftToFieldValue(draft, field);
+      touched = true;
+    }
+    return touched ? changed : null;
+  }
+  _draftToFieldValue(draft, field) {
+    if (field.numeric) {
+      const numeric = Number(draft);
+      return Number.isFinite(numeric) ? numeric : 0;
+    }
+    if (field.escapedDisplay) {
+      return draft.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+    }
+    if (field.crlfOnWire) {
+      return draft.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
+    }
+    return draft;
   }
   _openQuickAccessRenameDialog(kind, buttonId) {
     if (this._editDetailId == null) return;
@@ -6743,6 +7104,69 @@ SofabatonBackupTab.styles = [secondaryTabStyles, operationProgressStyles, i`
     .modal-backdrop { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 0, 0, 0.52); }
     .dialog { width: min(760px, calc(100vw - 36px)); max-height: min(82vh, 900px); display: flex; flex-direction: column; border-radius: var(--backup-radius-lg); border: 1px solid var(--divider-color); background: var(--ha-card-background, var(--card-background-color, var(--primary-background-color))); box-shadow: var(--ha-card-box-shadow, 0 8px 28px rgba(0,0,0,0.28)); overflow: hidden; }
     .dialog.small { width: min(500px, calc(100vw - 36px)); }
+    .dialog.medium { width: min(640px, calc(100vw - 36px)); }
+    .decoded-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
+    }
+    .decoded-form-head { display: flex; flex-direction: column; gap: 2px; }
+    .decoded-form-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+    }
+    .decoded-form-sub {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      line-height: 1.4;
+    }
+    .decoded-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .decoded-field-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--secondary-text-color);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .decoded-field-input {
+      width: 100%;
+      box-sizing: border-box;
+      font: inherit;
+      font-size: 13px;
+      color: var(--primary-text-color);
+      background: var(--ha-color-form-background, var(--secondary-background-color));
+      border: 1px solid var(--divider-color);
+      border-radius: var(--backup-radius-sm);
+      padding: 8px 10px;
+    }
+    .decoded-field-input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+    }
+    .decoded-field-input--multiline {
+      font-family: var(--code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+      resize: vertical;
+      min-height: 60px;
+      white-space: pre;
+    }
+    .decoded-field-input--escaped {
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+    .decoded-field-helper {
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      line-height: 1.35;
+    }
     .dialog-header, .dialog-footer { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
     .dialog-header { border-bottom: 1px solid var(--divider-color); }
     .dialog-title { font-size: 16px; flex: 1; color: var(--primary-text-color); }
