@@ -1646,7 +1646,11 @@ class SofabatonHub:
         for record in macro_records:
             # Device-level macro steps target the device's own commands;
             # restore re-derives the step device id and the 48-bit fid
-            # from the restored command, so neither is stored.
+            # from the restored command, so neither is stored for real
+            # rows. Delay/wait rows (command_id == 0xFF) are a firmware
+            # sentinel: dev_id=0xFF, cmd_id=0xFF, fid=0xFFFFFFFFFFFF,
+            # duration=0xFF, delay=<pause>. They are preserved verbatim
+            # and re-emitted with the full sentinel on restore.
             macro_rows.append(
                 {
                     "button_id": record.key_id & 0xFF,
@@ -1658,8 +1662,6 @@ class SofabatonHub:
                             "delay": entry.delay & 0xFF,
                         }
                         for entry in record.key_sequence
-                        if (entry.key_id & 0xFF) != 0xFF
-                        and (entry.device_id & 0xFF) != 0xFF
                     ],
                 }
             )
@@ -1816,13 +1818,14 @@ class SofabatonHub:
             for entry in record.key_sequence:
                 step_device_id = entry.device_id & 0xFF
                 step_command_id = entry.key_id & 0xFF
-                if step_device_id == 0xFF or step_command_id == 0xFF:
-                    # The hub can emit internal power-macro rows with
-                    # device_id=255 or command_id=255 (delay-only / no-op
-                    # entries). Those rows are rejected if replayed during
-                    # restore, so they must not be exported.
-                    continue
-                if step_device_id != 0:
+                is_delay_step = step_device_id == 0xFF or step_command_id == 0xFF
+                # Delay/wait rows are a firmware sentinel record (all
+                # head bytes 0xFF; the last byte carries the pause).
+                # They are preserved verbatim through backup -> restore
+                # so the firmware can replay the macro's inter-step
+                # pauses. They don't reference any source device, so
+                # don't add to ``referenced_source_device_ids``.
+                if not is_delay_step and step_device_id != 0:
                     referenced_source_device_ids.add(step_device_id)
                 step_entries.append(
                     {

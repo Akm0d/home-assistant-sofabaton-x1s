@@ -180,6 +180,10 @@ export interface BackupBundleDeviceBlock {
   device_class?: string | null;
   device_class_code?: number | null;
   entity_type?: string | null;
+  // Byte 6 of the wire device record. The hub uses this as the display
+  // order in the app / on the physical remote (within a list of devices
+  // and within the activity-device list). Lower value sorts first.
+  sort?: number | null;
 }
 
 export interface BackupBundleDevicePayload {

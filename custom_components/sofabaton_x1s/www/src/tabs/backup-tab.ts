@@ -14,17 +14,22 @@ import { operationProgressStyles, renderOperationProgress } from "../components/
 import {
   assertBackupBundleRestoreCompatible,
   activityQuickAccessItems,
+  type BackupDeviceCommandItem,
   type BackupSelectionOption,
   backupDeviceOptions,
   bundleActivityOptions,
   bundleDeviceOptions,
+  deviceCommandItems,
   pruneBackupBundle,
   reconcileRestoreSelection,
+  reorderBundleActivities,
   reorderBundleActivityQuickAccess,
+  reorderBundleDevices,
   renameBundleActivity,
   renameBundleActivityFavorite,
   renameBundleActivityMacro,
   renameBundleDevice,
+  renameBundleDeviceCommand,
   validateBackupBundle,
 } from "./backup-state";
 
@@ -34,7 +39,8 @@ type BackupQuickAccessKind = "macro" | "favorite";
 type BackupRenameDialogTarget =
   | { kind: "detail"; entityKind: BackupEditTargetKind; entityId: number }
   | { kind: "macro"; activityId: number; buttonId: number }
-  | { kind: "favorite"; activityId: number; buttonId: number };
+  | { kind: "favorite"; activityId: number; buttonId: number }
+  | { kind: "command"; deviceId: number; commandId: number };
 
 const BACKUP_SECTION_ITEMS: SecondaryTabItem<BackupSectionId>[] = [
   { id: "make", icon: "mdi:content-save-move-outline", label: "Make" },
@@ -83,6 +89,7 @@ class SofabatonBackupTab extends LitElement {
     _editRenameDialogDraft: { state: true },
     _editRenameDialogError: { state: true },
     _editRenameDialogTarget: { state: true },
+    _haSortableReady: { state: true },
   };
 
   static styles = [secondaryTabStyles, operationProgressStyles, css`
@@ -395,6 +402,25 @@ class SofabatonBackupTab extends LitElement {
     .edit-selection-row:hover {
       background: color-mix(in srgb, var(--primary-color) 6%, transparent);
     }
+    .edit-order-sortable { display: block; }
+    .edit-order-sortable-container { display: block; }
+    /* Inside a sortable wrapper, ":first-child" of the row would not match
+       (the row's parent is the wrapper, not the list). Re-strip the border
+       on the first row of each wrapped group so groups still read cleanly. */
+    .edit-order-sortable-container .edit-selection-row:first-child { border-top: none; }
+    .edit-row-drag {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--secondary-text-color);
+      cursor: grab;
+      touch-action: none;
+      padding: 2px;
+      margin-left: -4px;
+    }
+    .edit-row-drag:active { cursor: grabbing; }
+    .edit-row-drag ha-icon { --mdc-icon-size: 18px; }
     .selection-chevron {
       color: var(--secondary-text-color);
       flex: 0 0 auto;
@@ -582,15 +608,34 @@ class SofabatonBackupTab extends LitElement {
       display: flex;
       flex-direction: column;
     }
+    .quick-access-sortable {
+      display: block;
+    }
+    .quick-access-sortable-container {
+      display: block;
+    }
+    .quick-access-sortable-item {
+      display: block;
+      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .quick-access-sortable-item:first-child {
+      border-top: none;
+    }
     .quick-access-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       gap: 10px;
       align-items: center;
       padding: 12px 14px;
-      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
     }
-    .quick-access-row:first-child { border-top: none; }
+    /* Variant for rows that don't carry a drag handle (e.g. Device commands,
+       which have no concept of ordering). Drop the leading column so the
+       label sits flush with the row padding. */
+    .quick-access-row--no-drag {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
     .quick-access-main {
       min-width: 0;
       display: flex;
@@ -636,10 +681,15 @@ class SofabatonBackupTab extends LitElement {
       gap: 8px;
       flex: 0 0 auto;
     }
-    .quick-access-move {
+    .quick-access-drag {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      justify-content: center;
+      cursor: grab;
+      touch-action: none;
+    }
+    .quick-access-drag:active {
+      cursor: grabbing;
     }
     .quick-access-empty {
       border: 1px dashed color-mix(in srgb, var(--divider-color) 88%, transparent);
@@ -860,7 +910,7 @@ class SofabatonBackupTab extends LitElement {
         border-top: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
       }
       .quick-access-row {
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: auto minmax(0, 1fr) auto;
       }
       .quick-access-actions {
         justify-content: flex-end;
@@ -948,19 +998,145 @@ class SofabatonBackupTab extends LitElement {
   private _editRenameDialogDraft = "";
   private _editRenameDialogError = "";
   private _editRenameDialogTarget: BackupRenameDialogTarget | null = null;
+  private _haSortableReady = Boolean(customElements.get("ha-sortable"));
   private readonly _backupScopeRadioName = `sofabaton-backup-scope-${Math.random().toString(36).slice(2)}`;
+  private _editSessionRestoreTried = false;
+  private static readonly _EDIT_SESSION_TTL_MS = 60 * 60 * 1000;
+  private static readonly _EDIT_SESSION_KEY_PREFIX = "sofabaton.backup-edit-session.v1.";
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this._teardownProgressSubscription();
   }
 
+  connectedCallback(): void {
+    super.connectedCallback();
+    if (!this._haSortableReady) {
+      void customElements.whenDefined("ha-sortable").then(() => {
+        this._haSortableReady = true;
+      });
+    }
+  }
+
   protected updated(changed: Map<string, unknown>) {
     if (changed.has("hub")) {
       void this._syncBackupOperationState();
+      // Hub identity changed — re-attempt restore against the new hub's session.
+      this._editSessionRestoreTried = false;
     }
     if (changed.has("cacheHub") && this.cacheHub && !this._backupDeviceIds.length) {
       this._backupDeviceIds = backupDeviceOptions(this.cacheHub).map((device) => device.id);
+    }
+    // Only attempt to restore the saved edit session when the user is
+    // already viewing the Edit section. Otherwise restoring an in-memory
+    // bundle (and possibly an open detail view) would yank the user away
+    // from whatever tab/section they actually had open.
+    if (
+      !this._editSessionRestoreTried
+      && this.hub
+      && this.selectedSection === "edit"
+      && !this._editBundle
+    ) {
+      this._editSessionRestoreTried = true;
+      this._restoreEditSession();
+    }
+    if (
+      changed.has("_editBundle")
+      || changed.has("_editFilename")
+      || changed.has("_editDetailKind")
+      || changed.has("_editDetailId")
+    ) {
+      this._persistEditSession();
+    }
+  }
+
+  private _editSessionStorageKey(): string | null {
+    const entryId = this.hub?.entry_id;
+    if (!entryId) return null;
+    return `${BackupTab._EDIT_SESSION_KEY_PREFIX}${entryId}`;
+  }
+
+  private _persistEditSession() {
+    const key = this._editSessionStorageKey();
+    if (!key) return;
+    try {
+      if (!this._editBundle) {
+        window.localStorage.removeItem(key);
+        return;
+      }
+      const payload = {
+        savedAt: Date.now(),
+        filename: this._editFilename || "",
+        bundle: this._editBundle,
+        detail: this._editDetailKind && this._editDetailId != null
+          ? { kind: this._editDetailKind, id: this._editDetailId }
+          : null,
+      };
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    } catch {
+      // localStorage can throw (quota, privacy mode, etc.) — fail silently.
+    }
+  }
+
+  private _clearEditSession() {
+    const key = this._editSessionStorageKey();
+    if (!key) return;
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Wipe the in-memory edit draft AND the persisted session.
+   * Called when the user starts a new backup or restore so they don't return
+   * to the Edit tab and mistake a stale draft for the file they just produced.
+   */
+  private _discardEditSession() {
+    this._editBundle = null;
+    this._editFilename = "";
+    this._editError = null;
+    this._closeEditDetail();
+    this._clearEditSession();
+  }
+
+  private _restoreEditSession() {
+    const key = this._editSessionStorageKey();
+    if (!key) return;
+    let raw: string | null = null;
+    try {
+      raw = window.localStorage.getItem(key);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as {
+        savedAt?: number;
+        filename?: string;
+        bundle?: unknown;
+        detail?: { kind?: BackupEditTargetKind; id?: number } | null;
+      };
+      const savedAt = Number(parsed?.savedAt);
+      if (!Number.isFinite(savedAt) || Date.now() - savedAt > BackupTab._EDIT_SESSION_TTL_MS) {
+        window.localStorage.removeItem(key);
+        return;
+      }
+      const bundle = validateBackupBundle(parsed.bundle);
+      this._editBundle = bundle;
+      this._editFilename = typeof parsed.filename === "string" ? parsed.filename : "";
+      if (parsed.detail && parsed.detail.kind && Number.isFinite(Number(parsed.detail.id))) {
+        this._editDetailKind = parsed.detail.kind;
+        this._editDetailId = Number(parsed.detail.id);
+      }
+    } catch {
+      // Corrupt or incompatible — drop it so we don't keep failing.
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -1173,23 +1349,68 @@ class SofabatonBackupTab extends LitElement {
     activityOptions: BackupSelectionOption[];
     deviceOptions: BackupSelectionOption[];
   }) {
+    const activitiesSortable = this._haSortableReady && params.activityOptions.length > 1;
+    const devicesSortable = this._haSortableReady && params.deviceOptions.length > 1;
+    const renderActivityRows = () => params.activityOptions.map((option) =>
+      this._renderEditCollectionRow(
+        option,
+        () => this._openEditDetail("activity", option.id, option.label),
+        activitiesSortable,
+      ));
+    const renderDeviceRows = () => params.deviceOptions.map((option) =>
+      this._renderEditCollectionRow(
+        option,
+        () => this._openEditDetail("device", option.id, option.label),
+        devicesSortable,
+      ));
     return html`
       <div class="edit-config-view">
         <div class="backup-drawer-sub">
-          Load a backup file, then choose an Activity or Device to edit. This mirrors Restore so the same items are easy to find on desktop and mobile.
+          Load a backup file, then choose an Activity or Device to edit.
+          ${this._haSortableReady
+            ? " Drag the handle on any row to reorder Activities and Devices to match how they appear on your hub."
+            : ""}
         </div>
         <div class="selection-card">
           <div class="selection-list">
             ${params.activityOptions.length
               ? html`
                   <div class="selection-group-header">Activities</div>
-                  ${params.activityOptions.map((option) => this._renderEditCollectionRow(option, () => this._openEditDetail("activity", option.id, option.label)))}
+                  ${activitiesSortable
+                    ? html`
+                        <ha-sortable
+                          class="edit-order-sortable"
+                          draggable-selector=".edit-selection-row"
+                          handle-selector=".edit-row-drag"
+                          animation="180"
+                          @item-moved=${this._handleEditActivityOrderSort}
+                        >
+                          <div class="edit-order-sortable-container">
+                            ${renderActivityRows()}
+                          </div>
+                        </ha-sortable>
+                      `
+                    : renderActivityRows()}
                 `
               : html`<div class="selection-empty">This backup file has no activities.</div>`}
             ${params.deviceOptions.length
               ? html`
                   <div class="selection-group-header">Devices</div>
-                  ${params.deviceOptions.map((option) => this._renderEditCollectionRow(option, () => this._openEditDetail("device", option.id, option.label)))}
+                  ${devicesSortable
+                    ? html`
+                        <ha-sortable
+                          class="edit-order-sortable"
+                          draggable-selector=".edit-selection-row"
+                          handle-selector=".edit-row-drag"
+                          animation="180"
+                          @item-moved=${this._handleEditDeviceOrderSort}
+                        >
+                          <div class="edit-order-sortable-container">
+                            ${renderDeviceRows()}
+                          </div>
+                        </ha-sortable>
+                      `
+                    : renderDeviceRows()}
                 `
               : html`<div class="selection-empty">This backup file has no devices.</div>`}
           </div>
@@ -1202,9 +1423,24 @@ class SofabatonBackupTab extends LitElement {
     `;
   }
 
-  private _renderEditCollectionRow(option: BackupSelectionOption, onSelect: () => void) {
+  private _renderEditCollectionRow(
+    option: BackupSelectionOption,
+    onSelect: () => void,
+    showDragHandle: boolean,
+  ) {
     return html`
       <button class="edit-selection-row" @click=${onSelect}>
+        ${showDragHandle
+          ? html`
+              <span
+                class="edit-row-drag"
+                aria-hidden="true"
+                @click=${(event: Event) => event.stopPropagation()}
+              >
+                <ha-icon icon="mdi:drag-vertical-variant"></ha-icon>
+              </span>
+            `
+          : nothing}
         <span class="selection-main">
           <span class="selection-label">${option.label}</span>
         </span>
@@ -1220,6 +1456,9 @@ class SofabatonBackupTab extends LitElement {
   }) {
     const activityQuickAccess = params.kind === "activity" && this._editDetailId != null
       ? activityQuickAccessItems(this._editBundle, this._editDetailId)
+      : [];
+    const deviceCommands = params.kind === "device" && this._editDetailId != null
+      ? deviceCommandItems(this._editBundle, this._editDetailId)
       : [];
     return html`
       <div class="tab-panel tab-panel--detail">
@@ -1242,11 +1481,7 @@ class SofabatonBackupTab extends LitElement {
           <div class="detail-scroll">
             ${params.kind === "activity"
               ? this._renderActivityQuickAccessSection(activityQuickAccess)
-              : html`
-                  <div class="edit-support-card">
-                    Device command renaming, supported payload editors, and safer removal workflows will expand underneath this header in later phases.
-                  </div>
-                `}
+              : this._renderDeviceCommandsSection(deviceCommands)}
           </div>
         </div>
         ${this._renderEditRenameDialog()}
@@ -1254,62 +1489,138 @@ class SofabatonBackupTab extends LitElement {
     `;
   }
 
-  private _renderActivityQuickAccessSection(items: ReturnType<typeof activityQuickAccessItems>) {
+  private _renderDeviceCommandsSection(items: BackupDeviceCommandItem[]) {
     if (this._editDetailId == null) return nothing;
     return html`
       <div class="quick-access-section">
         <div class="quick-access-head">
-          <div class="quick-access-title">Macros and Favorites</div>
-          <div class="quick-access-sub">Rename entries or move them up and down inside the Activity.</div>
+          <div class="quick-access-title">Commands</div>
+          <div class="quick-access-sub">
+            Use the pencil to rename a command. Names update everywhere the command is referenced.
+          </div>
         </div>
         ${items.length
           ? html`
               <div class="quick-access-list">
-                ${items.map((item, index) => html`
-                  <div class="quick-access-row">
-                    <div class="quick-access-main">
-                      <div class="quick-access-label-row">
-                        <div class="quick-access-label">${item.label}</div>
-                        <div class="quick-access-chip">${item.kind}</div>
-                      </div>
-                      <div class="quick-access-meta">
-                        ${item.kind === "macro"
-                          ? `Quick-access slot ${item.buttonId}`
-                          : `Favorite command ${item.commandId || "?"} on device ${item.deviceId || "?"} · slot ${item.buttonId}`}
-                      </div>
-                    </div>
-                    <div class="quick-access-move">
-                      <button
-                        class="icon-btn"
-                        ?disabled=${index === 0}
-                        @click=${() => this._moveActivityQuickAccessItem(index, -1)}
-                        aria-label="Move up"
+                <div class="quick-access-sortable-container">
+                  ${items.map((item) => this._renderDeviceCommandRow(item))}
+                </div>
+              </div>
+            `
+          : html`<div class="quick-access-empty">This Device does not currently have any commands.</div>`}
+      </div>
+    `;
+  }
+
+  private _renderDeviceCommandRow(item: BackupDeviceCommandItem) {
+    return html`
+      <div class="quick-access-sortable-item" data-kind="command" data-command-id=${item.commandId}>
+        <div class="quick-access-row quick-access-row--no-drag">
+          <div class="quick-access-main">
+            <div class="quick-access-label-row">
+              <div class="quick-access-label">${item.label}</div>
+              <div class="quick-access-chip">command</div>
+            </div>
+            <div class="quick-access-meta">
+              Command ID ${item.commandId}
+            </div>
+          </div>
+          <div class="quick-access-actions">
+            <button
+              class="icon-btn"
+              @click=${() => this._openDeviceCommandRenameDialog(item.commandId)}
+              aria-label="Rename command"
+            >
+              <ha-icon icon="mdi:pencil"></ha-icon>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderActivityQuickAccessSection(items: ReturnType<typeof activityQuickAccessItems>) {
+    if (this._editDetailId == null) return nothing;
+    const rows = items.map((item) => this._renderActivityQuickAccessRow(item));
+    return html`
+      <div class="quick-access-section">
+        <div class="quick-access-head">
+          <div class="quick-access-title">Macros and Favorites</div>
+          <div class="quick-access-sub">
+            ${this._haSortableReady
+              ? "Drag the handle to reorder Macros and Favorites inside the Activity."
+              : "Drag support is unavailable here, so use the move buttons to reorder Macros and Favorites."}
+          </div>
+        </div>
+        ${items.length
+          ? html`
+              <div class="quick-access-list">
+                ${this._haSortableReady
+                  ? html`
+                      <ha-sortable
+                        class="quick-access-sortable"
+                        draggable-selector=".quick-access-sortable-item"
+                        handle-selector=".quick-access-drag"
+                        animation="180"
+                        @item-moved=${this._handleActivityQuickAccessSort}
                       >
-                        <ha-icon icon="mdi:chevron-up"></ha-icon>
-                      </button>
-                      <button
-                        class="icon-btn"
-                        ?disabled=${index === items.length - 1}
-                        @click=${() => this._moveActivityQuickAccessItem(index, 1)}
-                        aria-label="Move down"
-                      >
-                        <ha-icon icon="mdi:chevron-down"></ha-icon>
-                      </button>
-                    </div>
-                    <div class="quick-access-actions">
-                      <button
-                        class="icon-btn"
-                        @click=${() => this._openQuickAccessRenameDialog(item.kind, item.buttonId)}
-                        aria-label=${`Rename ${item.kind}`}
-                      >
-                        <ha-icon icon="mdi:pencil"></ha-icon>
-                      </button>
-                    </div>
-                  </div>
-                `)}
+                        <div class="quick-access-sortable-container">
+                          ${rows}
+                        </div>
+                      </ha-sortable>
+                    `
+                  : rows}
               </div>
             `
           : html`<div class="quick-access-empty">This Activity does not currently contain any Macros or Favorites.</div>`}
+      </div>
+    `;
+  }
+
+  private _renderActivityQuickAccessRow(item: ReturnType<typeof activityQuickAccessItems>[number]) {
+    return html`
+      <div class="quick-access-sortable-item" data-kind=${item.kind} data-button-id=${item.buttonId}>
+        <div class="quick-access-row">
+          <div class="quick-access-drag" aria-hidden="true">
+            <ha-icon icon="mdi:drag-vertical-variant"></ha-icon>
+          </div>
+          <div class="quick-access-main">
+            <div class="quick-access-label-row">
+              <div class="quick-access-label">${item.label}</div>
+              <div class="quick-access-chip">${item.kind}</div>
+            </div>
+            <div class="quick-access-meta">
+              ${item.kind === "macro"
+                ? `Quick-access slot ${item.buttonId}`
+                : `Favorite command ${item.commandId || "?"} on device ${item.deviceId || "?"} · slot ${item.buttonId}`}
+            </div>
+          </div>
+          <div class="quick-access-actions">
+            ${this._haSortableReady ? nothing : html`
+              <button
+                class="icon-btn"
+                @click=${() => this._moveQuickAccessByIdentity(item.kind, item.buttonId, -1)}
+                aria-label="Move up"
+              >
+                <ha-icon icon="mdi:chevron-up"></ha-icon>
+              </button>
+              <button
+                class="icon-btn"
+                @click=${() => this._moveQuickAccessByIdentity(item.kind, item.buttonId, 1)}
+                aria-label="Move down"
+              >
+                <ha-icon icon="mdi:chevron-down"></ha-icon>
+              </button>
+            `}
+            <button
+              class="icon-btn"
+              @click=${() => this._openQuickAccessRenameDialog(item.kind, item.buttonId)}
+              aria-label=${`Rename ${item.kind}`}
+            >
+              <ha-icon icon="mdi:pencil"></ha-icon>
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -1384,7 +1695,9 @@ class SofabatonBackupTab extends LitElement {
     if (target.kind === "detail") {
       return target.entityKind === "activity" ? "Rename Activity" : "Rename Device";
     }
-    return target.kind === "macro" ? "Rename Macro" : "Rename Favorite";
+    if (target.kind === "macro") return "Rename Macro";
+    if (target.kind === "favorite") return "Rename Favorite";
+    return "Rename Command";
   }
 
   private _handleEditRenameDialogInput = (event: Event) => {
@@ -1406,6 +1719,18 @@ class SofabatonBackupTab extends LitElement {
     this._editRenameDialogError = "";
     this._editRenameDialogOpen = true;
   };
+
+  private _openDeviceCommandRenameDialog(commandId: number) {
+    if (this._editDetailId == null) return;
+    const deviceId = Number(this._editDetailId);
+    this._editRenameDialogTarget = { kind: "command", deviceId, commandId: Number(commandId) };
+    const item = deviceCommandItems(this._editBundle, deviceId).find(
+      (entry) => entry.commandId === Number(commandId),
+    );
+    this._editRenameDialogDraft = item?.label || "";
+    this._editRenameDialogError = "";
+    this._editRenameDialogOpen = true;
+  }
 
   private _openQuickAccessRenameDialog(kind: BackupQuickAccessKind, buttonId: number) {
     if (this._editDetailId == null) return;
@@ -1511,6 +1836,11 @@ class SofabatonBackupTab extends LitElement {
       this._closeEditRenameDialog();
       return;
     }
+    if (target.kind === "command") {
+      this._editBundle = renameBundleDeviceCommand(this._editBundle, target.deviceId, target.commandId, next);
+      this._closeEditRenameDialog();
+      return;
+    }
     this._editBundle = renameBundleActivityFavorite(this._editBundle, target.activityId, target.buttonId, next);
     this._closeEditRenameDialog();
   };
@@ -1530,6 +1860,67 @@ class SofabatonBackupTab extends LitElement {
     );
   }
 
+  private _moveQuickAccessByIdentity(kind: BackupQuickAccessKind, buttonId: number, delta: -1 | 1) {
+    if (!this._editBundle || this._editDetailId == null) return;
+    const items = activityQuickAccessItems(this._editBundle, this._editDetailId);
+    const index = items.findIndex((item) => item.kind === kind && item.buttonId === Number(buttonId));
+    if (index === -1) return;
+    this._moveActivityQuickAccessItem(index, delta);
+  }
+
+  private _handleEditActivityOrderSort = (event: Event) => {
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    this._reorderEditTopLevel(event, "activity");
+  };
+
+  private _handleEditDeviceOrderSort = (event: Event) => {
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    this._reorderEditTopLevel(event, "device");
+  };
+
+  private _reorderEditTopLevel(event: Event, kind: BackupEditTargetKind) {
+    if (!this._editBundle) return;
+    const sortableEvent = event as CustomEvent<{ oldIndex?: number; newIndex?: number }>;
+    const oldIndex = Number(sortableEvent.detail?.oldIndex);
+    const newIndex = Number(sortableEvent.detail?.newIndex);
+    if (!Number.isFinite(oldIndex) || !Number.isFinite(newIndex) || oldIndex === newIndex) return;
+    const current = kind === "activity"
+      ? bundleActivityOptions(this._editBundle)
+      : bundleDeviceOptions(this._editBundle);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex >= current.length || newIndex >= current.length) return;
+    const nextOptions = [...current];
+    const [moved] = nextOptions.splice(oldIndex, 1);
+    if (!moved) return;
+    nextOptions.splice(newIndex, 0, moved);
+    const orderedIds = nextOptions.map((option) => option.id);
+    this._editBundle = kind === "activity"
+      ? reorderBundleActivities(this._editBundle, orderedIds)
+      : reorderBundleDevices(this._editBundle, orderedIds);
+  }
+
+  private _handleActivityQuickAccessSort = (event: Event) => {
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (!this._editBundle || this._editDetailId == null) return;
+    const sortableEvent = event as CustomEvent<{ oldIndex?: number; newIndex?: number }>;
+    const oldIndex = Number(sortableEvent.detail?.oldIndex);
+    const newIndex = Number(sortableEvent.detail?.newIndex);
+    if (!Number.isFinite(oldIndex) || !Number.isFinite(newIndex) || oldIndex === newIndex) return;
+    const items = activityQuickAccessItems(this._editBundle, this._editDetailId);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex >= items.length || newIndex >= items.length) return;
+    const nextItems = [...items];
+    const [moved] = nextItems.splice(oldIndex, 1);
+    if (!moved) return;
+    nextItems.splice(newIndex, 0, moved);
+    this._editBundle = reorderBundleActivityQuickAccess(
+      this._editBundle,
+      this._editDetailId,
+      nextItems.map((item) => ({ kind: item.kind, buttonId: item.buttonId })),
+    );
+  };
+
   private _downloadEditedBundle = () => {
     if (!this._editBundle) return;
     const json = JSON.stringify(this._editBundle, null, 2);
@@ -1543,6 +1934,9 @@ class SofabatonBackupTab extends LitElement {
     anchor.dispatchEvent(new MouseEvent("click"));
     document.body.removeChild(anchor);
     setTimeout(() => URL.revokeObjectURL(url), 0);
+    // The download is the explicit "I'm done" signal — end the edit session
+    // so a stale draft doesn't reappear next time the user opens the tab.
+    this._clearEditSession();
   };
 
   private _renderRestoreSectionContent() {
@@ -1856,6 +2250,7 @@ class SofabatonBackupTab extends LitElement {
     if (!this.hub) return;
     this._backupError = null;
     this._backupProgress = null;
+    this._discardEditSession();
     const deviceIds = this._backupScope === "whole_hub" ? null : this._backupDeviceIds;
     this.setHubCommandBusy?.(true, "Starting backup…");
     try {
@@ -1883,6 +2278,7 @@ class SofabatonBackupTab extends LitElement {
     this._restoreError = null;
     this._restoreSuccess = null;
     this._restoreProgress = null;
+    this._discardEditSession();
     this.setHubCommandBusy?.(true, "Starting restore…");
     try {
       const start = await this.api().startBackupRestore(this.hub.entry_id, filtered, this._restoreMode);

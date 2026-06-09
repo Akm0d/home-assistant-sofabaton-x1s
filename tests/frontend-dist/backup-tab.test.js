@@ -2069,6 +2069,7 @@ var SofabatonBackupTab = class extends i3 {
     this._editRenameDialogDraft = "";
     this._editRenameDialogError = "";
     this._editRenameDialogTarget = null;
+    this._haSortableReady = Boolean(customElements.get("ha-sortable"));
     this._backupScopeRadioName = `sofabaton-backup-scope-${Math.random().toString(36).slice(2)}`;
     this._handleEditRenameDialogInput = (event) => {
       const input = event.currentTarget;
@@ -2145,6 +2146,24 @@ var SofabatonBackupTab = class extends i3 {
       }
       this._editBundle = renameBundleActivityFavorite(this._editBundle, target.activityId, target.buttonId, next);
       this._closeEditRenameDialog();
+    };
+    this._handleActivityQuickAccessSort = (event) => {
+      if (!this._editBundle || this._editDetailId == null) return;
+      const sortableEvent = event;
+      const oldIndex = Number(sortableEvent.oldIndex);
+      const newIndex = Number(sortableEvent.newIndex);
+      if (!Number.isFinite(oldIndex) || !Number.isFinite(newIndex) || oldIndex === newIndex) return;
+      const items = activityQuickAccessItems(this._editBundle, this._editDetailId);
+      if (oldIndex < 0 || newIndex < 0 || oldIndex >= items.length || newIndex >= items.length) return;
+      const nextItems = [...items];
+      const [moved] = nextItems.splice(oldIndex, 1);
+      if (!moved) return;
+      nextItems.splice(newIndex, 0, moved);
+      this._editBundle = reorderBundleActivityQuickAccess(
+        this._editBundle,
+        this._editDetailId,
+        nextItems.map((item) => ({ kind: item.kind, buttonId: item.buttonId }))
+      );
     };
     this._downloadEditedBundle = () => {
       if (!this._editBundle) return;
@@ -2228,7 +2247,8 @@ var SofabatonBackupTab = class extends i3 {
       _editRenameDialogOpen: { state: true },
       _editRenameDialogDraft: { state: true },
       _editRenameDialogError: { state: true },
-      _editRenameDialogTarget: { state: true }
+      _editRenameDialogTarget: { state: true },
+      _haSortableReady: { state: true }
     };
   }
   static {
@@ -2729,15 +2749,25 @@ var SofabatonBackupTab = class extends i3 {
       display: flex;
       flex-direction: column;
     }
+    .quick-access-sortable {
+      display: block;
+    }
+    .quick-access-sortable-item {
+      display: block;
+      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .quick-access-sortable-item:first-child {
+      border-top: none;
+    }
     .quick-access-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       gap: 10px;
       align-items: center;
       padding: 12px 14px;
-      border-top: 1px solid color-mix(in srgb, var(--divider-color) 72%, transparent);
     }
-    .quick-access-row:first-child { border-top: none; }
     .quick-access-main {
       min-width: 0;
       display: flex;
@@ -2783,10 +2813,15 @@ var SofabatonBackupTab = class extends i3 {
       gap: 8px;
       flex: 0 0 auto;
     }
-    .quick-access-move {
+    .quick-access-drag {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      justify-content: center;
+      cursor: grab;
+      touch-action: none;
+    }
+    .quick-access-drag:active {
+      cursor: grabbing;
     }
     .quick-access-empty {
       border: 1px dashed color-mix(in srgb, var(--divider-color) 88%, transparent);
@@ -3007,7 +3042,7 @@ var SofabatonBackupTab = class extends i3 {
         border-top: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
       }
       .quick-access-row {
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: auto minmax(0, 1fr) auto;
       }
       .quick-access-actions {
         justify-content: flex-end;
@@ -3050,6 +3085,14 @@ var SofabatonBackupTab = class extends i3 {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._teardownProgressSubscription();
+  }
+  connectedCallback() {
+    super.connectedCallback();
+    if (!this._haSortableReady) {
+      void customElements.whenDefined("ha-sortable").then(() => {
+        this._haSortableReady = true;
+      });
+    }
   }
   updated(changed) {
     if (changed.has("hub")) {
@@ -3305,56 +3348,75 @@ var SofabatonBackupTab = class extends i3 {
   }
   _renderActivityQuickAccessSection(items) {
     if (this._editDetailId == null) return A;
+    const rows = items.map((item) => this._renderActivityQuickAccessRow(item));
     return T`
       <div class="quick-access-section">
         <div class="quick-access-head">
           <div class="quick-access-title">Macros and Favorites</div>
-          <div class="quick-access-sub">Rename entries or move them up and down inside the Activity.</div>
+          <div class="quick-access-sub">
+            ${this._haSortableReady ? "Drag the handle to reorder Macros and Favorites inside the Activity." : "Drag support is unavailable here, so use the move buttons to reorder Macros and Favorites."}
+          </div>
         </div>
         ${items.length ? T`
               <div class="quick-access-list">
-                ${items.map((item, index) => T`
-                  <div class="quick-access-row">
-                    <div class="quick-access-main">
-                      <div class="quick-access-label-row">
-                        <div class="quick-access-label">${item.label}</div>
-                        <div class="quick-access-chip">${item.kind}</div>
-                      </div>
-                      <div class="quick-access-meta">
-                        ${item.kind === "macro" ? `Quick-access slot ${item.buttonId}` : `Favorite command ${item.commandId || "?"} on device ${item.deviceId || "?"} \xB7 slot ${item.buttonId}`}
-                      </div>
-                    </div>
-                    <div class="quick-access-move">
-                      <button
-                        class="icon-btn"
-                        ?disabled=${index === 0}
-                        @click=${() => this._moveActivityQuickAccessItem(index, -1)}
-                        aria-label="Move up"
+                ${this._haSortableReady ? T`
+                      <ha-sortable
+                        class="quick-access-sortable"
+                        draggable-selector=".quick-access-sortable-item"
+                        handle-selector=".quick-access-drag"
+                        animation="180"
+                        @end=${this._handleActivityQuickAccessSort}
                       >
-                        <ha-icon icon="mdi:chevron-up"></ha-icon>
-                      </button>
-                      <button
-                        class="icon-btn"
-                        ?disabled=${index === items.length - 1}
-                        @click=${() => this._moveActivityQuickAccessItem(index, 1)}
-                        aria-label="Move down"
-                      >
-                        <ha-icon icon="mdi:chevron-down"></ha-icon>
-                      </button>
-                    </div>
-                    <div class="quick-access-actions">
-                      <button
-                        class="icon-btn"
-                        @click=${() => this._openQuickAccessRenameDialog(item.kind, item.buttonId)}
-                        aria-label=${`Rename ${item.kind}`}
-                      >
-                        <ha-icon icon="mdi:pencil"></ha-icon>
-                      </button>
-                    </div>
-                  </div>
-                `)}
+                        ${rows}
+                      </ha-sortable>
+                    ` : rows}
               </div>
             ` : T`<div class="quick-access-empty">This Activity does not currently contain any Macros or Favorites.</div>`}
+      </div>
+    `;
+  }
+  _renderActivityQuickAccessRow(item) {
+    return T`
+      <div class="quick-access-sortable-item" draggable="true" data-kind=${item.kind} data-button-id=${item.buttonId}>
+        <div class="quick-access-row">
+          <div class="quick-access-drag" aria-hidden="true">
+            <ha-icon icon="mdi:drag-vertical-variant"></ha-icon>
+          </div>
+          <div class="quick-access-main">
+            <div class="quick-access-label-row">
+              <div class="quick-access-label">${item.label}</div>
+              <div class="quick-access-chip">${item.kind}</div>
+            </div>
+            <div class="quick-access-meta">
+              ${item.kind === "macro" ? `Quick-access slot ${item.buttonId}` : `Favorite command ${item.commandId || "?"} on device ${item.deviceId || "?"} \xB7 slot ${item.buttonId}`}
+            </div>
+          </div>
+          <div class="quick-access-actions">
+            ${this._haSortableReady ? A : T`
+              <button
+                class="icon-btn"
+                @click=${() => this._moveQuickAccessByIdentity(item.kind, item.buttonId, -1)}
+                aria-label="Move up"
+              >
+                <ha-icon icon="mdi:chevron-up"></ha-icon>
+              </button>
+              <button
+                class="icon-btn"
+                @click=${() => this._moveQuickAccessByIdentity(item.kind, item.buttonId, 1)}
+                aria-label="Move down"
+              >
+                <ha-icon icon="mdi:chevron-down"></ha-icon>
+              </button>
+            `}
+            <button
+              class="icon-btn"
+              @click=${() => this._openQuickAccessRenameDialog(item.kind, item.buttonId)}
+              aria-label=${`Rename ${item.kind}`}
+            >
+              <ha-icon icon="mdi:pencil"></ha-icon>
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -3480,6 +3542,13 @@ var SofabatonBackupTab = class extends i3 {
       this._editDetailId,
       nextItems.map((item) => ({ kind: item.kind, buttonId: item.buttonId }))
     );
+  }
+  _moveQuickAccessByIdentity(kind, buttonId, delta) {
+    if (!this._editBundle || this._editDetailId == null) return;
+    const items = activityQuickAccessItems(this._editBundle, this._editDetailId);
+    const index = items.findIndex((item) => item.kind === kind && item.buttonId === Number(buttonId));
+    if (index === -1) return;
+    this._moveActivityQuickAccessItem(index, delta);
   }
   _renderRestoreSectionContent() {
     const isRunning = this._isProgressRunning(this._restoreProgress);

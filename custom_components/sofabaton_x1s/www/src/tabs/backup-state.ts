@@ -30,6 +30,12 @@ export interface BackupActivityQuickAccessItem {
   commandId?: number;
 }
 
+export interface BackupDeviceCommandItem {
+  deviceId: number;
+  commandId: number;
+  label: string;
+}
+
 const HUB_VERSION_RANK: Record<string, number> = {
   X1: 1,
   X1S: 2,
@@ -53,6 +59,29 @@ export function backupDeviceOptions(hub: CacheHubState | null): BackupSelectionO
   }));
 }
 
+// The hub stores a per-record `sort` byte (body offset 6 of every
+// device / activity record) that drives the display order shown in
+// the official app and on the physical remote. The wire export already
+// carries it via `bundle.{devices,activities}[].device.sort`, so all we
+// need to do here is honor it. Id is a stable tiebreaker for records
+// where the user never reordered (and so all sort values are 0).
+interface OrderedBlock {
+  device_id?: number | null;
+  sort?: number | null;
+}
+
+function compareByHubOrder(
+  left: { id: number; sortKey: number },
+  right: { id: number; sortKey: number },
+): number {
+  return (left.sortKey - right.sortKey) || (left.id - right.id);
+}
+
+function readSortKey(block: OrderedBlock | undefined | null): number {
+  const value = Number(block?.sort);
+  return Number.isFinite(value) ? value : 0;
+}
+
 export function bundleActivityOptions(bundle: BackupBundlePayload | null): BackupSelectionOption[] {
   return [...(bundle?.activities ?? [])]
     .map((activity) => {
@@ -60,12 +89,14 @@ export function bundleActivityOptions(bundle: BackupBundlePayload | null): Backu
       const id = Number(block.device_id || 0);
       return {
         id,
+        sortKey: readSortKey(block),
         label: String(block.name || `Activity ${id}`),
         meta: `${(activity?.referenced_source_device_ids ?? []).length} linked devices`,
       };
     })
     .filter((option) => option.id > 0)
-    .sort((left, right) => left.label.localeCompare(right.label));
+    .sort(compareByHubOrder)
+    .map(({ id, label, meta }) => ({ id, label, meta }));
 }
 
 export function bundleDeviceOptions(bundle: BackupBundlePayload | null): BackupSelectionOption[] {
@@ -75,12 +106,14 @@ export function bundleDeviceOptions(bundle: BackupBundlePayload | null): BackupS
       const id = Number(block.device_id || 0);
       return {
         id,
+        sortKey: readSortKey(block),
         label: String(block.name || `Device ${id}`),
         meta: String(block.device_class || "").trim() || undefined,
       };
     })
     .filter((option) => option.id > 0)
-    .sort((left, right) => left.label.localeCompare(right.label));
+    .sort(compareByHubOrder)
+    .map(({ id, label, meta }) => ({ id, label, meta }));
 }
 
 export function forcedRestoreDeviceIds(bundle: BackupBundlePayload | null, selectedActivityIds: number[]): number[] {
@@ -336,6 +369,88 @@ export function renameBundleActivityFavorite(
       Number(entry?.button_id || 0) === normalizedButtonId ? { ...entry, name: trimmed } : entry
     )),
   }));
+}
+
+/**
+ * List the commands on a given Device, sorted by command id. Returns the
+ * shape consumed by the Device detail view's command list.
+ */
+export function deviceCommandItems(
+  bundle: BackupBundlePayload | null,
+  deviceId: number,
+): BackupDeviceCommandItem[] {
+  if (!bundle) return [];
+  const normalizedDeviceId = Number(deviceId);
+  const device = (bundle.devices ?? []).find(
+    (entry) => Number(entry?.device?.device_id || 0) === normalizedDeviceId,
+  );
+  if (!device) return [];
+  const items: BackupDeviceCommandItem[] = [];
+  for (const row of device.commands ?? []) {
+    const commandId = Number(row?.command_id || 0);
+    if (commandId <= 0) continue;
+    const label = String(row?.name || "").trim() || `Command ${commandId}`;
+    items.push({ deviceId: normalizedDeviceId, commandId, label });
+  }
+  return items.sort((left, right) => left.commandId - right.commandId);
+}
+
+/**
+ * Rename a single command on a Device. Mirrors `renameBundleActivityFavorite`
+ * but without the activity-side mirroring, since a Device command lives in
+ * exactly one place.
+ */
+export function renameBundleDeviceCommand(
+  bundle: BackupBundlePayload,
+  deviceId: number,
+  commandId: number,
+  name: string,
+): BackupBundlePayload {
+  return updateDeviceCommandLabel(bundle, Number(deviceId), Number(commandId), String(name ?? "").trim());
+}
+
+/**
+ * Rewrite the per-record `sort` byte on every Activity in `orderedActivityIds`
+ * to match the new ordering (1-based, ascending). Activities not in the list
+ * keep their existing sort value, so we never silently renumber records the
+ * user didn't move. The frontend reads byte 6 via the `sort` field; the
+ * restore flow writes byte 6 back to the wire, so this is end-to-end.
+ */
+export function reorderBundleActivities(
+  bundle: BackupBundlePayload,
+  orderedActivityIds: number[],
+): BackupBundlePayload {
+  return reorderBundleTopLevelEntries(bundle, "activities", orderedActivityIds);
+}
+
+/** Same as `reorderBundleActivities`, but for the top-level Devices list. */
+export function reorderBundleDevices(
+  bundle: BackupBundlePayload,
+  orderedDeviceIds: number[],
+): BackupBundlePayload {
+  return reorderBundleTopLevelEntries(bundle, "devices", orderedDeviceIds);
+}
+
+function reorderBundleTopLevelEntries(
+  bundle: BackupBundlePayload,
+  key: "activities" | "devices",
+  orderedIds: number[],
+): BackupBundlePayload {
+  const entries = (bundle[key] ?? []) as Array<{ device?: { device_id?: number | null; sort?: number | null } | null }>;
+  const newSortById = new Map<number, number>();
+  orderedIds.forEach((id, index) => {
+    const normalized = Number(id);
+    if (normalized > 0) newSortById.set(normalized, index + 1);
+  });
+  const nextEntries = entries.map((entry) => {
+    const block = entry?.device;
+    if (!block) return entry;
+    const entryId = Number(block.device_id || 0);
+    const nextSort = newSortById.get(entryId);
+    if (nextSort === undefined) return entry;
+    return { ...entry, device: { ...block, sort: nextSort } };
+  });
+  return { ...bundle, [key]: nextEntries } as BackupBundlePayload;
 }
 
 export function reorderBundleActivityQuickAccess(

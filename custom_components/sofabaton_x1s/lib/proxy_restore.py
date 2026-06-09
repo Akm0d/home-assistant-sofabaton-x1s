@@ -1052,9 +1052,25 @@ class RestoreMixin:
                     if not isinstance(entry, dict):
                         continue
                     raw_command_id = entry.get("command_id")
+                    raw_command_lo = int(raw_command_id or 0) & 0xFF
+                    if raw_command_lo == 0xFF:
+                        # Delay/wait row: emit the firmware sentinel
+                        # record. All head bytes are 0xFF (dev_id,
+                        # cmd_id, the 6-byte fid, and the duration
+                        # byte); the last byte holds the pause length.
+                        step_records.extend(
+                            build_macro_step_record(
+                                device_id=0xFF,
+                                command_id=0xFF,
+                                fid=0xFFFFFFFFFFFF,
+                                duration=0xFF,
+                                delay=int(entry.get("delay", 0xFF)) & 0xFF,
+                            )
+                        )
+                        continue
                     mapped_command_id = _map_command_id(raw_command_id)
                     if mapped_command_id is None:
-                        if int(raw_command_id or 0) & 0xFF != 0:
+                        if raw_command_lo != 0:
                             self._log.warning(
                                 "[RESTORE] macro key=0x%02X skipped step "
                                 "with unmapped command_id=%r",
@@ -1250,9 +1266,25 @@ class RestoreMixin:
                     if not isinstance(entry, dict):
                         continue
                     raw_command_id = entry.get("command_id")
+                    raw_command_lo = int(raw_command_id or 0) & 0xFF
+                    if raw_command_lo == 0xFF:
+                        # Delay/wait row: emit the firmware sentinel
+                        # record. All head bytes are 0xFF (dev_id,
+                        # cmd_id, the 6-byte fid, and the duration
+                        # byte); the last byte holds the pause length.
+                        step_records.extend(
+                            build_macro_step_record(
+                                device_id=0xFF,
+                                command_id=0xFF,
+                                fid=0xFFFFFFFFFFFF,
+                                duration=0xFF,
+                                delay=int(entry.get("delay", 0xFF)) & 0xFF,
+                            )
+                        )
+                        continue
                     mapped_command_id = _map_command_id(raw_command_id)
                     if mapped_command_id is None:
-                        if int(raw_command_id or 0) & 0xFF != 0:
+                        if raw_command_lo != 0:
                             self._log.warning(
                                 "[RESTORE] macro key=0x%02X skipped step "
                                 "with unmapped command_id=%r",
@@ -1780,6 +1812,23 @@ class RestoreMixin:
                     if not isinstance(entry, dict):
                         continue
                     raw_device = entry.get("device_id")
+                    raw_device_lo = int(raw_device or 0) & 0xFF
+                    raw_step_command_lo = int(entry.get("command_id", 0)) & 0xFF
+                    if raw_device_lo == 0xFF or raw_step_command_lo == 0xFF:
+                        # Delay/wait row inside an activity power macro:
+                        # emit the firmware sentinel record verbatim.
+                        # All head bytes are 0xFF (incl. fid and the
+                        # duration byte); the last byte holds the pause.
+                        step_records.extend(
+                            build_macro_step_record(
+                                device_id=0xFF,
+                                command_id=0xFF,
+                                fid=0xFFFFFFFFFFFF,
+                                duration=0xFF,
+                                delay=int(entry.get("delay", 0xFF)) & 0xFF,
+                            )
+                        )
+                        continue
                     new_step_device = _map_device_id(raw_device)
                     if new_step_device is None:
                         # E6 silent-drop fix (activity-side): a step
@@ -1931,7 +1980,8 @@ class RestoreMixin:
                 value = int(raw) & 0xFF
             except (TypeError, ValueError):
                 return
-            if value != 0:
+            # 0x00 = unset; 0xFF = delay/wait sentinel (no real device).
+            if value != 0 and value != 0xFF:
                 referenced.add(value)
 
         for row in payload.get("button_bindings") or []:
