@@ -162,6 +162,8 @@ interface WifiDeviceSummary extends SyncState {
 }
 
 class SofabatonWifiCommandsTab extends LitElement {
+  private static readonly _DEVICE_SESSION_KEY_PREFIX = "sofabaton_x1s:wifi_commands:selected_device:";
+
   static properties = {
     hass: { attribute: false },
     hub: { attribute: false },
@@ -630,6 +632,7 @@ class SofabatonWifiCommandsTab extends LitElement {
   private _deletingDeviceKey: string | null = null;
   private _creatingDevice = false;
   private _maxWifiDevices = 5;
+  private _deviceSessionRestoreTried = false;
   connectedCallback() {
     super.connectedCallback();
     void this._ensureLoadedForCurrentHub();
@@ -641,7 +644,9 @@ class SofabatonWifiCommandsTab extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>) {
+    if (changed.has("hub")) this._deviceSessionRestoreTried = false;
     if (changed.has("hub") || changed.has("hass")) void this._ensureLoadedForCurrentHub();
+    if (changed.has("hub") || changed.has("_selectedDeviceKey")) this._persistSelectedDeviceSession();
     this._scheduleSyncPoll();
     this.renderRoot
       .querySelectorAll<HTMLElement>("ha-selector[data-hide-action-type='1']")
@@ -1315,11 +1320,70 @@ class SofabatonWifiCommandsTab extends LitElement {
     const entityId = String(this._entityId() || "").trim();
     const deviceListLoaded = await this._loadWifiDevices(true);
     if (!shouldFinalizeWifiHubLoad({ entryId, entityId, deviceListLoaded })) return;
+    if (!this._deviceSessionRestoreTried && !this._selectedDeviceKey) {
+      this._deviceSessionRestoreTried = true;
+      this._restoreSelectedDeviceSession();
+    }
     if (this._selectedDeviceKey) {
       await this._loadCommandConfigFromBackend(true);
       await this._loadCommandSyncProgress(true);
     }
     this._configLoadedForEntryId = entryId;
+  }
+
+  private _deviceSessionStorageKey(): string | null {
+    const entryId = String(this.hub?.entry_id || "").trim();
+    if (!entryId) return null;
+    return `${SofabatonWifiCommandsTab._DEVICE_SESSION_KEY_PREFIX}${entryId}`;
+  }
+
+  private _persistSelectedDeviceSession() {
+    const key = this._deviceSessionStorageKey();
+    if (!key) return;
+    // Avoid wiping the persisted selection on the first render after a hub
+    // change — at that point the in-memory key is still null because the
+    // async restore hasn't run yet. Without this guard, a reload while in
+    // the detail view always drops the user back on the device list.
+    if (!this._deviceSessionRestoreTried && !this._selectedDeviceKey) return;
+    try {
+      const deviceKey = String(this._selectedDeviceKey || "").trim();
+      if (!deviceKey) {
+        window.localStorage?.removeItem(key);
+        return;
+      }
+      window.localStorage?.setItem(key, JSON.stringify({
+        deviceKey,
+        savedAt: Date.now(),
+      }));
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }
+
+  private _restoreSelectedDeviceSession() {
+    const key = this._deviceSessionStorageKey();
+    if (!key) return;
+    try {
+      const raw = window.localStorage?.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { deviceKey?: unknown };
+      const deviceKey = String(parsed?.deviceKey || "").trim();
+      if (!deviceKey) {
+        window.localStorage?.removeItem(key);
+        return;
+      }
+      if (!this._wifiDevices.some((device) => String(device.device_key || "").trim() === deviceKey)) {
+        window.localStorage?.removeItem(key);
+        return;
+      }
+      this._selectedDeviceKey = deviceKey;
+    } catch {
+      try {
+        window.localStorage?.removeItem(key);
+      } catch {
+        // Ignore cleanup failures.
+      }
+    }
   }
 
   private _entityId() {

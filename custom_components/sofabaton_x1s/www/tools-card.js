@@ -8046,7 +8046,7 @@ var HARD_BUTTON_ID_MAP = {
 var X2_ONLY_HARD_BUTTON_IDS = /* @__PURE__ */ new Set([ID.C, ID.B, ID.A, ID.EXIT, ID.DVR, ID.PLAY, ID.GUIDE]);
 var DEFAULT_ACTION = { action: "perform-action" };
 var WIFI_SECTION_ROW = [{ id: "wifi", label: TOOLS_CARD_STRINGS.wifiCommands.sectionLabel, icon: "mdi:wifi", passive: true }];
-var SofabatonWifiCommandsTab = class extends i4 {
+var _SofabatonWifiCommandsTab = class _SofabatonWifiCommandsTab extends i4 {
   constructor() {
     super(...arguments);
     this.hubCommandBusy = false;
@@ -8082,6 +8082,7 @@ var SofabatonWifiCommandsTab = class extends i4 {
     this._deletingDeviceKey = null;
     this._creatingDevice = false;
     this._maxWifiDevices = 5;
+    this._deviceSessionRestoreTried = false;
     this._saveActiveCommandModal = async () => {
       if (!Number.isInteger(this._activeCommandSlot)) return;
       const idx = Number(this._activeCommandSlot);
@@ -8230,7 +8231,9 @@ var SofabatonWifiCommandsTab = class extends i4 {
     this._clearPollTimer();
   }
   updated(changed) {
+    if (changed.has("hub")) this._deviceSessionRestoreTried = false;
     if (changed.has("hub") || changed.has("hass")) void this._ensureLoadedForCurrentHub();
+    if (changed.has("hub") || changed.has("_selectedDeviceKey")) this._persistSelectedDeviceSession();
     this._scheduleSyncPoll();
     this.renderRoot.querySelectorAll("ha-selector[data-hide-action-type='1']").forEach((element) => this._hideUiActionTypeSelector(element));
   }
@@ -8903,11 +8906,61 @@ var SofabatonWifiCommandsTab = class extends i4 {
     const entityId = String(this._entityId() || "").trim();
     const deviceListLoaded = await this._loadWifiDevices(true);
     if (!shouldFinalizeWifiHubLoad({ entryId, entityId, deviceListLoaded })) return;
+    if (!this._deviceSessionRestoreTried && !this._selectedDeviceKey) {
+      this._deviceSessionRestoreTried = true;
+      this._restoreSelectedDeviceSession();
+    }
     if (this._selectedDeviceKey) {
       await this._loadCommandConfigFromBackend(true);
       await this._loadCommandSyncProgress(true);
     }
     this._configLoadedForEntryId = entryId;
+  }
+  _deviceSessionStorageKey() {
+    const entryId = String(this.hub?.entry_id || "").trim();
+    if (!entryId) return null;
+    return `${_SofabatonWifiCommandsTab._DEVICE_SESSION_KEY_PREFIX}${entryId}`;
+  }
+  _persistSelectedDeviceSession() {
+    const key = this._deviceSessionStorageKey();
+    if (!key) return;
+    if (!this._deviceSessionRestoreTried && !this._selectedDeviceKey) return;
+    try {
+      const deviceKey = String(this._selectedDeviceKey || "").trim();
+      if (!deviceKey) {
+        window.localStorage?.removeItem(key);
+        return;
+      }
+      window.localStorage?.setItem(key, JSON.stringify({
+        deviceKey,
+        savedAt: Date.now()
+      }));
+    } catch {
+    }
+  }
+  _restoreSelectedDeviceSession() {
+    const key = this._deviceSessionStorageKey();
+    if (!key) return;
+    try {
+      const raw = window.localStorage?.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const deviceKey = String(parsed?.deviceKey || "").trim();
+      if (!deviceKey) {
+        window.localStorage?.removeItem(key);
+        return;
+      }
+      if (!this._wifiDevices.some((device) => String(device.device_key || "").trim() === deviceKey)) {
+        window.localStorage?.removeItem(key);
+        return;
+      }
+      this._selectedDeviceKey = deviceKey;
+    } catch {
+      try {
+        window.localStorage?.removeItem(key);
+      } catch {
+      }
+    }
   }
   _entityId() {
     return entityForHub(this.hass, this.hub);
@@ -9874,7 +9927,8 @@ var SofabatonWifiCommandsTab = class extends i4 {
     });
   }
 };
-SofabatonWifiCommandsTab.properties = {
+_SofabatonWifiCommandsTab._DEVICE_SESSION_KEY_PREFIX = "sofabaton_x1s:wifi_commands:selected_device:";
+_SofabatonWifiCommandsTab.properties = {
   hass: { attribute: false },
   hub: { attribute: false },
   setHubCommandBusy: { attribute: false },
@@ -9914,7 +9968,7 @@ SofabatonWifiCommandsTab.properties = {
   _creatingDevice: { state: true },
   _maxWifiDevices: { state: true }
 };
-SofabatonWifiCommandsTab.styles = [secondaryTabStyles, operationProgressStyles, i`
+_SofabatonWifiCommandsTab.styles = [secondaryTabStyles, operationProgressStyles, i`
     :host {
       display: flex;
       flex: 1;
@@ -10300,6 +10354,7 @@ SofabatonWifiCommandsTab.styles = [secondaryTabStyles, operationProgressStyles, 
       .sync-row { align-items: flex-start; flex-direction: column; }
     }
   `];
+var SofabatonWifiCommandsTab = _SofabatonWifiCommandsTab;
 if (!customElements.get("sofabaton-wifi-commands-tab")) {
   customElements.define("sofabaton-wifi-commands-tab", SofabatonWifiCommandsTab);
 }
