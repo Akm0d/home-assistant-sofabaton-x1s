@@ -985,7 +985,7 @@ class X1Proxy(IrBlobMixin, CatalogMixin, AckWaitersMixin, ActivityOpsMixin, Cach
         model = _HUB_MODEL_BY_CODE.get(payload[7] & 0xFF)
         trailer_flag = payload[13] & 0xFF
         trailer_zero = payload[14] & 0xFF
-        if model is None or trailer_zero != 0x00 or trailer_flag not in (0x00, 0x01):
+        if model is None or trailer_zero not in (0x00, 0x03) or trailer_flag not in (0x00, 0x01):
             return None
 
         batch = payload[8:12].hex()
