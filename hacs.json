@@ -1,7 +1,7 @@
 {
-  "name": "Sofabaton X1S",
+  "name": "Sofabaton X1S Akmod",
   "content_in_root": false,
-  "filename": "sofabaton_x1s.zip",
   "render_readme": true,
-  "zip_release": true
+  "zip_release": false,
+  "hide_default_branch": false
 }
